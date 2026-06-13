@@ -1,0 +1,210 @@
+syntax = "proto3";
+
+package identity.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+// ─── Auth Service ─────────────────────────────────────────────────────────────
+
+service AuthService {
+  rpc Register(RegisterRequest) returns (RegisterResponse) {
+    option (google.api.http) = {
+      post: "/v1/auth/register"
+      body: "*"
+    };
+  }
+
+  rpc Login(LoginRequest) returns (LoginResponse) {
+    option (google.api.http) = {
+      post: "/v1/auth/login"
+      body: "*"
+    };
+  }
+
+  rpc OAuthExchange(OAuthExchangeRequest) returns (OAuthExchangeResponse) {
+    option (google.api.http) = {
+      post: "/v1/auth/oauth/{provider}"
+      body: "*"
+    };
+  }
+
+  rpc Refresh(RefreshRequest) returns (RefreshResponse) {
+    option (google.api.http) = {
+      post: "/v1/auth/refresh"
+      body: "*"
+    };
+  }
+
+  rpc Logout(LogoutRequest) returns (LogoutResponse) {
+    option (google.api.http) = {
+      post: "/v1/auth/logout"
+      body: "*"
+    };
+  }
+
+  rpc GetMe(GetMeRequest) returns (GetMeResponse) {
+    option (google.api.http) = {
+      get: "/v1/users/me"
+    };
+  }
+}
+
+// ─── Profile Service ──────────────────────────────────────────────────────────
+
+service ProfileService {
+  rpc ListProfiles(ListProfilesRequest) returns (ListProfilesResponse) {
+    option (google.api.http) = {
+      get: "/v1/profiles"
+    };
+  }
+
+  rpc CreateProfile(CreateProfileRequest) returns (CreateProfileResponse) {
+    option (google.api.http) = {
+      post: "/v1/profiles"
+      body: "*"
+    };
+  }
+
+  rpc ActivateProfile(ActivateProfileRequest) returns (ActivateProfileResponse) {
+    option (google.api.http) = {
+      post: "/v1/profiles/{id}:activate"
+      body: "*"
+    };
+  }
+}
+
+// ─── Internal Auth Service (gateway → identity, no HTTP annotations) ──────────
+
+service InternalAuthService {
+  rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse);
+  rpc GetProfile(GetProfileRequest) returns (GetProfileResponse);
+}
+
+// ─── Auth Messages ────────────────────────────────────────────────────────────
+
+message RegisterRequest {
+  string email = 1;
+  string password = 2;
+  string locale = 3;
+}
+
+message RegisterResponse {
+  string user_id = 1;
+  string message = 2;
+}
+
+message LoginRequest {
+  string email = 1;
+  string password = 2;
+}
+
+message LoginResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+  string user_id = 3;
+  string profile_id = 4;
+  int64 expires_in = 5;
+}
+
+message OAuthExchangeRequest {
+  string provider = 1;
+  string code = 2;
+  string state = 3;
+  string redirect_uri = 4;
+}
+
+message OAuthExchangeResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+  string user_id = 3;
+  string profile_id = 4;
+  int64 expires_in = 5;
+  bool is_new_user = 6;
+}
+
+message RefreshRequest {
+  string refresh_token = 1;
+}
+
+message RefreshResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+  int64 expires_in = 3;
+}
+
+message LogoutRequest {
+  string refresh_token = 1;
+}
+
+message LogoutResponse {
+  string message = 1;
+}
+
+message GetMeRequest {}
+
+message GetMeResponse {
+  string user_id = 1;
+  string email = 2;
+  bool email_verified = 3;
+  string locale = 4;
+  repeated ProfileInfo profiles = 5;
+}
+
+// ─── Profile Messages ─────────────────────────────────────────────────────────
+
+message ProfileInfo {
+  string id = 1;
+  string name = 2;
+  bool is_default = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+message ListProfilesRequest {}
+
+message ListProfilesResponse {
+  repeated ProfileInfo profiles = 1;
+}
+
+message CreateProfileRequest {
+  string name = 1;
+}
+
+message CreateProfileResponse {
+  ProfileInfo profile = 1;
+}
+
+message ActivateProfileRequest {
+  string id = 1;
+}
+
+message ActivateProfileResponse {
+  string access_token = 1;
+  string profile_id = 2;
+  int64 expires_in = 3;
+}
+
+// ─── Internal Messages ────────────────────────────────────────────────────────
+
+message ValidateTokenRequest {
+  string token = 1;
+}
+
+message ValidateTokenResponse {
+  string user_id = 1;
+  string profile_id = 2;
+  string locale = 3;
+  repeated string roles = 4;
+}
+
+message GetProfileRequest {
+  string profile_id = 1;
+}
+
+message GetProfileResponse {
+  string id = 1;
+  string user_id = 2;
+  string name = 3;
+  bool is_default = 4;
+}
