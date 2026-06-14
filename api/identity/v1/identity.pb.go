@@ -754,6 +754,296 @@ func (x *GetMeResponse) GetProfiles() []*ProfileInfo {
 	return nil
 }
 
+type VerifyEmailRequest struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Token string `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
+}
+
+func (x *VerifyEmailRequest) Reset() {
+	*x = VerifyEmailRequest{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_identity_v1_identity_proto_msgTypes[12]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *VerifyEmailRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VerifyEmailRequest) ProtoMessage() {}
+
+func (x *VerifyEmailRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_identity_v1_identity_proto_msgTypes[12]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VerifyEmailRequest.ProtoReflect.Descriptor instead.
+func (*VerifyEmailRequest) Descriptor() ([]byte, []int) {
+	return file_identity_v1_identity_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *VerifyEmailRequest) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+type VerifyEmailResponse struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Message string `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
+}
+
+func (x *VerifyEmailResponse) Reset() {
+	*x = VerifyEmailResponse{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_identity_v1_identity_proto_msgTypes[13]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *VerifyEmailResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VerifyEmailResponse) ProtoMessage() {}
+
+func (x *VerifyEmailResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_identity_v1_identity_proto_msgTypes[13]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VerifyEmailResponse.ProtoReflect.Descriptor instead.
+func (*VerifyEmailResponse) Descriptor() ([]byte, []int) {
+	return file_identity_v1_identity_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *VerifyEmailResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+type RequestPasswordResetRequest struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Email string `protobuf:"bytes,1,opt,name=email,proto3" json:"email,omitempty"`
+}
+
+func (x *RequestPasswordResetRequest) Reset() {
+	*x = RequestPasswordResetRequest{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_identity_v1_identity_proto_msgTypes[14]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *RequestPasswordResetRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RequestPasswordResetRequest) ProtoMessage() {}
+
+func (x *RequestPasswordResetRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_identity_v1_identity_proto_msgTypes[14]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RequestPasswordResetRequest.ProtoReflect.Descriptor instead.
+func (*RequestPasswordResetRequest) Descriptor() ([]byte, []int) {
+	return file_identity_v1_identity_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *RequestPasswordResetRequest) GetEmail() string {
+	if x != nil {
+		return x.Email
+	}
+	return ""
+}
+
+type RequestPasswordResetResponse struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Message string `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
+}
+
+func (x *RequestPasswordResetResponse) Reset() {
+	*x = RequestPasswordResetResponse{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_identity_v1_identity_proto_msgTypes[15]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *RequestPasswordResetResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RequestPasswordResetResponse) ProtoMessage() {}
+
+func (x *RequestPasswordResetResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_identity_v1_identity_proto_msgTypes[15]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RequestPasswordResetResponse.ProtoReflect.Descriptor instead.
+func (*RequestPasswordResetResponse) Descriptor() ([]byte, []int) {
+	return file_identity_v1_identity_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *RequestPasswordResetResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+type ResetPasswordRequest struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Token       string `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
+	NewPassword string `protobuf:"bytes,2,opt,name=new_password,json=newPassword,proto3" json:"new_password,omitempty"`
+}
+
+func (x *ResetPasswordRequest) Reset() {
+	*x = ResetPasswordRequest{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_identity_v1_identity_proto_msgTypes[16]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *ResetPasswordRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResetPasswordRequest) ProtoMessage() {}
+
+func (x *ResetPasswordRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_identity_v1_identity_proto_msgTypes[16]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResetPasswordRequest.ProtoReflect.Descriptor instead.
+func (*ResetPasswordRequest) Descriptor() ([]byte, []int) {
+	return file_identity_v1_identity_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *ResetPasswordRequest) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+func (x *ResetPasswordRequest) GetNewPassword() string {
+	if x != nil {
+		return x.NewPassword
+	}
+	return ""
+}
+
+type ResetPasswordResponse struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Message string `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
+}
+
+func (x *ResetPasswordResponse) Reset() {
+	*x = ResetPasswordResponse{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_identity_v1_identity_proto_msgTypes[17]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *ResetPasswordResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResetPasswordResponse) ProtoMessage() {}
+
+func (x *ResetPasswordResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_identity_v1_identity_proto_msgTypes[17]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResetPasswordResponse.ProtoReflect.Descriptor instead.
+func (*ResetPasswordResponse) Descriptor() ([]byte, []int) {
+	return file_identity_v1_identity_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *ResetPasswordResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
 type ProfileInfo struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -768,7 +1058,7 @@ type ProfileInfo struct {
 func (x *ProfileInfo) Reset() {
 	*x = ProfileInfo{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_identity_v1_identity_proto_msgTypes[12]
+		mi := &file_identity_v1_identity_proto_msgTypes[18]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -781,7 +1071,7 @@ func (x *ProfileInfo) String() string {
 func (*ProfileInfo) ProtoMessage() {}
 
 func (x *ProfileInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_identity_v1_identity_proto_msgTypes[12]
+	mi := &file_identity_v1_identity_proto_msgTypes[18]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -794,7 +1084,7 @@ func (x *ProfileInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProfileInfo.ProtoReflect.Descriptor instead.
 func (*ProfileInfo) Descriptor() ([]byte, []int) {
-	return file_identity_v1_identity_proto_rawDescGZIP(), []int{12}
+	return file_identity_v1_identity_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ProfileInfo) GetId() string {
@@ -834,7 +1124,7 @@ type ListProfilesRequest struct {
 func (x *ListProfilesRequest) Reset() {
 	*x = ListProfilesRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_identity_v1_identity_proto_msgTypes[13]
+		mi := &file_identity_v1_identity_proto_msgTypes[19]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -847,7 +1137,7 @@ func (x *ListProfilesRequest) String() string {
 func (*ListProfilesRequest) ProtoMessage() {}
 
 func (x *ListProfilesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_identity_v1_identity_proto_msgTypes[13]
+	mi := &file_identity_v1_identity_proto_msgTypes[19]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -860,7 +1150,7 @@ func (x *ListProfilesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListProfilesRequest.ProtoReflect.Descriptor instead.
 func (*ListProfilesRequest) Descriptor() ([]byte, []int) {
-	return file_identity_v1_identity_proto_rawDescGZIP(), []int{13}
+	return file_identity_v1_identity_proto_rawDescGZIP(), []int{19}
 }
 
 type ListProfilesResponse struct {
@@ -874,7 +1164,7 @@ type ListProfilesResponse struct {
 func (x *ListProfilesResponse) Reset() {
 	*x = ListProfilesResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_identity_v1_identity_proto_msgTypes[14]
+		mi := &file_identity_v1_identity_proto_msgTypes[20]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -887,7 +1177,7 @@ func (x *ListProfilesResponse) String() string {
 func (*ListProfilesResponse) ProtoMessage() {}
 
 func (x *ListProfilesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_identity_v1_identity_proto_msgTypes[14]
+	mi := &file_identity_v1_identity_proto_msgTypes[20]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -900,7 +1190,7 @@ func (x *ListProfilesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListProfilesResponse.ProtoReflect.Descriptor instead.
 func (*ListProfilesResponse) Descriptor() ([]byte, []int) {
-	return file_identity_v1_identity_proto_rawDescGZIP(), []int{14}
+	return file_identity_v1_identity_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ListProfilesResponse) GetProfiles() []*ProfileInfo {
@@ -921,7 +1211,7 @@ type CreateProfileRequest struct {
 func (x *CreateProfileRequest) Reset() {
 	*x = CreateProfileRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_identity_v1_identity_proto_msgTypes[15]
+		mi := &file_identity_v1_identity_proto_msgTypes[21]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -934,7 +1224,7 @@ func (x *CreateProfileRequest) String() string {
 func (*CreateProfileRequest) ProtoMessage() {}
 
 func (x *CreateProfileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_identity_v1_identity_proto_msgTypes[15]
+	mi := &file_identity_v1_identity_proto_msgTypes[21]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -947,7 +1237,7 @@ func (x *CreateProfileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateProfileRequest.ProtoReflect.Descriptor instead.
 func (*CreateProfileRequest) Descriptor() ([]byte, []int) {
-	return file_identity_v1_identity_proto_rawDescGZIP(), []int{15}
+	return file_identity_v1_identity_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *CreateProfileRequest) GetName() string {
@@ -968,7 +1258,7 @@ type CreateProfileResponse struct {
 func (x *CreateProfileResponse) Reset() {
 	*x = CreateProfileResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_identity_v1_identity_proto_msgTypes[16]
+		mi := &file_identity_v1_identity_proto_msgTypes[22]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -981,7 +1271,7 @@ func (x *CreateProfileResponse) String() string {
 func (*CreateProfileResponse) ProtoMessage() {}
 
 func (x *CreateProfileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_identity_v1_identity_proto_msgTypes[16]
+	mi := &file_identity_v1_identity_proto_msgTypes[22]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -994,7 +1284,7 @@ func (x *CreateProfileResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateProfileResponse.ProtoReflect.Descriptor instead.
 func (*CreateProfileResponse) Descriptor() ([]byte, []int) {
-	return file_identity_v1_identity_proto_rawDescGZIP(), []int{16}
+	return file_identity_v1_identity_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *CreateProfileResponse) GetProfile() *ProfileInfo {
@@ -1015,7 +1305,7 @@ type ActivateProfileRequest struct {
 func (x *ActivateProfileRequest) Reset() {
 	*x = ActivateProfileRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_identity_v1_identity_proto_msgTypes[17]
+		mi := &file_identity_v1_identity_proto_msgTypes[23]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1028,7 +1318,7 @@ func (x *ActivateProfileRequest) String() string {
 func (*ActivateProfileRequest) ProtoMessage() {}
 
 func (x *ActivateProfileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_identity_v1_identity_proto_msgTypes[17]
+	mi := &file_identity_v1_identity_proto_msgTypes[23]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1041,7 +1331,7 @@ func (x *ActivateProfileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ActivateProfileRequest.ProtoReflect.Descriptor instead.
 func (*ActivateProfileRequest) Descriptor() ([]byte, []int) {
-	return file_identity_v1_identity_proto_rawDescGZIP(), []int{17}
+	return file_identity_v1_identity_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *ActivateProfileRequest) GetId() string {
@@ -1064,7 +1354,7 @@ type ActivateProfileResponse struct {
 func (x *ActivateProfileResponse) Reset() {
 	*x = ActivateProfileResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_identity_v1_identity_proto_msgTypes[18]
+		mi := &file_identity_v1_identity_proto_msgTypes[24]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1077,7 +1367,7 @@ func (x *ActivateProfileResponse) String() string {
 func (*ActivateProfileResponse) ProtoMessage() {}
 
 func (x *ActivateProfileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_identity_v1_identity_proto_msgTypes[18]
+	mi := &file_identity_v1_identity_proto_msgTypes[24]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1090,7 +1380,7 @@ func (x *ActivateProfileResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ActivateProfileResponse.ProtoReflect.Descriptor instead.
 func (*ActivateProfileResponse) Descriptor() ([]byte, []int) {
-	return file_identity_v1_identity_proto_rawDescGZIP(), []int{18}
+	return file_identity_v1_identity_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *ActivateProfileResponse) GetAccessToken() string {
@@ -1125,7 +1415,7 @@ type ValidateTokenRequest struct {
 func (x *ValidateTokenRequest) Reset() {
 	*x = ValidateTokenRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_identity_v1_identity_proto_msgTypes[19]
+		mi := &file_identity_v1_identity_proto_msgTypes[25]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1138,7 +1428,7 @@ func (x *ValidateTokenRequest) String() string {
 func (*ValidateTokenRequest) ProtoMessage() {}
 
 func (x *ValidateTokenRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_identity_v1_identity_proto_msgTypes[19]
+	mi := &file_identity_v1_identity_proto_msgTypes[25]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1151,7 +1441,7 @@ func (x *ValidateTokenRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidateTokenRequest.ProtoReflect.Descriptor instead.
 func (*ValidateTokenRequest) Descriptor() ([]byte, []int) {
-	return file_identity_v1_identity_proto_rawDescGZIP(), []int{19}
+	return file_identity_v1_identity_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *ValidateTokenRequest) GetToken() string {
@@ -1175,7 +1465,7 @@ type ValidateTokenResponse struct {
 func (x *ValidateTokenResponse) Reset() {
 	*x = ValidateTokenResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_identity_v1_identity_proto_msgTypes[20]
+		mi := &file_identity_v1_identity_proto_msgTypes[26]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1188,7 +1478,7 @@ func (x *ValidateTokenResponse) String() string {
 func (*ValidateTokenResponse) ProtoMessage() {}
 
 func (x *ValidateTokenResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_identity_v1_identity_proto_msgTypes[20]
+	mi := &file_identity_v1_identity_proto_msgTypes[26]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1201,7 +1491,7 @@ func (x *ValidateTokenResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidateTokenResponse.ProtoReflect.Descriptor instead.
 func (*ValidateTokenResponse) Descriptor() ([]byte, []int) {
-	return file_identity_v1_identity_proto_rawDescGZIP(), []int{20}
+	return file_identity_v1_identity_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ValidateTokenResponse) GetUserId() string {
@@ -1243,7 +1533,7 @@ type GetProfileRequest struct {
 func (x *GetProfileRequest) Reset() {
 	*x = GetProfileRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_identity_v1_identity_proto_msgTypes[21]
+		mi := &file_identity_v1_identity_proto_msgTypes[27]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1256,7 +1546,7 @@ func (x *GetProfileRequest) String() string {
 func (*GetProfileRequest) ProtoMessage() {}
 
 func (x *GetProfileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_identity_v1_identity_proto_msgTypes[21]
+	mi := &file_identity_v1_identity_proto_msgTypes[27]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1269,7 +1559,7 @@ func (x *GetProfileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetProfileRequest.ProtoReflect.Descriptor instead.
 func (*GetProfileRequest) Descriptor() ([]byte, []int) {
-	return file_identity_v1_identity_proto_rawDescGZIP(), []int{21}
+	return file_identity_v1_identity_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *GetProfileRequest) GetProfileId() string {
@@ -1293,7 +1583,7 @@ type GetProfileResponse struct {
 func (x *GetProfileResponse) Reset() {
 	*x = GetProfileResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_identity_v1_identity_proto_msgTypes[22]
+		mi := &file_identity_v1_identity_proto_msgTypes[28]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1306,7 +1596,7 @@ func (x *GetProfileResponse) String() string {
 func (*GetProfileResponse) ProtoMessage() {}
 
 func (x *GetProfileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_identity_v1_identity_proto_msgTypes[22]
+	mi := &file_identity_v1_identity_proto_msgTypes[28]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1319,7 +1609,7 @@ func (x *GetProfileResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetProfileResponse.ProtoReflect.Descriptor instead.
 func (*GetProfileResponse) Descriptor() ([]byte, []int) {
-	return file_identity_v1_identity_proto_rawDescGZIP(), []int{22}
+	return file_identity_v1_identity_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *GetProfileResponse) GetId() string {
@@ -1439,7 +1729,28 @@ var file_identity_v1_identity_proto_rawDesc = []byte{
 	0x70, 0x72, 0x6f, 0x66, 0x69, 0x6c, 0x65, 0x73, 0x18, 0x05, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x18,
 	0x2e, 0x69, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x74, 0x79, 0x2e, 0x76, 0x31, 0x2e, 0x50, 0x72, 0x6f,
 	0x66, 0x69, 0x6c, 0x65, 0x49, 0x6e, 0x66, 0x6f, 0x52, 0x08, 0x70, 0x72, 0x6f, 0x66, 0x69, 0x6c,
-	0x65, 0x73, 0x22, 0x8b, 0x01, 0x0a, 0x0b, 0x50, 0x72, 0x6f, 0x66, 0x69, 0x6c, 0x65, 0x49, 0x6e,
+	0x65, 0x73, 0x22, 0x2a, 0x0a, 0x12, 0x56, 0x65, 0x72, 0x69, 0x66, 0x79, 0x45, 0x6d, 0x61, 0x69,
+	0x6c, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x14, 0x0a, 0x05, 0x74, 0x6f, 0x6b, 0x65,
+	0x6e, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x22, 0x2f,
+	0x0a, 0x13, 0x56, 0x65, 0x72, 0x69, 0x66, 0x79, 0x45, 0x6d, 0x61, 0x69, 0x6c, 0x52, 0x65, 0x73,
+	0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x18, 0x0a, 0x07, 0x6d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65,
+	0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x07, 0x6d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x22,
+	0x33, 0x0a, 0x1b, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x50, 0x61, 0x73, 0x73, 0x77, 0x6f,
+	0x72, 0x64, 0x52, 0x65, 0x73, 0x65, 0x74, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x14,
+	0x0a, 0x05, 0x65, 0x6d, 0x61, 0x69, 0x6c, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05, 0x65,
+	0x6d, 0x61, 0x69, 0x6c, 0x22, 0x38, 0x0a, 0x1c, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x50,
+	0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0x52, 0x65, 0x73, 0x65, 0x74, 0x52, 0x65, 0x73, 0x70,
+	0x6f, 0x6e, 0x73, 0x65, 0x12, 0x18, 0x0a, 0x07, 0x6d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x18,
+	0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x07, 0x6d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x22, 0x4f,
+	0x0a, 0x14, 0x52, 0x65, 0x73, 0x65, 0x74, 0x50, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0x52,
+	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x14, 0x0a, 0x05, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x18,
+	0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x12, 0x21, 0x0a, 0x0c,
+	0x6e, 0x65, 0x77, 0x5f, 0x70, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0x18, 0x02, 0x20, 0x01,
+	0x28, 0x09, 0x52, 0x0b, 0x6e, 0x65, 0x77, 0x50, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0x22,
+	0x31, 0x0a, 0x15, 0x52, 0x65, 0x73, 0x65, 0x74, 0x50, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64,
+	0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x18, 0x0a, 0x07, 0x6d, 0x65, 0x73, 0x73,
+	0x61, 0x67, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x07, 0x6d, 0x65, 0x73, 0x73, 0x61,
+	0x67, 0x65, 0x22, 0x8b, 0x01, 0x0a, 0x0b, 0x50, 0x72, 0x6f, 0x66, 0x69, 0x6c, 0x65, 0x49, 0x6e,
 	0x66, 0x6f, 0x12, 0x0e, 0x0a, 0x02, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x02,
 	0x69, 0x64, 0x12, 0x12, 0x0a, 0x04, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09,
 	0x52, 0x04, 0x6e, 0x61, 0x6d, 0x65, 0x12, 0x1d, 0x0a, 0x0a, 0x69, 0x73, 0x5f, 0x64, 0x65, 0x66,
@@ -1493,7 +1804,7 @@ var file_identity_v1_identity_proto_rawDesc = []byte{
 	0x65, 0x72, 0x49, 0x64, 0x12, 0x12, 0x0a, 0x04, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x03, 0x20, 0x01,
 	0x28, 0x09, 0x52, 0x04, 0x6e, 0x61, 0x6d, 0x65, 0x12, 0x1d, 0x0a, 0x0a, 0x69, 0x73, 0x5f, 0x64,
 	0x65, 0x66, 0x61, 0x75, 0x6c, 0x74, 0x18, 0x04, 0x20, 0x01, 0x28, 0x08, 0x52, 0x09, 0x69, 0x73,
-	0x44, 0x65, 0x66, 0x61, 0x75, 0x6c, 0x74, 0x32, 0xe5, 0x04, 0x0a, 0x0b, 0x41, 0x75, 0x74, 0x68,
+	0x44, 0x65, 0x66, 0x61, 0x75, 0x6c, 0x74, 0x32, 0xef, 0x07, 0x0a, 0x0b, 0x41, 0x75, 0x74, 0x68,
 	0x53, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x12, 0x65, 0x0a, 0x08, 0x52, 0x65, 0x67, 0x69, 0x73,
 	0x74, 0x65, 0x72, 0x12, 0x1c, 0x2e, 0x69, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x74, 0x79, 0x2e, 0x76,
 	0x31, 0x2e, 0x52, 0x65, 0x67, 0x69, 0x73, 0x74, 0x65, 0x72, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73,
@@ -1531,54 +1842,78 @@ var file_identity_v1_identity_proto_rawDesc = []byte{
 	0x2e, 0x47, 0x65, 0x74, 0x4d, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1a, 0x2e,
 	0x69, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x74, 0x79, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x74, 0x4d,
 	0x65, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x14, 0x82, 0xd3, 0xe4, 0x93, 0x02,
-	0x0e, 0x12, 0x0c, 0x2f, 0x76, 0x31, 0x2f, 0x75, 0x73, 0x65, 0x72, 0x73, 0x2f, 0x6d, 0x65, 0x32,
-	0xf2, 0x02, 0x0a, 0x0e, 0x50, 0x72, 0x6f, 0x66, 0x69, 0x6c, 0x65, 0x53, 0x65, 0x72, 0x76, 0x69,
-	0x63, 0x65, 0x12, 0x69, 0x0a, 0x0c, 0x4c, 0x69, 0x73, 0x74, 0x50, 0x72, 0x6f, 0x66, 0x69, 0x6c,
-	0x65, 0x73, 0x12, 0x20, 0x2e, 0x69, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x74, 0x79, 0x2e, 0x76, 0x31,
-	0x2e, 0x4c, 0x69, 0x73, 0x74, 0x50, 0x72, 0x6f, 0x66, 0x69, 0x6c, 0x65, 0x73, 0x52, 0x65, 0x71,
-	0x75, 0x65, 0x73, 0x74, 0x1a, 0x21, 0x2e, 0x69, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x74, 0x79, 0x2e,
-	0x76, 0x31, 0x2e, 0x4c, 0x69, 0x73, 0x74, 0x50, 0x72, 0x6f, 0x66, 0x69, 0x6c, 0x65, 0x73, 0x52,
-	0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x14, 0x82, 0xd3, 0xe4, 0x93, 0x02, 0x0e, 0x12,
-	0x0c, 0x2f, 0x76, 0x31, 0x2f, 0x70, 0x72, 0x6f, 0x66, 0x69, 0x6c, 0x65, 0x73, 0x12, 0x6f, 0x0a,
-	0x0d, 0x43, 0x72, 0x65, 0x61, 0x74, 0x65, 0x50, 0x72, 0x6f, 0x66, 0x69, 0x6c, 0x65, 0x12, 0x21,
-	0x2e, 0x69, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x74, 0x79, 0x2e, 0x76, 0x31, 0x2e, 0x43, 0x72, 0x65,
-	0x61, 0x74, 0x65, 0x50, 0x72, 0x6f, 0x66, 0x69, 0x6c, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73,
+	0x0e, 0x12, 0x0c, 0x2f, 0x76, 0x31, 0x2f, 0x75, 0x73, 0x65, 0x72, 0x73, 0x2f, 0x6d, 0x65, 0x12,
+	0x72, 0x0a, 0x0b, 0x56, 0x65, 0x72, 0x69, 0x66, 0x79, 0x45, 0x6d, 0x61, 0x69, 0x6c, 0x12, 0x1f,
+	0x2e, 0x69, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x74, 0x79, 0x2e, 0x76, 0x31, 0x2e, 0x56, 0x65, 0x72,
+	0x69, 0x66, 0x79, 0x45, 0x6d, 0x61, 0x69, 0x6c, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a,
+	0x20, 0x2e, 0x69, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x74, 0x79, 0x2e, 0x76, 0x31, 0x2e, 0x56, 0x65,
+	0x72, 0x69, 0x66, 0x79, 0x45, 0x6d, 0x61, 0x69, 0x6c, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73,
+	0x65, 0x22, 0x20, 0x82, 0xd3, 0xe4, 0x93, 0x02, 0x1a, 0x3a, 0x01, 0x2a, 0x22, 0x15, 0x2f, 0x76,
+	0x31, 0x2f, 0x61, 0x75, 0x74, 0x68, 0x2f, 0x76, 0x65, 0x72, 0x69, 0x66, 0x79, 0x2d, 0x65, 0x6d,
+	0x61, 0x69, 0x6c, 0x12, 0x97, 0x01, 0x0a, 0x14, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x50,
+	0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0x52, 0x65, 0x73, 0x65, 0x74, 0x12, 0x28, 0x2e, 0x69,
+	0x64, 0x65, 0x6e, 0x74, 0x69, 0x74, 0x79, 0x2e, 0x76, 0x31, 0x2e, 0x52, 0x65, 0x71, 0x75, 0x65,
+	0x73, 0x74, 0x50, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0x52, 0x65, 0x73, 0x65, 0x74, 0x52,
+	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x29, 0x2e, 0x69, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x74,
+	0x79, 0x2e, 0x76, 0x31, 0x2e, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x50, 0x61, 0x73, 0x73,
+	0x77, 0x6f, 0x72, 0x64, 0x52, 0x65, 0x73, 0x65, 0x74, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73,
+	0x65, 0x22, 0x2a, 0x82, 0xd3, 0xe4, 0x93, 0x02, 0x24, 0x3a, 0x01, 0x2a, 0x22, 0x1f, 0x2f, 0x76,
+	0x31, 0x2f, 0x61, 0x75, 0x74, 0x68, 0x2f, 0x70, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0x2d,
+	0x72, 0x65, 0x73, 0x65, 0x74, 0x2f, 0x72, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x7a, 0x0a,
+	0x0d, 0x52, 0x65, 0x73, 0x65, 0x74, 0x50, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0x12, 0x21,
+	0x2e, 0x69, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x74, 0x79, 0x2e, 0x76, 0x31, 0x2e, 0x52, 0x65, 0x73,
+	0x65, 0x74, 0x50, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73,
 	0x74, 0x1a, 0x22, 0x2e, 0x69, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x74, 0x79, 0x2e, 0x76, 0x31, 0x2e,
-	0x43, 0x72, 0x65, 0x61, 0x74, 0x65, 0x50, 0x72, 0x6f, 0x66, 0x69, 0x6c, 0x65, 0x52, 0x65, 0x73,
-	0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x17, 0x82, 0xd3, 0xe4, 0x93, 0x02, 0x11, 0x3a, 0x01, 0x2a,
-	0x22, 0x0c, 0x2f, 0x76, 0x31, 0x2f, 0x70, 0x72, 0x6f, 0x66, 0x69, 0x6c, 0x65, 0x73, 0x12, 0x83,
-	0x01, 0x0a, 0x0f, 0x41, 0x63, 0x74, 0x69, 0x76, 0x61, 0x74, 0x65, 0x50, 0x72, 0x6f, 0x66, 0x69,
-	0x6c, 0x65, 0x12, 0x23, 0x2e, 0x69, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x74, 0x79, 0x2e, 0x76, 0x31,
-	0x2e, 0x41, 0x63, 0x74, 0x69, 0x76, 0x61, 0x74, 0x65, 0x50, 0x72, 0x6f, 0x66, 0x69, 0x6c, 0x65,
-	0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x24, 0x2e, 0x69, 0x64, 0x65, 0x6e, 0x74, 0x69,
-	0x74, 0x79, 0x2e, 0x76, 0x31, 0x2e, 0x41, 0x63, 0x74, 0x69, 0x76, 0x61, 0x74, 0x65, 0x50, 0x72,
-	0x6f, 0x66, 0x69, 0x6c, 0x65, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x25, 0x82,
-	0xd3, 0xe4, 0x93, 0x02, 0x1f, 0x3a, 0x01, 0x2a, 0x22, 0x1a, 0x2f, 0x76, 0x31, 0x2f, 0x70, 0x72,
-	0x6f, 0x66, 0x69, 0x6c, 0x65, 0x73, 0x2f, 0x7b, 0x69, 0x64, 0x7d, 0x3a, 0x61, 0x63, 0x74, 0x69,
-	0x76, 0x61, 0x74, 0x65, 0x32, 0xbc, 0x01, 0x0a, 0x13, 0x49, 0x6e, 0x74, 0x65, 0x72, 0x6e, 0x61,
-	0x6c, 0x41, 0x75, 0x74, 0x68, 0x53, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x12, 0x56, 0x0a, 0x0d,
-	0x56, 0x61, 0x6c, 0x69, 0x64, 0x61, 0x74, 0x65, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x12, 0x21, 0x2e,
-	0x69, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x74, 0x79, 0x2e, 0x76, 0x31, 0x2e, 0x56, 0x61, 0x6c, 0x69,
-	0x64, 0x61, 0x74, 0x65, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74,
-	0x1a, 0x22, 0x2e, 0x69, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x74, 0x79, 0x2e, 0x76, 0x31, 0x2e, 0x56,
-	0x61, 0x6c, 0x69, 0x64, 0x61, 0x74, 0x65, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x52, 0x65, 0x73, 0x70,
-	0x6f, 0x6e, 0x73, 0x65, 0x12, 0x4d, 0x0a, 0x0a, 0x47, 0x65, 0x74, 0x50, 0x72, 0x6f, 0x66, 0x69,
-	0x6c, 0x65, 0x12, 0x1e, 0x2e, 0x69, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x74, 0x79, 0x2e, 0x76, 0x31,
-	0x2e, 0x47, 0x65, 0x74, 0x50, 0x72, 0x6f, 0x66, 0x69, 0x6c, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65,
-	0x73, 0x74, 0x1a, 0x1f, 0x2e, 0x69, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x74, 0x79, 0x2e, 0x76, 0x31,
-	0x2e, 0x47, 0x65, 0x74, 0x50, 0x72, 0x6f, 0x66, 0x69, 0x6c, 0x65, 0x52, 0x65, 0x73, 0x70, 0x6f,
-	0x6e, 0x73, 0x65, 0x42, 0xa6, 0x01, 0x0a, 0x0f, 0x63, 0x6f, 0x6d, 0x2e, 0x69, 0x64, 0x65, 0x6e,
-	0x74, 0x69, 0x74, 0x79, 0x2e, 0x76, 0x31, 0x42, 0x0d, 0x49, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x74,
-	0x79, 0x50, 0x72, 0x6f, 0x74, 0x6f, 0x50, 0x01, 0x5a, 0x37, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62,
-	0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x6d, 0x69, 0x6e, 0x64, 0x6d, 0x65, 0x73, 0x68, 0x2f, 0x6d, 0x69,
-	0x6e, 0x64, 0x6d, 0x65, 0x73, 0x68, 0x2f, 0x61, 0x70, 0x69, 0x2f, 0x69, 0x64, 0x65, 0x6e, 0x74,
-	0x69, 0x74, 0x79, 0x2f, 0x76, 0x31, 0x3b, 0x69, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x74, 0x79, 0x76,
-	0x31, 0xa2, 0x02, 0x03, 0x49, 0x58, 0x58, 0xaa, 0x02, 0x0b, 0x49, 0x64, 0x65, 0x6e, 0x74, 0x69,
-	0x74, 0x79, 0x2e, 0x56, 0x31, 0xca, 0x02, 0x0b, 0x49, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x74, 0x79,
-	0x5c, 0x56, 0x31, 0xe2, 0x02, 0x17, 0x49, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x74, 0x79, 0x5c, 0x56,
-	0x31, 0x5c, 0x47, 0x50, 0x42, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0xea, 0x02, 0x0c,
-	0x49, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x74, 0x79, 0x3a, 0x3a, 0x56, 0x31, 0x62, 0x06, 0x70, 0x72,
-	0x6f, 0x74, 0x6f, 0x33,
+	0x52, 0x65, 0x73, 0x65, 0x74, 0x50, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0x52, 0x65, 0x73,
+	0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x22, 0x82, 0xd3, 0xe4, 0x93, 0x02, 0x1c, 0x3a, 0x01, 0x2a,
+	0x22, 0x17, 0x2f, 0x76, 0x31, 0x2f, 0x61, 0x75, 0x74, 0x68, 0x2f, 0x70, 0x61, 0x73, 0x73, 0x77,
+	0x6f, 0x72, 0x64, 0x2d, 0x72, 0x65, 0x73, 0x65, 0x74, 0x32, 0xf2, 0x02, 0x0a, 0x0e, 0x50, 0x72,
+	0x6f, 0x66, 0x69, 0x6c, 0x65, 0x53, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x12, 0x69, 0x0a, 0x0c,
+	0x4c, 0x69, 0x73, 0x74, 0x50, 0x72, 0x6f, 0x66, 0x69, 0x6c, 0x65, 0x73, 0x12, 0x20, 0x2e, 0x69,
+	0x64, 0x65, 0x6e, 0x74, 0x69, 0x74, 0x79, 0x2e, 0x76, 0x31, 0x2e, 0x4c, 0x69, 0x73, 0x74, 0x50,
+	0x72, 0x6f, 0x66, 0x69, 0x6c, 0x65, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x21,
+	0x2e, 0x69, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x74, 0x79, 0x2e, 0x76, 0x31, 0x2e, 0x4c, 0x69, 0x73,
+	0x74, 0x50, 0x72, 0x6f, 0x66, 0x69, 0x6c, 0x65, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73,
+	0x65, 0x22, 0x14, 0x82, 0xd3, 0xe4, 0x93, 0x02, 0x0e, 0x12, 0x0c, 0x2f, 0x76, 0x31, 0x2f, 0x70,
+	0x72, 0x6f, 0x66, 0x69, 0x6c, 0x65, 0x73, 0x12, 0x6f, 0x0a, 0x0d, 0x43, 0x72, 0x65, 0x61, 0x74,
+	0x65, 0x50, 0x72, 0x6f, 0x66, 0x69, 0x6c, 0x65, 0x12, 0x21, 0x2e, 0x69, 0x64, 0x65, 0x6e, 0x74,
+	0x69, 0x74, 0x79, 0x2e, 0x76, 0x31, 0x2e, 0x43, 0x72, 0x65, 0x61, 0x74, 0x65, 0x50, 0x72, 0x6f,
+	0x66, 0x69, 0x6c, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x22, 0x2e, 0x69, 0x64,
+	0x65, 0x6e, 0x74, 0x69, 0x74, 0x79, 0x2e, 0x76, 0x31, 0x2e, 0x43, 0x72, 0x65, 0x61, 0x74, 0x65,
+	0x50, 0x72, 0x6f, 0x66, 0x69, 0x6c, 0x65, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22,
+	0x17, 0x82, 0xd3, 0xe4, 0x93, 0x02, 0x11, 0x3a, 0x01, 0x2a, 0x22, 0x0c, 0x2f, 0x76, 0x31, 0x2f,
+	0x70, 0x72, 0x6f, 0x66, 0x69, 0x6c, 0x65, 0x73, 0x12, 0x83, 0x01, 0x0a, 0x0f, 0x41, 0x63, 0x74,
+	0x69, 0x76, 0x61, 0x74, 0x65, 0x50, 0x72, 0x6f, 0x66, 0x69, 0x6c, 0x65, 0x12, 0x23, 0x2e, 0x69,
+	0x64, 0x65, 0x6e, 0x74, 0x69, 0x74, 0x79, 0x2e, 0x76, 0x31, 0x2e, 0x41, 0x63, 0x74, 0x69, 0x76,
+	0x61, 0x74, 0x65, 0x50, 0x72, 0x6f, 0x66, 0x69, 0x6c, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73,
+	0x74, 0x1a, 0x24, 0x2e, 0x69, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x74, 0x79, 0x2e, 0x76, 0x31, 0x2e,
+	0x41, 0x63, 0x74, 0x69, 0x76, 0x61, 0x74, 0x65, 0x50, 0x72, 0x6f, 0x66, 0x69, 0x6c, 0x65, 0x52,
+	0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x25, 0x82, 0xd3, 0xe4, 0x93, 0x02, 0x1f, 0x3a,
+	0x01, 0x2a, 0x22, 0x1a, 0x2f, 0x76, 0x31, 0x2f, 0x70, 0x72, 0x6f, 0x66, 0x69, 0x6c, 0x65, 0x73,
+	0x2f, 0x7b, 0x69, 0x64, 0x7d, 0x3a, 0x61, 0x63, 0x74, 0x69, 0x76, 0x61, 0x74, 0x65, 0x32, 0xbc,
+	0x01, 0x0a, 0x13, 0x49, 0x6e, 0x74, 0x65, 0x72, 0x6e, 0x61, 0x6c, 0x41, 0x75, 0x74, 0x68, 0x53,
+	0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x12, 0x56, 0x0a, 0x0d, 0x56, 0x61, 0x6c, 0x69, 0x64, 0x61,
+	0x74, 0x65, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x12, 0x21, 0x2e, 0x69, 0x64, 0x65, 0x6e, 0x74, 0x69,
+	0x74, 0x79, 0x2e, 0x76, 0x31, 0x2e, 0x56, 0x61, 0x6c, 0x69, 0x64, 0x61, 0x74, 0x65, 0x54, 0x6f,
+	0x6b, 0x65, 0x6e, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x22, 0x2e, 0x69, 0x64, 0x65,
+	0x6e, 0x74, 0x69, 0x74, 0x79, 0x2e, 0x76, 0x31, 0x2e, 0x56, 0x61, 0x6c, 0x69, 0x64, 0x61, 0x74,
+	0x65, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x4d,
+	0x0a, 0x0a, 0x47, 0x65, 0x74, 0x50, 0x72, 0x6f, 0x66, 0x69, 0x6c, 0x65, 0x12, 0x1e, 0x2e, 0x69,
+	0x64, 0x65, 0x6e, 0x74, 0x69, 0x74, 0x79, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x74, 0x50, 0x72,
+	0x6f, 0x66, 0x69, 0x6c, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1f, 0x2e, 0x69,
+	0x64, 0x65, 0x6e, 0x74, 0x69, 0x74, 0x79, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x74, 0x50, 0x72,
+	0x6f, 0x66, 0x69, 0x6c, 0x65, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x42, 0xa6, 0x01,
+	0x0a, 0x0f, 0x63, 0x6f, 0x6d, 0x2e, 0x69, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x74, 0x79, 0x2e, 0x76,
+	0x31, 0x42, 0x0d, 0x49, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x74, 0x79, 0x50, 0x72, 0x6f, 0x74, 0x6f,
+	0x50, 0x01, 0x5a, 0x37, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x6d,
+	0x69, 0x6e, 0x64, 0x6d, 0x65, 0x73, 0x68, 0x2f, 0x6d, 0x69, 0x6e, 0x64, 0x6d, 0x65, 0x73, 0x68,
+	0x2f, 0x61, 0x70, 0x69, 0x2f, 0x69, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x74, 0x79, 0x2f, 0x76, 0x31,
+	0x3b, 0x69, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x74, 0x79, 0x76, 0x31, 0xa2, 0x02, 0x03, 0x49, 0x58,
+	0x58, 0xaa, 0x02, 0x0b, 0x49, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x74, 0x79, 0x2e, 0x56, 0x31, 0xca,
+	0x02, 0x0b, 0x49, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x74, 0x79, 0x5c, 0x56, 0x31, 0xe2, 0x02, 0x17,
+	0x49, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x74, 0x79, 0x5c, 0x56, 0x31, 0x5c, 0x47, 0x50, 0x42, 0x4d,
+	0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0xea, 0x02, 0x0c, 0x49, 0x64, 0x65, 0x6e, 0x74, 0x69,
+	0x74, 0x79, 0x3a, 0x3a, 0x56, 0x31, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -1593,62 +1928,74 @@ func file_identity_v1_identity_proto_rawDescGZIP() []byte {
 	return file_identity_v1_identity_proto_rawDescData
 }
 
-var file_identity_v1_identity_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
+var file_identity_v1_identity_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
 var file_identity_v1_identity_proto_goTypes = []any{
-	(*RegisterRequest)(nil),         // 0: identity.v1.RegisterRequest
-	(*RegisterResponse)(nil),        // 1: identity.v1.RegisterResponse
-	(*LoginRequest)(nil),            // 2: identity.v1.LoginRequest
-	(*LoginResponse)(nil),           // 3: identity.v1.LoginResponse
-	(*OAuthExchangeRequest)(nil),    // 4: identity.v1.OAuthExchangeRequest
-	(*OAuthExchangeResponse)(nil),   // 5: identity.v1.OAuthExchangeResponse
-	(*RefreshRequest)(nil),          // 6: identity.v1.RefreshRequest
-	(*RefreshResponse)(nil),         // 7: identity.v1.RefreshResponse
-	(*LogoutRequest)(nil),           // 8: identity.v1.LogoutRequest
-	(*LogoutResponse)(nil),          // 9: identity.v1.LogoutResponse
-	(*GetMeRequest)(nil),            // 10: identity.v1.GetMeRequest
-	(*GetMeResponse)(nil),           // 11: identity.v1.GetMeResponse
-	(*ProfileInfo)(nil),             // 12: identity.v1.ProfileInfo
-	(*ListProfilesRequest)(nil),     // 13: identity.v1.ListProfilesRequest
-	(*ListProfilesResponse)(nil),    // 14: identity.v1.ListProfilesResponse
-	(*CreateProfileRequest)(nil),    // 15: identity.v1.CreateProfileRequest
-	(*CreateProfileResponse)(nil),   // 16: identity.v1.CreateProfileResponse
-	(*ActivateProfileRequest)(nil),  // 17: identity.v1.ActivateProfileRequest
-	(*ActivateProfileResponse)(nil), // 18: identity.v1.ActivateProfileResponse
-	(*ValidateTokenRequest)(nil),    // 19: identity.v1.ValidateTokenRequest
-	(*ValidateTokenResponse)(nil),   // 20: identity.v1.ValidateTokenResponse
-	(*GetProfileRequest)(nil),       // 21: identity.v1.GetProfileRequest
-	(*GetProfileResponse)(nil),      // 22: identity.v1.GetProfileResponse
-	(*timestamppb.Timestamp)(nil),   // 23: google.protobuf.Timestamp
+	(*RegisterRequest)(nil),              // 0: identity.v1.RegisterRequest
+	(*RegisterResponse)(nil),             // 1: identity.v1.RegisterResponse
+	(*LoginRequest)(nil),                 // 2: identity.v1.LoginRequest
+	(*LoginResponse)(nil),                // 3: identity.v1.LoginResponse
+	(*OAuthExchangeRequest)(nil),         // 4: identity.v1.OAuthExchangeRequest
+	(*OAuthExchangeResponse)(nil),        // 5: identity.v1.OAuthExchangeResponse
+	(*RefreshRequest)(nil),               // 6: identity.v1.RefreshRequest
+	(*RefreshResponse)(nil),              // 7: identity.v1.RefreshResponse
+	(*LogoutRequest)(nil),                // 8: identity.v1.LogoutRequest
+	(*LogoutResponse)(nil),               // 9: identity.v1.LogoutResponse
+	(*GetMeRequest)(nil),                 // 10: identity.v1.GetMeRequest
+	(*GetMeResponse)(nil),                // 11: identity.v1.GetMeResponse
+	(*VerifyEmailRequest)(nil),           // 12: identity.v1.VerifyEmailRequest
+	(*VerifyEmailResponse)(nil),          // 13: identity.v1.VerifyEmailResponse
+	(*RequestPasswordResetRequest)(nil),  // 14: identity.v1.RequestPasswordResetRequest
+	(*RequestPasswordResetResponse)(nil), // 15: identity.v1.RequestPasswordResetResponse
+	(*ResetPasswordRequest)(nil),         // 16: identity.v1.ResetPasswordRequest
+	(*ResetPasswordResponse)(nil),        // 17: identity.v1.ResetPasswordResponse
+	(*ProfileInfo)(nil),                  // 18: identity.v1.ProfileInfo
+	(*ListProfilesRequest)(nil),          // 19: identity.v1.ListProfilesRequest
+	(*ListProfilesResponse)(nil),         // 20: identity.v1.ListProfilesResponse
+	(*CreateProfileRequest)(nil),         // 21: identity.v1.CreateProfileRequest
+	(*CreateProfileResponse)(nil),        // 22: identity.v1.CreateProfileResponse
+	(*ActivateProfileRequest)(nil),       // 23: identity.v1.ActivateProfileRequest
+	(*ActivateProfileResponse)(nil),      // 24: identity.v1.ActivateProfileResponse
+	(*ValidateTokenRequest)(nil),         // 25: identity.v1.ValidateTokenRequest
+	(*ValidateTokenResponse)(nil),        // 26: identity.v1.ValidateTokenResponse
+	(*GetProfileRequest)(nil),            // 27: identity.v1.GetProfileRequest
+	(*GetProfileResponse)(nil),           // 28: identity.v1.GetProfileResponse
+	(*timestamppb.Timestamp)(nil),        // 29: google.protobuf.Timestamp
 }
 var file_identity_v1_identity_proto_depIdxs = []int32{
-	12, // 0: identity.v1.GetMeResponse.profiles:type_name -> identity.v1.ProfileInfo
-	23, // 1: identity.v1.ProfileInfo.created_at:type_name -> google.protobuf.Timestamp
-	12, // 2: identity.v1.ListProfilesResponse.profiles:type_name -> identity.v1.ProfileInfo
-	12, // 3: identity.v1.CreateProfileResponse.profile:type_name -> identity.v1.ProfileInfo
+	18, // 0: identity.v1.GetMeResponse.profiles:type_name -> identity.v1.ProfileInfo
+	29, // 1: identity.v1.ProfileInfo.created_at:type_name -> google.protobuf.Timestamp
+	18, // 2: identity.v1.ListProfilesResponse.profiles:type_name -> identity.v1.ProfileInfo
+	18, // 3: identity.v1.CreateProfileResponse.profile:type_name -> identity.v1.ProfileInfo
 	0,  // 4: identity.v1.AuthService.Register:input_type -> identity.v1.RegisterRequest
 	2,  // 5: identity.v1.AuthService.Login:input_type -> identity.v1.LoginRequest
 	4,  // 6: identity.v1.AuthService.OAuthExchange:input_type -> identity.v1.OAuthExchangeRequest
 	6,  // 7: identity.v1.AuthService.Refresh:input_type -> identity.v1.RefreshRequest
 	8,  // 8: identity.v1.AuthService.Logout:input_type -> identity.v1.LogoutRequest
 	10, // 9: identity.v1.AuthService.GetMe:input_type -> identity.v1.GetMeRequest
-	13, // 10: identity.v1.ProfileService.ListProfiles:input_type -> identity.v1.ListProfilesRequest
-	15, // 11: identity.v1.ProfileService.CreateProfile:input_type -> identity.v1.CreateProfileRequest
-	17, // 12: identity.v1.ProfileService.ActivateProfile:input_type -> identity.v1.ActivateProfileRequest
-	19, // 13: identity.v1.InternalAuthService.ValidateToken:input_type -> identity.v1.ValidateTokenRequest
-	21, // 14: identity.v1.InternalAuthService.GetProfile:input_type -> identity.v1.GetProfileRequest
-	1,  // 15: identity.v1.AuthService.Register:output_type -> identity.v1.RegisterResponse
-	3,  // 16: identity.v1.AuthService.Login:output_type -> identity.v1.LoginResponse
-	5,  // 17: identity.v1.AuthService.OAuthExchange:output_type -> identity.v1.OAuthExchangeResponse
-	7,  // 18: identity.v1.AuthService.Refresh:output_type -> identity.v1.RefreshResponse
-	9,  // 19: identity.v1.AuthService.Logout:output_type -> identity.v1.LogoutResponse
-	11, // 20: identity.v1.AuthService.GetMe:output_type -> identity.v1.GetMeResponse
-	14, // 21: identity.v1.ProfileService.ListProfiles:output_type -> identity.v1.ListProfilesResponse
-	16, // 22: identity.v1.ProfileService.CreateProfile:output_type -> identity.v1.CreateProfileResponse
-	18, // 23: identity.v1.ProfileService.ActivateProfile:output_type -> identity.v1.ActivateProfileResponse
-	20, // 24: identity.v1.InternalAuthService.ValidateToken:output_type -> identity.v1.ValidateTokenResponse
-	22, // 25: identity.v1.InternalAuthService.GetProfile:output_type -> identity.v1.GetProfileResponse
-	15, // [15:26] is the sub-list for method output_type
-	4,  // [4:15] is the sub-list for method input_type
+	12, // 10: identity.v1.AuthService.VerifyEmail:input_type -> identity.v1.VerifyEmailRequest
+	14, // 11: identity.v1.AuthService.RequestPasswordReset:input_type -> identity.v1.RequestPasswordResetRequest
+	16, // 12: identity.v1.AuthService.ResetPassword:input_type -> identity.v1.ResetPasswordRequest
+	19, // 13: identity.v1.ProfileService.ListProfiles:input_type -> identity.v1.ListProfilesRequest
+	21, // 14: identity.v1.ProfileService.CreateProfile:input_type -> identity.v1.CreateProfileRequest
+	23, // 15: identity.v1.ProfileService.ActivateProfile:input_type -> identity.v1.ActivateProfileRequest
+	25, // 16: identity.v1.InternalAuthService.ValidateToken:input_type -> identity.v1.ValidateTokenRequest
+	27, // 17: identity.v1.InternalAuthService.GetProfile:input_type -> identity.v1.GetProfileRequest
+	1,  // 18: identity.v1.AuthService.Register:output_type -> identity.v1.RegisterResponse
+	3,  // 19: identity.v1.AuthService.Login:output_type -> identity.v1.LoginResponse
+	5,  // 20: identity.v1.AuthService.OAuthExchange:output_type -> identity.v1.OAuthExchangeResponse
+	7,  // 21: identity.v1.AuthService.Refresh:output_type -> identity.v1.RefreshResponse
+	9,  // 22: identity.v1.AuthService.Logout:output_type -> identity.v1.LogoutResponse
+	11, // 23: identity.v1.AuthService.GetMe:output_type -> identity.v1.GetMeResponse
+	13, // 24: identity.v1.AuthService.VerifyEmail:output_type -> identity.v1.VerifyEmailResponse
+	15, // 25: identity.v1.AuthService.RequestPasswordReset:output_type -> identity.v1.RequestPasswordResetResponse
+	17, // 26: identity.v1.AuthService.ResetPassword:output_type -> identity.v1.ResetPasswordResponse
+	20, // 27: identity.v1.ProfileService.ListProfiles:output_type -> identity.v1.ListProfilesResponse
+	22, // 28: identity.v1.ProfileService.CreateProfile:output_type -> identity.v1.CreateProfileResponse
+	24, // 29: identity.v1.ProfileService.ActivateProfile:output_type -> identity.v1.ActivateProfileResponse
+	26, // 30: identity.v1.InternalAuthService.ValidateToken:output_type -> identity.v1.ValidateTokenResponse
+	28, // 31: identity.v1.InternalAuthService.GetProfile:output_type -> identity.v1.GetProfileResponse
+	18, // [18:32] is the sub-list for method output_type
+	4,  // [4:18] is the sub-list for method input_type
 	4,  // [4:4] is the sub-list for extension type_name
 	4,  // [4:4] is the sub-list for extension extendee
 	0,  // [0:4] is the sub-list for field type_name
@@ -1805,7 +2152,7 @@ func file_identity_v1_identity_proto_init() {
 			}
 		}
 		file_identity_v1_identity_proto_msgTypes[12].Exporter = func(v any, i int) any {
-			switch v := v.(*ProfileInfo); i {
+			switch v := v.(*VerifyEmailRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -1817,7 +2164,7 @@ func file_identity_v1_identity_proto_init() {
 			}
 		}
 		file_identity_v1_identity_proto_msgTypes[13].Exporter = func(v any, i int) any {
-			switch v := v.(*ListProfilesRequest); i {
+			switch v := v.(*VerifyEmailResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -1829,7 +2176,7 @@ func file_identity_v1_identity_proto_init() {
 			}
 		}
 		file_identity_v1_identity_proto_msgTypes[14].Exporter = func(v any, i int) any {
-			switch v := v.(*ListProfilesResponse); i {
+			switch v := v.(*RequestPasswordResetRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -1841,7 +2188,7 @@ func file_identity_v1_identity_proto_init() {
 			}
 		}
 		file_identity_v1_identity_proto_msgTypes[15].Exporter = func(v any, i int) any {
-			switch v := v.(*CreateProfileRequest); i {
+			switch v := v.(*RequestPasswordResetResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -1853,7 +2200,7 @@ func file_identity_v1_identity_proto_init() {
 			}
 		}
 		file_identity_v1_identity_proto_msgTypes[16].Exporter = func(v any, i int) any {
-			switch v := v.(*CreateProfileResponse); i {
+			switch v := v.(*ResetPasswordRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -1865,7 +2212,7 @@ func file_identity_v1_identity_proto_init() {
 			}
 		}
 		file_identity_v1_identity_proto_msgTypes[17].Exporter = func(v any, i int) any {
-			switch v := v.(*ActivateProfileRequest); i {
+			switch v := v.(*ResetPasswordResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -1877,7 +2224,7 @@ func file_identity_v1_identity_proto_init() {
 			}
 		}
 		file_identity_v1_identity_proto_msgTypes[18].Exporter = func(v any, i int) any {
-			switch v := v.(*ActivateProfileResponse); i {
+			switch v := v.(*ProfileInfo); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -1889,7 +2236,7 @@ func file_identity_v1_identity_proto_init() {
 			}
 		}
 		file_identity_v1_identity_proto_msgTypes[19].Exporter = func(v any, i int) any {
-			switch v := v.(*ValidateTokenRequest); i {
+			switch v := v.(*ListProfilesRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -1901,7 +2248,7 @@ func file_identity_v1_identity_proto_init() {
 			}
 		}
 		file_identity_v1_identity_proto_msgTypes[20].Exporter = func(v any, i int) any {
-			switch v := v.(*ValidateTokenResponse); i {
+			switch v := v.(*ListProfilesResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -1913,7 +2260,7 @@ func file_identity_v1_identity_proto_init() {
 			}
 		}
 		file_identity_v1_identity_proto_msgTypes[21].Exporter = func(v any, i int) any {
-			switch v := v.(*GetProfileRequest); i {
+			switch v := v.(*CreateProfileRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -1925,6 +2272,78 @@ func file_identity_v1_identity_proto_init() {
 			}
 		}
 		file_identity_v1_identity_proto_msgTypes[22].Exporter = func(v any, i int) any {
+			switch v := v.(*CreateProfileResponse); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_identity_v1_identity_proto_msgTypes[23].Exporter = func(v any, i int) any {
+			switch v := v.(*ActivateProfileRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_identity_v1_identity_proto_msgTypes[24].Exporter = func(v any, i int) any {
+			switch v := v.(*ActivateProfileResponse); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_identity_v1_identity_proto_msgTypes[25].Exporter = func(v any, i int) any {
+			switch v := v.(*ValidateTokenRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_identity_v1_identity_proto_msgTypes[26].Exporter = func(v any, i int) any {
+			switch v := v.(*ValidateTokenResponse); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_identity_v1_identity_proto_msgTypes[27].Exporter = func(v any, i int) any {
+			switch v := v.(*GetProfileRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_identity_v1_identity_proto_msgTypes[28].Exporter = func(v any, i int) any {
 			switch v := v.(*GetProfileResponse); i {
 			case 0:
 				return &v.state
@@ -1943,7 +2362,7 @@ func file_identity_v1_identity_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_identity_v1_identity_proto_rawDesc,
 			NumEnums:      0,
-			NumMessages:   23,
+			NumMessages:   29,
 			NumExtensions: 0,
 			NumServices:   3,
 		},

@@ -304,7 +304,7 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (accessToken
 		}
 
 		// Load the user for locale so the new access token is correctly localised.
-		user, err := s.repo.GetUserByID(ctx, rt.UserID)
+		user, err := txRepo.GetUserByID(ctx, rt.UserID)
 		if err != nil {
 			return fmt.Errorf("identity: refresh load user: %w", err)
 		}

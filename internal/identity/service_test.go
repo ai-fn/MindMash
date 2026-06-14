@@ -597,23 +597,35 @@ func TestRefresh(t *testing.T) {
 	t.Run("reuse detection: presenting an already-revoked JTI revokes the family and returns Unauthenticated", func(t *testing.T) {
 		svc, _, ctx, oldRefresh := setup(t)
 
-		// Rotate once legitimately.
-		_, newRefresh, _, err := svc.Refresh(ctx, oldRefresh)
+		// Rotate once legitimately — oldRefresh → tokenB.
+		_, tokenB, _, err := svc.Refresh(ctx, oldRefresh)
 		if err != nil {
 			t.Fatalf("first Refresh: %v", err)
 		}
-		// Rotate again with the new token so the family has >1 member.
-		if _, _, _, err = svc.Refresh(ctx, newRefresh); err != nil {
+		// Rotate again with tokenB so the family has >1 member — tokenB → tokenC.
+		_, tokenC, _, err := svc.Refresh(ctx, tokenB)
+		if err != nil {
 			t.Fatalf("second Refresh: %v", err)
 		}
+		_ = tokenC
 
-		// Now replay the original (already-revoked) token.
+		// Now replay the original (already-revoked) token — must revoke the whole family.
 		_, _, _, err = svc.Refresh(ctx, oldRefresh)
 		if err == nil {
 			t.Fatal("expected error on revoked-token reuse")
 		}
 		if grpcCode(err) != codes.Unauthenticated {
 			t.Fatalf("expected Unauthenticated, got %v", grpcCode(err))
+		}
+
+		// GAP-2: the currently-valid token (tokenC) must also now be rejected because
+		// the family was fully revoked when the replay was detected.
+		_, _, _, err = svc.Refresh(ctx, tokenC)
+		if err == nil {
+			t.Fatal("expected tokenC to be rejected after family revocation")
+		}
+		if grpcCode(err) != codes.Unauthenticated {
+			t.Fatalf("expected Unauthenticated for tokenC after family revocation, got %v", grpcCode(err))
 		}
 	})
 
@@ -789,6 +801,71 @@ func TestActivateProfile(t *testing.T) {
 		}
 		if grpcCode(err) != codes.PermissionDenied {
 			t.Fatalf("expected PermissionDenied, got %v", grpcCode(err))
+		}
+	})
+}
+
+// ─── ValidateToken tests ──────────────────────────────────────────────────────
+
+func TestValidateToken(t *testing.T) {
+	svc, _, _, _, _, signer := newTestService(t)
+	ctx := context.Background()
+
+	// Register and login to get real tokens minted by the same signer.
+	if _, err := svc.Register(ctx, "validate@example.com", "pass", "fr"); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	_, _, _, userID, profileID, err := svc.Login(ctx, "validate@example.com", "pass")
+	if err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+
+	// Mint a valid access token and a valid refresh token via the signer directly.
+	accessToken, _, err := signer.SignAccess(userID, profileID, "fr", DefaultRoles)
+	if err != nil {
+		t.Fatalf("SignAccess: %v", err)
+	}
+	refreshToken, _, err := signer.SignRefresh(userID, profileID)
+	if err != nil {
+		t.Fatalf("SignRefresh: %v", err)
+	}
+
+	t.Run("valid access token returns correct claims", func(t *testing.T) {
+		gotUserID, gotProfileID, locale, roles, err := svc.ValidateToken(ctx, accessToken)
+		if err != nil {
+			t.Fatalf("ValidateToken: %v", err)
+		}
+		if gotUserID != userID {
+			t.Fatalf("user_id: got %q, want %q", gotUserID, userID)
+		}
+		if gotProfileID != profileID {
+			t.Fatalf("profile_id: got %q, want %q", gotProfileID, profileID)
+		}
+		if locale != "fr" {
+			t.Fatalf("locale: got %q, want %q", locale, "fr")
+		}
+		if len(roles) == 0 || roles[0] != "user" {
+			t.Fatalf("roles: got %v, want [user]", roles)
+		}
+	})
+
+	t.Run("refresh token is rejected with Unauthenticated", func(t *testing.T) {
+		_, _, _, _, err := svc.ValidateToken(ctx, refreshToken)
+		if err == nil {
+			t.Fatal("expected error for refresh token")
+		}
+		if grpcCode(err) != codes.Unauthenticated {
+			t.Fatalf("expected Unauthenticated, got %v", grpcCode(err))
+		}
+	})
+
+	t.Run("garbage token is rejected with Unauthenticated", func(t *testing.T) {
+		_, _, _, _, err := svc.ValidateToken(ctx, "not.a.real.token")
+		if err == nil {
+			t.Fatal("expected error for garbage token")
+		}
+		if grpcCode(err) != codes.Unauthenticated {
+			t.Fatalf("expected Unauthenticated, got %v", grpcCode(err))
 		}
 	})
 }

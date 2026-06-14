@@ -110,6 +110,27 @@ func (h *Handler) GetMe(ctx context.Context, _ *identityv1.GetMeRequest) (*ident
 	}, nil
 }
 
+func (h *Handler) VerifyEmail(ctx context.Context, req *identityv1.VerifyEmailRequest) (*identityv1.VerifyEmailResponse, error) {
+	if err := h.svc.VerifyEmail(ctx, req.Token); err != nil {
+		return nil, err
+	}
+	return &identityv1.VerifyEmailResponse{Message: "email verified"}, nil
+}
+
+func (h *Handler) RequestPasswordReset(ctx context.Context, req *identityv1.RequestPasswordResetRequest) (*identityv1.RequestPasswordResetResponse, error) {
+	if err := h.svc.RequestPasswordReset(ctx, req.Email); err != nil {
+		return nil, err
+	}
+	return &identityv1.RequestPasswordResetResponse{Message: "if the account exists, a reset link was sent"}, nil
+}
+
+func (h *Handler) ResetPassword(ctx context.Context, req *identityv1.ResetPasswordRequest) (*identityv1.ResetPasswordResponse, error) {
+	if err := h.svc.ResetPassword(ctx, req.Token, req.NewPassword); err != nil {
+		return nil, err
+	}
+	return &identityv1.ResetPasswordResponse{Message: "password reset"}, nil
+}
+
 // ─── ProfileService ──────────────────────────────────────────────────────────
 
 func (h *Handler) ListProfiles(ctx context.Context, _ *identityv1.ListProfilesRequest) (*identityv1.ListProfilesResponse, error) {

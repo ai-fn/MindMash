@@ -49,6 +49,27 @@ service AuthService {
       get: "/v1/users/me"
     };
   }
+
+  rpc VerifyEmail(VerifyEmailRequest) returns (VerifyEmailResponse) {
+    option (google.api.http) = {
+      post: "/v1/auth/verify-email"
+      body: "*"
+    };
+  }
+
+  rpc RequestPasswordReset(RequestPasswordResetRequest) returns (RequestPasswordResetResponse) {
+    option (google.api.http) = {
+      post: "/v1/auth/password-reset/request"
+      body: "*"
+    };
+  }
+
+  rpc ResetPassword(ResetPasswordRequest) returns (ResetPasswordResponse) {
+    option (google.api.http) = {
+      post: "/v1/auth/password-reset"
+      body: "*"
+    };
+  }
 }
 
 // ─── Profile Service ──────────────────────────────────────────────────────────
@@ -150,6 +171,31 @@ message GetMeResponse {
   bool email_verified = 3;
   string locale = 4;
   repeated ProfileInfo profiles = 5;
+}
+
+message VerifyEmailRequest {
+  string token = 1;
+}
+
+message VerifyEmailResponse {
+  string message = 1;
+}
+
+message RequestPasswordResetRequest {
+  string email = 1;
+}
+
+message RequestPasswordResetResponse {
+  string message = 1;
+}
+
+message ResetPasswordRequest {
+  string token = 1;
+  string new_password = 2;
+}
+
+message ResetPasswordResponse {
+  string message = 1;
 }
 
 // ─── Profile Messages ─────────────────────────────────────────────────────────
