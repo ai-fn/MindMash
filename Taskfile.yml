@@ -56,8 +56,22 @@ tasks:
     cmds:
       - migrate -path migrations/identity -database "{{.DB_URL}}" up
 
+  keygen:
+    desc: Generate local Ed25519 signing keys (skips if they already exist)
+    status:
+      - test -f keys/ed25519.pem
+      - test -f keys/ed25519.pub.pem
+    cmds:
+      - mkdir -p keys
+      - openssl genpkey -algorithm ed25519 -out keys/ed25519.pem
+      - openssl pkey -in keys/ed25519.pem -pubout -out keys/ed25519.pub.pem
+
   run:
     desc: Start local deps and run the identity service
+    deps: [keygen]
+    env:
+      DB_DSN: postgres://mindmesh:mindmesh@localhost:5432/mindmesh?sslmode=disable
+      REDIS_ADDR: localhost:6379
     cmds:
       - docker compose up -d postgres redis minio jaeger
       - go run ./cmd/identity

@@ -14,3 +14,6 @@ vendor/
 .vscode/
 # Claude Code local overrides
 .claude/settings.local.json
+
+# Local dev signing keys (never commit)
+keys/
