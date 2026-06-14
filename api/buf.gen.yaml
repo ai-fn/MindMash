@@ -1,25 +1,32 @@
 version: v2
 managed:
   enabled: true
+  disable:
+    # Third-party imports must keep their upstream Go module paths, not the
+    # local prefix, so they resolve to real published modules.
+    - file_option: go_package_prefix
+      module: buf.build/googleapis/googleapis
+    - file_option: go_package_prefix
+      module: buf.build/grpc-ecosystem/grpc-gateway
   override:
     - file_option: go_package_prefix
       value: github.com/mindmesh/mindmesh/api
 plugins:
-  - remote: buf.build/protocolbuffers/go
+  - local: protoc-gen-go
     out: .
     opt:
       - paths=source_relative
-  - remote: buf.build/grpc/go
+  - local: protoc-gen-go-grpc
     out: .
     opt:
       - paths=source_relative
       - require_unimplemented_servers=false
-  - remote: buf.build/grpc-ecosystem/gateway
+  - local: protoc-gen-grpc-gateway
     out: .
     opt:
       - paths=source_relative
       - generate_unbound_methods=true
-  - remote: buf.build/grpc-ecosystem/openapiv2
+  - local: protoc-gen-openapiv2
     out: openapi
     opt:
       - output_format=json
