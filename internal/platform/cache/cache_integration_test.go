@@ -18,7 +18,7 @@ import (
 func startRedis(t *testing.T, ctx context.Context) *redis.Client {
 	t.Helper()
 
-	rc, err := tcredis.Run(ctx, "redis:7-alpine")
+	rc, err := tcredis.Run(ctx, "redis:8-alpine")
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		if err := rc.Terminate(ctx); err != nil {

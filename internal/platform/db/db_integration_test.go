@@ -21,7 +21,7 @@ func startPostgres(t *testing.T, ctx context.Context) (*pgxpool.Pool, string) {
 	t.Helper()
 
 	pgc, err := postgres.Run(ctx,
-		"postgres:16-alpine",
+		"postgres:18-alpine",
 		postgres.WithDatabase("testdb"),
 		postgres.WithUsername("testuser"),
 		postgres.WithPassword("testpass"),

@@ -22,7 +22,7 @@ then Identity → Collection → Scheduler → Sync → … .
 
 ## Stack
 
-Go 1.26 · gRPC + grpc-gateway (REST) · buf (proto lint/breaking/codegen) · PostgreSQL 16
+Go 1.26 · gRPC + grpc-gateway (REST) · buf (proto lint/breaking/codegen) · PostgreSQL 18
 (+Citus, sharded by `user_id`; identity tables are global/non-sharded) · Redis · Kafka/Redpanda ·
 OpenSearch · ClickHouse · S3/MinIO · OpenTelemetry/Jaeger + Prometheus/Grafana + ELK ·
 Frontend (later): React + TypeScript + Vite + i18next.
