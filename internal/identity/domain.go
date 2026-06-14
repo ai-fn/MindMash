@@ -1,0 +1,174 @@
+// Package identity contains the domain layer for the Identity service:
+// user registration/authentication, OAuth, profile management, and token lifecycle.
+package identity
+
+import (
+	"context"
+	"time"
+
+	"github.com/mindmesh/mindmesh/internal/platform/errors"
+)
+
+// DefaultRoles is the set of roles assigned to every newly registered user.
+// A dedicated roles table is intentionally deferred until role-based access
+// control becomes a product requirement; hard-coding "user" keeps the JWT
+// claims schema stable without prematurely adding complexity.
+var DefaultRoles = []string{"user"}
+
+// ─── Domain entities ────────────────────────────────────────────────────────
+
+// User is the root aggregate for an authenticated principal.
+type User struct {
+	ID            string
+	Email         string
+	EmailVerified bool
+	PasswordHash  *string // nil for OAuth-only accounts
+	Locale        string
+	Status        string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+// OAuthIdentity links a User to an external OAuth provider.
+type OAuthIdentity struct {
+	ID          string
+	UserID      string
+	Provider    string
+	ProviderUID string
+	CreatedAt   time.Time
+}
+
+// Profile is a named persona that belongs to a User.  One profile per user is
+// marked is_default; the others are secondary.
+type Profile struct {
+	ID        string
+	UserID    string
+	Name      string
+	IsDefault bool
+	CreatedAt time.Time
+}
+
+// RefreshToken is a single-use token stored in Postgres that enables token
+// rotation with family-level revocation on reuse detection.
+type RefreshToken struct {
+	JTI       string
+	UserID    string
+	ProfileID *string // nil when no profile is bound at issuance
+	FamilyID  string
+	ExpiresAt time.Time
+	Revoked   bool
+	CreatedAt time.Time
+}
+
+// EmailVerification is a one-time token sent via email for address verification
+// or password-reset flows.
+type EmailVerification struct {
+	Token      string
+	UserID     string
+	Purpose    string
+	ExpiresAt  time.Time
+	ConsumedAt *time.Time
+	CreatedAt  time.Time
+}
+
+// ─── Repository ─────────────────────────────────────────────────────────────
+
+// Repository defines all persistent-storage operations for the identity domain.
+// Implementations must return errors.NotFound when a row is absent, and
+// errors.AlreadyExists on unique-constraint violations.
+type Repository interface {
+	// User operations
+	CreateUser(ctx context.Context, u *User) error
+	GetUserByID(ctx context.Context, id string) (*User, error)
+	// GetUserByEmail returns errors.NotFound when no user matches.
+	GetUserByEmail(ctx context.Context, email string) (*User, error)
+	SetEmailVerified(ctx context.Context, userID string) error
+	UpdatePassword(ctx context.Context, userID, hash string) error
+
+	// OAuth operations
+	CreateOAuthIdentity(ctx context.Context, o *OAuthIdentity) error
+	GetOAuthIdentity(ctx context.Context, provider, uid string) (*OAuthIdentity, error)
+
+	// Profile operations
+	CreateProfile(ctx context.Context, p *Profile) error
+	// ListProfiles returns profiles for userID ordered by created_at ascending.
+	ListProfiles(ctx context.Context, userID string) ([]Profile, error)
+	GetProfile(ctx context.Context, id string) (*Profile, error)
+
+	// RefreshToken operations
+	CreateRefreshToken(ctx context.Context, rt *RefreshToken) error
+	// GetRefreshTokenForUpdate fetches and locks the row (SELECT … FOR UPDATE)
+	// for use inside a transaction during token rotation.
+	GetRefreshTokenForUpdate(ctx context.Context, jti string) (*RefreshToken, error)
+	RevokeRefreshToken(ctx context.Context, jti string) error
+	// RevokeFamily marks every token in the family as revoked and returns their
+	// JTIs so the caller can evict them from the session store.
+	RevokeFamily(ctx context.Context, familyID string) ([]string, error)
+
+	// EmailVerification operations
+	CreateEmailVerification(ctx context.Context, ev *EmailVerification) error
+	GetEmailVerification(ctx context.Context, token string) (*EmailVerification, error)
+	ConsumeEmailVerification(ctx context.Context, token string) error
+
+	// WithTx executes fn inside a single database transaction.  The Repository
+	// passed to fn is scoped to that transaction; callers must not use the
+	// outer repository inside fn.
+	WithTx(ctx context.Context, fn func(Repository) error) error
+}
+
+// ─── Session store ───────────────────────────────────────────────────────────
+
+// RefreshSession is the value stored in the session store for a refresh JTI.
+// Keeping it in Redis allows O(1) lookup during the hot token-rotation path
+// without hitting Postgres; Postgres remains the source of truth.
+type RefreshSession struct {
+	UserID    string
+	ProfileID string
+	FamilyID  string
+	ExpiresAt time.Time
+}
+
+// SessionStore is a fast, volatile store for refresh-token sessions.  Redis is
+// the production implementation; a nil/no-op version can be used in tests that
+// only care about the DB path.
+type SessionStore interface {
+	Put(ctx context.Context, jti string, sess RefreshSession, ttl time.Duration) error
+	Get(ctx context.Context, jti string) (RefreshSession, bool, error)
+	Delete(ctx context.Context, jtis ...string) error
+}
+
+// ─── OAuth exchanger ─────────────────────────────────────────────────────────
+
+// OAuthUserInfo is the normalised identity returned by the OAuth provider after
+// a successful code exchange.
+type OAuthUserInfo struct {
+	Provider      string
+	Subject       string // provider's stable user identifier (sub claim)
+	Email         string
+	EmailVerified bool
+}
+
+// OAuthExchanger converts an OAuth authorization code into OAuthUserInfo.
+// Each provider implementation is responsible for OIDC discovery, token
+// exchange, and ID-token verification.
+type OAuthExchanger interface {
+	Exchange(ctx context.Context, provider, code, redirectURI string) (OAuthUserInfo, error)
+}
+
+// ─── Email sender ────────────────────────────────────────────────────────────
+
+// EmailSender dispatches transactional emails.  The production implementation
+// uses an SMTP/SES/SendGrid gateway; the dev stub logs the token.
+type EmailSender interface {
+	SendVerification(ctx context.Context, email, token string) error
+	SendPasswordReset(ctx context.Context, email, token string) error
+}
+
+// ─── Sentinel errors used across the package ────────────────────────────────
+
+// errNotFound is re-exported so internal callers can use the platform package
+// directly.  These aliases exist to clarify intent at call sites.
+var (
+	_ = errors.NotFound        // alias, ensures the import is used
+	_ = errors.Unauthenticated // alias
+)
