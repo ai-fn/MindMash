@@ -139,6 +139,14 @@ func (s *Signer) SignAccess(userID, profileID, locale string, roles []string) (s
 // SignRefresh signs a refresh token. Returns (tokenString, jti, error).
 func (s *Signer) SignRefresh(userID, profileID string) (string, string, error) {
 	jti := ids.NewULID()
+	tok, err := s.SignRefreshWithID(userID, profileID, jti)
+	return tok, jti, err
+}
+
+// SignRefreshWithID signs a refresh token using a caller-supplied jti, so the
+// caller can persist the token's identity (e.g. a refresh_tokens row) before
+// signing, keeping signing out of the database transaction.
+func (s *Signer) SignRefreshWithID(userID, profileID, jti string) (string, error) {
 	now := time.Now()
 	claims := Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -157,9 +165,9 @@ func (s *Signer) SignRefresh(userID, profileID string) (string, string, error) {
 
 	tokenStr, err := token.SignedString(s.priv)
 	if err != nil {
-		return "", "", fmt.Errorf("auth: sign refresh token: %w", err)
+		return "", fmt.Errorf("auth: sign refresh token: %w", err)
 	}
-	return tokenStr, jti, nil
+	return tokenStr, nil
 }
 
 // Verify parses and validates a JWT. Returns errors.Unauthenticated on any failure.

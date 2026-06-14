@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/mindmesh/mindmesh/internal/platform/auth"
 	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
@@ -318,12 +320,22 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (accessToken
 		// rotatedFamilyID is captured inside the tx for the post-commit session
 		// mirror — it is the family that the new token belongs to.
 		rotatedFamilyID string
+		// txUserID / txProfileID are captured inside the tx and consumed after
+		// commit so that GetUserByID and signing happen outside the transaction.
+		txUserID    string
+		txProfileID string
 	)
 
 	txErr := s.repo.WithTx(ctx, func(txRepo Repository) error {
 		rt, err := txRepo.GetRefreshTokenForUpdate(ctx, jti)
 		if err != nil {
-			return platformerrors.Unauthenticated("invalid token")
+			// Only a NotFound (unknown / already-deleted token) becomes
+			// Unauthenticated.  Real infra errors propagate so they are
+			// observable as Internal/Unavailable, not silently swallowed.
+			if status.Code(err) == codes.NotFound {
+				return platformerrors.Unauthenticated("invalid token")
+			}
+			return fmt.Errorf("identity: refresh get token: %w", err)
 		}
 
 		if rt.Revoked {
@@ -338,34 +350,20 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (accessToken
 			return platformerrors.Unauthenticated("token expired")
 		}
 
-		// Capture the family ID for the post-commit session mirror.
+		// Capture family, user, and profile for post-commit work.
 		rotatedFamilyID = rt.FamilyID
+		txUserID = rt.UserID
+		if rt.ProfileID != nil {
+			txProfileID = *rt.ProfileID
+		}
 
 		if err := txRepo.RevokeRefreshToken(ctx, jti); err != nil {
 			return fmt.Errorf("identity: refresh revoke old token: %w", err)
 		}
 
-		// Load the user for locale so the new access token is correctly localised.
-		user, err := txRepo.GetUserByID(ctx, rt.UserID)
-		if err != nil {
-			return fmt.Errorf("identity: refresh load user: %w", err)
-		}
-
-		profileID := ""
-		if rt.ProfileID != nil {
-			profileID = *rt.ProfileID
-		}
-
-		newAccessToken, _, err = s.signer.SignAccess(rt.UserID, profileID, user.Locale, DefaultRoles())
-		if err != nil {
-			return fmt.Errorf("identity: refresh sign access: %w", err)
-		}
-		newExpiresIn = int64(s.accessTTL.Seconds())
-
-		newRefreshString, newJTI, err = s.signer.SignRefresh(rt.UserID, profileID)
-		if err != nil {
-			return fmt.Errorf("identity: refresh sign refresh: %w", err)
-		}
+		// Generate the new JTI here so we can INSERT the row inside the tx
+		// while signing happens outside (after commit).
+		newJTI = ids.NewULID()
 
 		now := time.Now()
 		newRT := &RefreshToken{
@@ -402,17 +400,35 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (accessToken
 		return "", "", 0, txErr
 	}
 
+	// Tx committed: now sign outside the transaction so we never hold a DB
+	// lock while doing crypto.  newJTI was generated inside the tx and matches
+	// the row already INSERTed, so signing here produces a token whose JTI
+	// equals the persisted row's JTI.
+	userID := txUserID
+
+	user, err := s.repo.GetUserByID(ctx, userID)
+	if err != nil {
+		return "", "", 0, fmt.Errorf("identity: refresh load user: %w", err)
+	}
+
+	newAccessToken, _, err = s.signer.SignAccess(userID, txProfileID, user.Locale, DefaultRoles())
+	if err != nil {
+		return "", "", 0, fmt.Errorf("identity: refresh sign access: %w", err)
+	}
+	newExpiresIn = int64(s.accessTTL.Seconds())
+
+	newRefreshString, err = s.signer.SignRefreshWithID(userID, txProfileID, newJTI)
+	if err != nil {
+		return "", "", 0, fmt.Errorf("identity: refresh sign refresh: %w", err)
+	}
+
 	// Best-effort session-store update; Redis downtime cannot fail the request.
 	if sErr := s.sessions.Delete(ctx, jti); sErr != nil {
 		s.log.Warn("identity: refresh delete old session", zap.Error(sErr), zap.String("jti", jti))
 	}
-	profileID := ""
-	if claims.ProfileID != "" {
-		profileID = claims.ProfileID
-	}
 	newSess := RefreshSession{
-		UserID:    claims.Subject,
-		ProfileID: profileID,
+		UserID:    userID,
+		ProfileID: txProfileID,
 		FamilyID:  rotatedFamilyID,
 		ExpiresAt: time.Now().Add(s.refreshTTL),
 	}

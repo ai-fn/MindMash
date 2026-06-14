@@ -139,6 +139,56 @@ func TestSignAndVerifyRefresh(t *testing.T) {
 	}
 }
 
+func TestSignRefreshWithID(t *testing.T) {
+	s := newEphemeralSigner(t, defaultCfg())
+
+	tests := []struct {
+		name      string
+		userID    string
+		profileID string
+		jti       string
+	}{
+		{
+			name:      "supplied jti is preserved in claims",
+			userID:    "u1",
+			profileID: "p1",
+			jti:       "01JZABCDEF0000000000000000",
+		},
+		{
+			name:      "empty profileID allowed",
+			userID:    "u2",
+			profileID: "",
+			jti:       "01JZABCDEF0000000000000001",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tokenStr, err := s.SignRefreshWithID(tc.userID, tc.profileID, tc.jti)
+			if err != nil {
+				t.Fatalf("SignRefreshWithID: %v", err)
+			}
+			if tokenStr == "" {
+				t.Fatal("expected non-empty token string")
+			}
+
+			claims, err := s.Verify(tokenStr)
+			if err != nil {
+				t.Fatalf("Verify: %v", err)
+			}
+			if claims.ID != tc.jti {
+				t.Errorf("claims.ID: got %q, want %q", claims.ID, tc.jti)
+			}
+			if claims.Kind != "refresh" {
+				t.Errorf("Kind: got %q, want %q", claims.Kind, "refresh")
+			}
+			if claims.Subject != tc.userID {
+				t.Errorf("Subject: got %q, want %q", claims.Subject, tc.userID)
+			}
+		})
+	}
+}
+
 func TestVerifyExpired(t *testing.T) {
 	cfg := defaultCfg()
 	cfg.AccessTokenTTL = -1 * time.Second
