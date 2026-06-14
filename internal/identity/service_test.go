@@ -208,33 +208,73 @@ func (r *fakeRepo) CreateEmailVerification(_ context.Context, ev *EmailVerificat
 	return nil
 }
 
-func (r *fakeRepo) GetEmailVerification(_ context.Context, token string) (*EmailVerification, error) {
+// ConsumeEmailVerification mirrors the real DB's single conditional UPDATE: it
+// atomically marks the token consumed only when it exists, has not been
+// consumed yet, and has not expired.  Returns the userID and purpose on
+// success, or errors.InvalidArgument on any failure.
+func (r *fakeRepo) ConsumeEmailVerification(_ context.Context, token string) (userID, purpose string, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	ev, ok := r.verifications[token]
-	if !ok {
-		return nil, platformerrors.NotFound("verification token not found")
-	}
-	cp := *ev
-	return &cp, nil
-}
-
-func (r *fakeRepo) ConsumeEmailVerification(_ context.Context, token string) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	ev, ok := r.verifications[token]
-	if !ok {
-		return platformerrors.NotFound("verification token not found")
+	if !ok || ev.ConsumedAt != nil || time.Now().After(ev.ExpiresAt) {
+		return "", "", platformerrors.InvalidArgument("invalid or expired token")
 	}
 	now := time.Now()
 	ev.ConsumedAt = &now
-	return nil
+	return ev.UserID, ev.Purpose, nil
 }
 
-// WithTx calls fn(self) so that rotation logic is fully exercised against the
-// same in-memory store; the fake treats each call as its own "transaction".
+// WithTx simulates transaction semantics: it snapshots all in-memory maps
+// before calling fn, and if fn returns an error it restores the snapshot so
+// that the fake behaves like a real database that rolls back on error.
 func (r *fakeRepo) WithTx(ctx context.Context, fn func(Repository) error) error {
-	return fn(r)
+	r.mu.Lock()
+	// Deep-copy every map so we can roll back on error.
+	snapUsers := make(map[string]*User, len(r.users))
+	for k, v := range r.users {
+		cp := *v
+		snapUsers[k] = &cp
+	}
+	snapByEmail := make(map[string]*User, len(r.usersByEmail))
+	for k, v := range r.usersByEmail {
+		cp := *v
+		snapByEmail[k] = &cp
+	}
+	snapOAuth := make(map[string]*OAuthIdentity, len(r.oauthIDs))
+	for k, v := range r.oauthIDs {
+		cp := *v
+		snapOAuth[k] = &cp
+	}
+	snapProfiles := make(map[string]*Profile, len(r.profiles))
+	for k, v := range r.profiles {
+		cp := *v
+		snapProfiles[k] = &cp
+	}
+	snapTokens := make(map[string]*RefreshToken, len(r.refreshTokens))
+	for k, v := range r.refreshTokens {
+		cp := *v
+		snapTokens[k] = &cp
+	}
+	snapVerifications := make(map[string]*EmailVerification, len(r.verifications))
+	for k, v := range r.verifications {
+		cp := *v
+		snapVerifications[k] = &cp
+	}
+	r.mu.Unlock()
+
+	if err := fn(r); err != nil {
+		// Roll back: restore every map to its pre-fn state.
+		r.mu.Lock()
+		r.users = snapUsers
+		r.usersByEmail = snapByEmail
+		r.oauthIDs = snapOAuth
+		r.profiles = snapProfiles
+		r.refreshTokens = snapTokens
+		r.verifications = snapVerifications
+		r.mu.Unlock()
+		return err
+	}
+	return nil
 }
 
 // ─── fakeSessionStore ────────────────────────────────────────────────────────
@@ -316,7 +356,7 @@ func (f *fakeOAuthExchanger) Exchange(_ context.Context, _, code, _ string) (OAu
 
 func newTestSigner(t *testing.T) *auth.Signer {
 	t.Helper()
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	pubKey, privKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatalf("generate ed25519 key: %v", err)
 	}
@@ -325,7 +365,7 @@ func newTestSigner(t *testing.T) *auth.Signer {
 		AccessTokenTTL:  15 * time.Minute,
 		RefreshTokenTTL: 7 * 24 * time.Hour,
 	}
-	return auth.NewSignerFromKeys(priv, pub, cfg)
+	return auth.NewSignerFromKeys(privKey, pubKey, cfg)
 }
 
 func newTestService(t *testing.T) (*Service, *fakeRepo, *fakeSessionStore, *fakeEmailSender, *fakeOAuthExchanger, *auth.Signer) {
@@ -821,7 +861,7 @@ func TestValidateToken(t *testing.T) {
 	}
 
 	// Mint a valid access token and a valid refresh token via the signer directly.
-	accessToken, _, err := signer.SignAccess(userID, profileID, "fr", DefaultRoles)
+	accessToken, _, err := signer.SignAccess(userID, profileID, "fr", DefaultRoles())
 	if err != nil {
 		t.Fatalf("SignAccess: %v", err)
 	}

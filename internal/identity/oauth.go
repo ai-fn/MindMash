@@ -51,12 +51,12 @@ func (e *OIDCExchanger) Exchange(ctx context.Context, provider, code, redirectUR
 		return OAuthUserInfo{}, platformerrors.InvalidArgument(fmt.Sprintf("unknown OAuth provider %q", provider))
 	}
 
-	cp, err := e.getOrCreateProvider(ctx, provider, cfg, redirectURI)
+	oidcProvider, callCfg, err := e.getOrCreateProvider(ctx, provider, cfg, redirectURI)
 	if err != nil {
 		return OAuthUserInfo{}, fmt.Errorf("identity: oauth exchange init provider: %w", err)
 	}
 
-	token, err := cp.oauth2Cfg.Exchange(ctx, code)
+	token, err := callCfg.Exchange(ctx, code)
 	if err != nil {
 		return OAuthUserInfo{}, fmt.Errorf("identity: oauth exchange code: %w", err)
 	}
@@ -66,7 +66,7 @@ func (e *OIDCExchanger) Exchange(ctx context.Context, provider, code, redirectUR
 		return OAuthUserInfo{}, fmt.Errorf("identity: oauth exchange: id_token missing from response")
 	}
 
-	verifier := cp.oidcProvider.Verifier(&gooidc.Config{ClientID: cfg.ClientID})
+	verifier := oidcProvider.Verifier(&gooidc.Config{ClientID: cfg.ClientID})
 	idToken, err := verifier.Verify(ctx, rawIDToken)
 	if err != nil {
 		return OAuthUserInfo{}, fmt.Errorf("identity: oauth exchange verify id_token: %w", err)
@@ -89,31 +89,43 @@ func (e *OIDCExchanger) Exchange(ctx context.Context, provider, code, redirectUR
 	}, nil
 }
 
-func (e *OIDCExchanger) getOrCreateProvider(ctx context.Context, name string, cfg ProviderConfig, redirectURI string) (*cachedProvider, error) {
+// getOrCreateProvider returns the cached oidc.Provider and a per-call copy of
+// the oauth2.Config with RedirectURL set.  The config is copied by value so
+// that setting RedirectURL on the copy does not race with concurrent Exchange
+// calls that hold a pointer into the same cached struct.
+func (e *OIDCExchanger) getOrCreateProvider(ctx context.Context, name string, cfg ProviderConfig, redirectURI string) (*gooidc.Provider, oauth2.Config, error) {
 	e.mu.Lock()
-	defer e.mu.Unlock()
+	cp, ok := e.providers[name]
+	e.mu.Unlock()
 
-	if cp, ok := e.providers[name]; ok {
-		// Update the redirect URI per-call (it may differ across environments).
-		cp.oauth2Cfg.RedirectURL = redirectURI
-		return cp, nil
+	if !ok {
+		oidcProvider, err := gooidc.NewProvider(ctx, cfg.IssuerURL)
+		if err != nil {
+			return nil, oauth2.Config{}, fmt.Errorf("identity: oidc discovery for %q: %w", name, err)
+		}
+		newCP := &cachedProvider{
+			oidcProvider: oidcProvider,
+			oauth2Cfg: oauth2.Config{
+				ClientID:     cfg.ClientID,
+				ClientSecret: cfg.ClientSecret,
+				Endpoint:     oidcProvider.Endpoint(),
+				Scopes:       []string{gooidc.ScopeOpenID, "email", "profile"},
+			},
+		}
+		e.mu.Lock()
+		// Re-check under the lock in case another goroutine raced us here.
+		if existing, ok := e.providers[name]; ok {
+			cp = existing
+		} else {
+			e.providers[name] = newCP
+			cp = newCP
+		}
+		e.mu.Unlock()
 	}
 
-	oidcProvider, err := gooidc.NewProvider(ctx, cfg.IssuerURL)
-	if err != nil {
-		return nil, fmt.Errorf("identity: oidc discovery for %q: %w", name, err)
-	}
-
-	cp := &cachedProvider{
-		oidcProvider: oidcProvider,
-		oauth2Cfg: oauth2.Config{
-			ClientID:     cfg.ClientID,
-			ClientSecret: cfg.ClientSecret,
-			Endpoint:     oidcProvider.Endpoint(),
-			RedirectURL:  redirectURI,
-			Scopes:       []string{gooidc.ScopeOpenID, "email", "profile"},
-		},
-	}
-	e.providers[name] = cp
-	return cp, nil
+	// Copy the oauth2.Config by value and set RedirectURL on the copy; the
+	// cached struct is never mutated after being stored, so there is no race.
+	callCfg := cp.oauth2Cfg
+	callCfg.RedirectURL = redirectURI
+	return cp.oidcProvider, callCfg, nil
 }

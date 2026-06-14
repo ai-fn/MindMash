@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -271,23 +270,21 @@ func (r *PostgresRepository) CreateEmailVerification(ctx context.Context, ev *Em
 	return nil
 }
 
-func (r *PostgresRepository) GetEmailVerification(ctx context.Context, token string) (*EmailVerification, error) {
-	ev := &EmailVerification{}
-	err := r.db.QueryRow(ctx, `
-		SELECT token, user_id, purpose, expires_at, consumed_at, created_at
-		FROM email_verifications WHERE token = $1`, token).
-		Scan(&ev.Token, &ev.UserID, &ev.Purpose, &ev.ExpiresAt, &ev.ConsumedAt, &ev.CreatedAt)
+// ConsumeEmailVerification atomically marks the token consumed and returns the
+// userID and purpose it was issued for.  A single conditional UPDATE is used so
+// that concurrent requests cannot both pass the validity check (TOCTOU-safe).
+func (r *PostgresRepository) ConsumeEmailVerification(ctx context.Context, token string) (userID, purpose string, err error) {
+	err = r.db.QueryRow(ctx, `
+		UPDATE email_verifications
+		SET consumed_at = now()
+		WHERE token = $1
+		  AND consumed_at IS NULL
+		  AND expires_at > now()
+		RETURNING user_id, purpose`, token).
+		Scan(&userID, &purpose)
 	if err != nil {
-		return nil, fmt.Errorf("identity: get email verification: %w", mapNoRows(err, "verification token not found"))
+		return "", "", fmt.Errorf("identity: consume email verification: %w",
+			mapNoRows(err, "invalid or expired token"))
 	}
-	return ev, nil
-}
-
-func (r *PostgresRepository) ConsumeEmailVerification(ctx context.Context, token string) error {
-	now := time.Now()
-	_, err := r.db.Exec(ctx, `UPDATE email_verifications SET consumed_at = $1 WHERE token = $2`, now, token)
-	if err != nil {
-		return fmt.Errorf("identity: consume email verification: %w", err)
-	}
-	return nil
+	return userID, purpose, nil
 }

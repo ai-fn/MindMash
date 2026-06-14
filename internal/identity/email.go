@@ -18,7 +18,6 @@ func NewLogEmailSender(log *zap.Logger) *LogEmailSender {
 	return &LogEmailSender{log: log}
 }
 
-// SendVerification logs the verification token instead of sending an email.
 func (s *LogEmailSender) SendVerification(_ context.Context, email, token string) error {
 	s.log.Info("identity: send verification email (stub)",
 		zap.String("email", email),
@@ -27,7 +26,6 @@ func (s *LogEmailSender) SendVerification(_ context.Context, email, token string
 	return nil
 }
 
-// SendPasswordReset logs the reset token instead of sending an email.
 func (s *LogEmailSender) SendPasswordReset(_ context.Context, email, token string) error {
 	s.log.Info("identity: send password-reset email (stub)",
 		zap.String("email", email),

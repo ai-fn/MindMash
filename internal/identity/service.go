@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"time"
 
@@ -13,6 +14,12 @@ import (
 	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
 	"github.com/mindmesh/mindmesh/internal/platform/ids"
 )
+
+// errTokenReuse is a private sentinel returned from within the Refresh
+// transaction to signal reuse detection without carrying the full
+// Unauthenticated error through WithTx (which would roll back the tx before
+// we can revoke the family on the pool connection).
+var errTokenReuse = errors.New("token reuse detected")
 
 // Service is the domain entry-point for all identity operations.  It composes
 // the repository, session store, JWT signer, OAuth exchanger, and email sender
@@ -54,8 +61,11 @@ func NewService(
 // ─── Registration ────────────────────────────────────────────────────────────
 
 // Register creates a new user, a default profile, and dispatches a verification
-// email.  A send failure does not abort registration — we log it and continue
-// so that a misconfigured email gateway cannot block sign-ups.
+// email.  All three DB inserts run inside a single transaction so a crash
+// mid-way cannot leave a user with no profile.  The email send stays outside
+// the transaction — IO against an external gateway must not hold a DB
+// connection open, and a send failure is not fatal (log and continue so that a
+// misconfigured email gateway cannot block sign-ups).
 func (s *Service) Register(ctx context.Context, email, password, locale string) (string, error) {
 	if email == "" || password == "" {
 		return "", platformerrors.InvalidArgument("email and password are required")
@@ -80,37 +90,47 @@ func (s *Service) Register(ctx context.Context, email, password, locale string) 
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}
-	if err := s.repo.CreateUser(ctx, user); err != nil {
-		return "", err // AlreadyExists from the repo propagates as-is
+
+	var verificationToken string
+	txErr := s.repo.WithTx(ctx, func(txRepo Repository) error {
+		if err := txRepo.CreateUser(ctx, user); err != nil {
+			return err // AlreadyExists from the repo propagates as-is
+		}
+
+		profile := &Profile{
+			ID:        ids.NewUUID(),
+			UserID:    user.ID,
+			Name:      "Default",
+			IsDefault: true,
+			CreatedAt: now,
+		}
+		if err := txRepo.CreateProfile(ctx, profile); err != nil {
+			return fmt.Errorf("identity: register create profile: %w", err)
+		}
+
+		token, err := generateVerificationToken()
+		if err != nil {
+			return fmt.Errorf("identity: register generate token: %w", err)
+		}
+		verificationToken = token
+
+		ev := &EmailVerification{
+			Token:     token,
+			UserID:    user.ID,
+			Purpose:   "verify_email",
+			ExpiresAt: now.Add(24 * time.Hour),
+			CreatedAt: now,
+		}
+		if err := txRepo.CreateEmailVerification(ctx, ev); err != nil {
+			return fmt.Errorf("identity: register create verification: %w", err)
+		}
+		return nil
+	})
+	if txErr != nil {
+		return "", txErr
 	}
 
-	profile := &Profile{
-		ID:        ids.NewUUID(),
-		UserID:    user.ID,
-		Name:      "Default",
-		IsDefault: true,
-		CreatedAt: now,
-	}
-	if err := s.repo.CreateProfile(ctx, profile); err != nil {
-		return "", fmt.Errorf("identity: register create profile: %w", err)
-	}
-
-	token, err := generateVerificationToken()
-	if err != nil {
-		return "", fmt.Errorf("identity: register generate token: %w", err)
-	}
-	ev := &EmailVerification{
-		Token:     token,
-		UserID:    user.ID,
-		Purpose:   "verify_email",
-		ExpiresAt: now.Add(24 * time.Hour),
-		CreatedAt: now,
-	}
-	if err := s.repo.CreateEmailVerification(ctx, ev); err != nil {
-		return "", fmt.Errorf("identity: register create verification: %w", err)
-	}
-
-	if err := s.email.SendVerification(ctx, email, token); err != nil {
+	if err := s.email.SendVerification(ctx, email, verificationToken); err != nil {
 		// A send failure is not fatal; log it and continue so that a broken
 		// email gateway cannot prevent users from completing registration.
 		s.log.Error("identity: register send verification email", zap.Error(err), zap.String("user_id", user.ID))
@@ -188,7 +208,8 @@ func (s *Service) OAuthExchange(ctx context.Context, provider, code, redirectURI
 	now := time.Now()
 	existingUser, emailErr := s.repo.GetUserByEmail(ctx, info.Email)
 	if emailErr == nil {
-		// Link the new OAuth identity to the existing account.
+		// Link the new OAuth identity to the existing account atomically so a
+		// crash between lookup and insert cannot leave a dangling partial link.
 		newIdentity := &OAuthIdentity{
 			ID:          ids.NewUUID(),
 			UserID:      existingUser.ID,
@@ -196,8 +217,10 @@ func (s *Service) OAuthExchange(ctx context.Context, provider, code, redirectURI
 			ProviderUID: info.Subject,
 			CreatedAt:   now,
 		}
-		if err := s.repo.CreateOAuthIdentity(ctx, newIdentity); err != nil {
-			return "", "", 0, "", "", false, fmt.Errorf("identity: oauth exchange link identity: %w", err)
+		if txErr := s.repo.WithTx(ctx, func(txRepo Repository) error {
+			return txRepo.CreateOAuthIdentity(ctx, newIdentity)
+		}); txErr != nil {
+			return "", "", 0, "", "", false, fmt.Errorf("identity: oauth exchange link identity: %w", txErr)
 		}
 		profile, err := s.pickDefaultProfile(ctx, existingUser.ID)
 		if err != nil {
@@ -210,7 +233,8 @@ func (s *Service) OAuthExchange(ctx context.Context, provider, code, redirectURI
 		return access, refresh, expiresIn, existingUser.ID, profile.ID, false, nil
 	}
 
-	// Brand-new user.
+	// Brand-new user: create user, profile, and identity atomically so a crash
+	// mid-way cannot leave a user row with no profile or identity.
 	locale := "en"
 	newUser := &User{
 		ID:            ids.NewUUID(),
@@ -222,18 +246,12 @@ func (s *Service) OAuthExchange(ctx context.Context, provider, code, redirectURI
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}
-	if err := s.repo.CreateUser(ctx, newUser); err != nil {
-		return "", "", 0, "", "", false, fmt.Errorf("identity: oauth exchange create user: %w", err)
-	}
 	newProfile := &Profile{
 		ID:        ids.NewUUID(),
 		UserID:    newUser.ID,
 		Name:      "Default",
 		IsDefault: true,
 		CreatedAt: now,
-	}
-	if err := s.repo.CreateProfile(ctx, newProfile); err != nil {
-		return "", "", 0, "", "", false, fmt.Errorf("identity: oauth exchange create profile: %w", err)
 	}
 	newIdentity := &OAuthIdentity{
 		ID:          ids.NewUUID(),
@@ -242,8 +260,19 @@ func (s *Service) OAuthExchange(ctx context.Context, provider, code, redirectURI
 		ProviderUID: info.Subject,
 		CreatedAt:   now,
 	}
-	if err := s.repo.CreateOAuthIdentity(ctx, newIdentity); err != nil {
-		return "", "", 0, "", "", false, fmt.Errorf("identity: oauth exchange create identity: %w", err)
+	if txErr := s.repo.WithTx(ctx, func(txRepo Repository) error {
+		if err := txRepo.CreateUser(ctx, newUser); err != nil {
+			return fmt.Errorf("identity: oauth exchange create user: %w", err)
+		}
+		if err := txRepo.CreateProfile(ctx, newProfile); err != nil {
+			return fmt.Errorf("identity: oauth exchange create profile: %w", err)
+		}
+		if err := txRepo.CreateOAuthIdentity(ctx, newIdentity); err != nil {
+			return fmt.Errorf("identity: oauth exchange create identity: %w", err)
+		}
+		return nil
+	}); txErr != nil {
+		return "", "", 0, "", "", false, txErr
 	}
 
 	access, refresh, expiresIn, err := s.issueTokens(ctx, newUser, newProfile)
@@ -257,9 +286,17 @@ func (s *Service) OAuthExchange(ctx context.Context, provider, code, redirectURI
 
 // Refresh rotates the refresh token.  The old token is revoked atomically
 // inside a transaction; if the token is already revoked the entire family is
-// revoked (reuse/theft detection).  Session-store updates are best-effort:
-// Redis downtime must not break the refresh path since Postgres is the source
-// of truth.
+// revoked (reuse/theft detection).
+//
+// Reuse detection requires special care: we must NOT revoke the family inside
+// the WithTx closure, because returning an error from fn causes WithTx to roll
+// back the transaction, silently un-doing the revocation.  Instead we return
+// the private errTokenReuse sentinel to exit the tx cleanly (with rollback),
+// capture the family ID in an outer variable, and call RevokeFamily on the
+// pool (its own autocommit statement) after WithTx returns.
+//
+// Session-store updates are best-effort: Redis downtime must not break the
+// refresh path since Postgres is the source of truth.
 func (s *Service) Refresh(ctx context.Context, refreshToken string) (accessToken, newRefreshToken string, expiresIn int64, err error) {
 	claims, err := s.signer.Verify(refreshToken)
 	if err != nil {
@@ -275,7 +312,12 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (accessToken
 		newRefreshString string
 		newExpiresIn     int64
 		newJTI           string
-		oldFamilyID      string
+		// reuseFamilyID is set inside the tx when reuse is detected; the actual
+		// RevokeFamily call happens after WithTx returns so it is not rolled back.
+		reuseFamilyID string
+		// rotatedFamilyID is captured inside the tx for the post-commit session
+		// mirror — it is the family that the new token belongs to.
+		rotatedFamilyID string
 	)
 
 	txErr := s.repo.WithTx(ctx, func(txRepo Repository) error {
@@ -285,19 +327,19 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (accessToken
 		}
 
 		if rt.Revoked {
-			// Token reuse detected: revoke the whole family to protect the
-			// legitimate session holder.  Return an error to abort the tx.
-			if _, rErr := txRepo.RevokeFamily(ctx, rt.FamilyID); rErr != nil {
-				s.log.Error("identity: refresh revoke family on reuse", zap.Error(rErr))
-			}
-			return platformerrors.Unauthenticated("token reuse detected")
+			// Token reuse detected.  Capture the family ID and return the
+			// sentinel so WithTx rolls back without attempting any further
+			// writes; we revoke the family outside the tx below.
+			reuseFamilyID = rt.FamilyID
+			return errTokenReuse
 		}
 
 		if time.Now().After(rt.ExpiresAt) {
 			return platformerrors.Unauthenticated("token expired")
 		}
 
-		oldFamilyID = rt.FamilyID
+		// Capture the family ID for the post-commit session mirror.
+		rotatedFamilyID = rt.FamilyID
 
 		if err := txRepo.RevokeRefreshToken(ctx, jti); err != nil {
 			return fmt.Errorf("identity: refresh revoke old token: %w", err)
@@ -314,7 +356,7 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (accessToken
 			profileID = *rt.ProfileID
 		}
 
-		newAccessToken, _, err = s.signer.SignAccess(rt.UserID, profileID, user.Locale, DefaultRoles)
+		newAccessToken, _, err = s.signer.SignAccess(rt.UserID, profileID, user.Locale, DefaultRoles())
 		if err != nil {
 			return fmt.Errorf("identity: refresh sign access: %w", err)
 		}
@@ -341,6 +383,21 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (accessToken
 
 		return nil
 	})
+
+	if errors.Is(txErr, errTokenReuse) {
+		// Revoke the whole family on the pool (autocommit) so it is durable.
+		jtis, rErr := s.repo.RevokeFamily(ctx, reuseFamilyID)
+		if rErr != nil {
+			s.log.Error("identity: refresh revoke family on reuse", zap.Error(rErr))
+		}
+		// Best-effort: evict all family sessions from the store.
+		if len(jtis) > 0 {
+			if sErr := s.sessions.Delete(ctx, jtis...); sErr != nil {
+				s.log.Warn("identity: refresh delete reuse sessions", zap.Error(sErr))
+			}
+		}
+		return "", "", 0, platformerrors.Unauthenticated("token reuse detected")
+	}
 	if txErr != nil {
 		return "", "", 0, txErr
 	}
@@ -356,7 +413,7 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (accessToken
 	newSess := RefreshSession{
 		UserID:    claims.Subject,
 		ProfileID: profileID,
-		FamilyID:  oldFamilyID,
+		FamilyID:  rotatedFamilyID,
 		ExpiresAt: time.Now().Add(s.refreshTTL),
 	}
 	if sErr := s.sessions.Put(ctx, newJTI, newSess, s.refreshTTL); sErr != nil {
@@ -369,6 +426,8 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (accessToken
 // ─── Logout ──────────────────────────────────────────────────────────────────
 
 // Logout revokes the token's family and clears session-store entries.
+// The FOR UPDATE lock and the family revocation run inside a single transaction
+// so they are atomic — the lock is meaningless across separate statements.
 // The operation is best-effort and always returns success to the caller; we
 // never leak token validity information via the logout response.
 func (s *Service) Logout(ctx context.Context, refreshToken string) {
@@ -377,14 +436,22 @@ func (s *Service) Logout(ctx context.Context, refreshToken string) {
 		return
 	}
 
-	rt, err := s.repo.GetRefreshTokenForUpdate(ctx, claims.ID)
-	if err != nil {
-		return
-	}
-
-	jtis, err := s.repo.RevokeFamily(ctx, rt.FamilyID)
-	if err != nil {
-		s.log.Warn("identity: logout revoke family", zap.Error(err))
+	var jtis []string
+	txErr := s.repo.WithTx(ctx, func(txRepo Repository) error {
+		rt, err := txRepo.GetRefreshTokenForUpdate(ctx, claims.ID)
+		if err != nil {
+			// Token not found or already gone — nothing to revoke; treat as success.
+			return nil
+		}
+		rjtis, err := txRepo.RevokeFamily(ctx, rt.FamilyID)
+		if err != nil {
+			return fmt.Errorf("identity: logout revoke family: %w", err)
+		}
+		jtis = rjtis
+		return nil
+	})
+	if txErr != nil {
+		s.log.Warn("identity: logout revoke family tx", zap.Error(txErr))
 		return
 	}
 
@@ -397,7 +464,8 @@ func (s *Service) Logout(ctx context.Context, refreshToken string) {
 
 // ─── User info ───────────────────────────────────────────────────────────────
 
-// GetMe loads a user and their profiles.
+// GetMe returns the authenticated user together with all of their profiles so
+// the caller never needs two round-trips for the most common account page.
 func (s *Service) GetMe(ctx context.Context, userID string) (*User, []Profile, error) {
 	user, err := s.repo.GetUserByID(ctx, userID)
 	if err != nil {
@@ -455,7 +523,7 @@ func (s *Service) ActivateProfile(ctx context.Context, userID, profileID string)
 		return "", 0, fmt.Errorf("identity: activate profile load user: %w", err)
 	}
 
-	token, _, err := s.signer.SignAccess(user.ID, profile.ID, user.Locale, DefaultRoles)
+	token, _, err := s.signer.SignAccess(user.ID, profile.ID, user.Locale, DefaultRoles())
 	if err != nil {
 		return "", 0, fmt.Errorf("identity: activate profile sign access: %w", err)
 	}
@@ -485,25 +553,23 @@ func (s *Service) GetProfile(ctx context.Context, profileID string) (*Profile, e
 
 // ─── Email verification & password reset ─────────────────────────────────────
 
-// VerifyEmail consumes a verification token and marks the user's email as verified.
+// VerifyEmail consumes a verification token and marks the user's email as
+// verified.  Both operations run inside a single transaction so concurrent
+// requests cannot both pass the consumed/expiry check (TOCTOU-safe).
 func (s *Service) VerifyEmail(ctx context.Context, token string) error {
-	ev, err := s.repo.GetEmailVerification(ctx, token)
-	if err != nil {
-		return platformerrors.InvalidArgument("invalid or expired verification token")
-	}
-	if ev.ConsumedAt != nil {
-		return platformerrors.InvalidArgument("verification token already used")
-	}
-	if time.Now().After(ev.ExpiresAt) {
-		return platformerrors.InvalidArgument("verification token expired")
-	}
-	if err := s.repo.SetEmailVerified(ctx, ev.UserID); err != nil {
-		return fmt.Errorf("identity: verify email set verified: %w", err)
-	}
-	if err := s.repo.ConsumeEmailVerification(ctx, token); err != nil {
-		return fmt.Errorf("identity: verify email consume: %w", err)
-	}
-	return nil
+	return s.repo.WithTx(ctx, func(txRepo Repository) error {
+		userID, purpose, err := txRepo.ConsumeEmailVerification(ctx, token)
+		if err != nil {
+			return platformerrors.InvalidArgument("invalid or expired verification token")
+		}
+		if purpose != "verify_email" {
+			return platformerrors.InvalidArgument("invalid token purpose")
+		}
+		if err := txRepo.SetEmailVerified(ctx, userID); err != nil {
+			return fmt.Errorf("identity: verify email set verified: %w", err)
+		}
+		return nil
+	})
 }
 
 // RequestPasswordReset creates a reset token and sends a reset email.
@@ -536,33 +602,29 @@ func (s *Service) RequestPasswordReset(ctx context.Context, emailAddr string) er
 	return nil
 }
 
-// ResetPassword validates a password-reset token and updates the user's password.
+// ResetPassword validates a password-reset token and updates the user's
+// password.  Consumption and the password update run inside a single
+// transaction so concurrent requests cannot both pass the consumed/expiry
+// check (TOCTOU-safe).
 func (s *Service) ResetPassword(ctx context.Context, token, newPassword string) error {
-	ev, err := s.repo.GetEmailVerification(ctx, token)
-	if err != nil {
-		return platformerrors.InvalidArgument("invalid or expired reset token")
-	}
-	if ev.Purpose != "password_reset" {
-		return platformerrors.InvalidArgument("invalid token purpose")
-	}
-	if ev.ConsumedAt != nil {
-		return platformerrors.InvalidArgument("reset token already used")
-	}
-	if time.Now().After(ev.ExpiresAt) {
-		return platformerrors.InvalidArgument("reset token expired")
-	}
-
 	hash, err := auth.HashPassword(newPassword)
 	if err != nil {
 		return fmt.Errorf("identity: reset password hash: %w", err)
 	}
-	if err := s.repo.UpdatePassword(ctx, ev.UserID, hash); err != nil {
-		return fmt.Errorf("identity: reset password update: %w", err)
-	}
-	if err := s.repo.ConsumeEmailVerification(ctx, token); err != nil {
-		return fmt.Errorf("identity: reset password consume: %w", err)
-	}
-	return nil
+
+	return s.repo.WithTx(ctx, func(txRepo Repository) error {
+		userID, purpose, err := txRepo.ConsumeEmailVerification(ctx, token)
+		if err != nil {
+			return platformerrors.InvalidArgument("invalid or expired reset token")
+		}
+		if purpose != "password_reset" {
+			return platformerrors.InvalidArgument("invalid token purpose")
+		}
+		if err := txRepo.UpdatePassword(ctx, userID, hash); err != nil {
+			return fmt.Errorf("identity: reset password update: %w", err)
+		}
+		return nil
+	})
 }
 
 // ─── JWKS ────────────────────────────────────────────────────────────────────
@@ -579,7 +641,7 @@ func (s *Service) JWKS() auth.JWKS {
 func (s *Service) issueTokens(ctx context.Context, user *User, profile *Profile) (accessToken, refreshToken string, expiresIn int64, err error) {
 	familyID := ids.NewULID()
 
-	accessToken, _, err = s.signer.SignAccess(user.ID, profile.ID, user.Locale, DefaultRoles)
+	accessToken, _, err = s.signer.SignAccess(user.ID, profile.ID, user.Locale, DefaultRoles())
 	if err != nil {
 		return "", "", 0, fmt.Errorf("identity: issue tokens sign access: %w", err)
 	}

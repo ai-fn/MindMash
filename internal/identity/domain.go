@@ -5,15 +5,14 @@ package identity
 import (
 	"context"
 	"time"
-
-	"github.com/mindmesh/mindmesh/internal/platform/errors"
 )
 
-// DefaultRoles is the set of roles assigned to every newly registered user.
-// A dedicated roles table is intentionally deferred until role-based access
-// control becomes a product requirement; hard-coding "user" keeps the JWT
-// claims schema stable without prematurely adding complexity.
-var DefaultRoles = []string{"user"}
+// DefaultRoles returns the set of roles assigned to every newly registered
+// user.  A dedicated roles table is intentionally deferred until role-based
+// access control becomes a product requirement; hard-coding "user" keeps the
+// JWT claims schema stable without prematurely adding complexity.  Returned as
+// a fresh slice so callers cannot accidentally mutate the canonical list.
+func DefaultRoles() []string { return []string{"user"} }
 
 // ─── Domain entities ────────────────────────────────────────────────────────
 
@@ -107,8 +106,11 @@ type Repository interface {
 
 	// EmailVerification operations
 	CreateEmailVerification(ctx context.Context, ev *EmailVerification) error
-	GetEmailVerification(ctx context.Context, token string) (*EmailVerification, error)
-	ConsumeEmailVerification(ctx context.Context, token string) error
+	// ConsumeEmailVerification atomically marks the token consumed and returns
+	// the userID and purpose it was issued for.  Returns errors.InvalidArgument
+	// when the token is missing, already consumed, or expired so that a single
+	// round-trip to the DB is the only gate — no separate read is needed.
+	ConsumeEmailVerification(ctx context.Context, token string) (userID, purpose string, err error)
 
 	// WithTx executes fn inside a single database transaction.  The Repository
 	// passed to fn is scoped to that transaction; callers must not use the
@@ -163,12 +165,3 @@ type EmailSender interface {
 	SendVerification(ctx context.Context, email, token string) error
 	SendPasswordReset(ctx context.Context, email, token string) error
 }
-
-// ─── Sentinel errors used across the package ────────────────────────────────
-
-// errNotFound is re-exported so internal callers can use the platform package
-// directly.  These aliases exist to clarify intent at call sites.
-var (
-	_ = errors.NotFound        // alias, ensures the import is used
-	_ = errors.Unauthenticated // alias
-)
