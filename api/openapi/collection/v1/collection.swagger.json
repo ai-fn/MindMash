@@ -852,7 +852,8 @@
           "type": "string",
           "format": "int64"
         }
-      }
+      },
+      "description": "Update replaces the full desired state of the deck (see UpdateNoteTypeRequest);\nchanging parent_id moves the subtree."
     },
     "DeckServiceUpdateDeckConfigBody": {
       "type": "object",
@@ -897,7 +898,8 @@
           "type": "string",
           "format": "int64"
         }
-      }
+      },
+      "description": "Update replaces the full desired state of the config (see UpdateNoteTypeRequest)."
     },
     "NoteServiceUpdateNoteBody": {
       "type": "object",
@@ -922,7 +924,8 @@
           "type": "string",
           "format": "int64"
         }
-      }
+      },
+      "description": "Update replaces the full desired state of the note (see UpdateNoteTypeRequest)."
     },
     "NoteTypeServiceUpdateNoteTypeBody": {
       "type": "object",
@@ -951,7 +954,8 @@
           "type": "string",
           "format": "int64"
         }
-      }
+      },
+      "description": "Update replaces the full desired state of the entity; every mutable field is\nauthoritative (an empty/zero value clears that field). expected_usn guards the\nwrite with optimistic concurrency."
     },
     "protobufAny": {
       "type": "object",
@@ -995,10 +999,10 @@
         "flag": {
           "type": "integer",
           "format": "int32",
-          "title": "BULK_OP_FLAG"
+          "title": "BULK_OP_FLAG (0 = clear)"
         }
       },
-      "description": "BulkArgs — extra parameters specific to the chosen BulkOp."
+      "description": "BulkArgs — extra parameters for a BulkCards call. Only the field relevant to\nthe request's `op` is read; the rest are ignored. BULK_OP_SUSPEND and\nBULK_OP_DELETE take no args. For BULK_OP_FLAG, flag=0 means \"clear flag\"."
     },
     "v1BulkCardsRequest": {
       "type": "object",
@@ -1022,7 +1026,8 @@
       "properties": {
         "affectedCount": {
           "type": "string",
-          "format": "int64"
+          "format": "int64",
+          "title": "number of cards matched and mutated by the op"
         }
       }
     },
@@ -1054,16 +1059,16 @@
         },
         "templateOrd": {
           "type": "integer",
-          "format": "int32"
+          "format": "int32",
+          "title": "0-based index into NoteType.card_templates"
         },
         "state": {
-          "type": "integer",
-          "format": "int32",
-          "title": "0=new,1=learning,2=review,3=relearning"
+          "$ref": "#/definitions/v1CardState"
         },
         "queue": {
           "type": "integer",
-          "format": "int32"
+          "format": "int32",
+          "description": "queue mirrors the storage SMALLINT; negative values encode suspended/buried\n(e.g. -1 suspended), 0+ are active queues. See spec 03 (Scheduler)."
         },
         "due": {
           "type": "string",
@@ -1080,11 +1085,13 @@
         },
         "reps": {
           "type": "integer",
-          "format": "int32"
+          "format": "int32",
+          "title": "total reviews"
         },
         "lapses": {
           "type": "integer",
-          "format": "int32"
+          "format": "int32",
+          "title": "times lapsed from review back to relearning"
         },
         "lastReview": {
           "type": "string",
@@ -1096,7 +1103,8 @@
         },
         "mtime": {
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "title": "modification time (Anki-compatible name)"
         }
       },
       "description": "Card — scheduling unit; always child of a Note."
@@ -1112,6 +1120,18 @@
         }
       },
       "description": "Wrapper so repeated string can live inside a oneof."
+    },
+    "v1CardState": {
+      "type": "string",
+      "enum": [
+        "CARD_STATE_UNSPECIFIED",
+        "CARD_STATE_NEW",
+        "CARD_STATE_LEARNING",
+        "CARD_STATE_REVIEW",
+        "CARD_STATE_RELEARNING"
+      ],
+      "default": "CARD_STATE_UNSPECIFIED",
+      "description": "CardState is the FSRS scheduling state of a card.\n\n - CARD_STATE_UNSPECIFIED: never persisted; proto3 zero-value guard\n - CARD_STATE_NEW: schema value 0\n - CARD_STATE_LEARNING: schema value 1\n - CARD_STATE_REVIEW: schema value 2\n - CARD_STATE_RELEARNING: schema value 3"
     },
     "v1CardTemplate": {
       "type": "object",
@@ -1393,10 +1413,12 @@
           "type": "string"
         },
         "sticky": {
-          "type": "boolean"
+          "type": "boolean",
+          "title": "persist this field's value across successive note creates"
         },
         "rtl": {
-          "type": "boolean"
+          "type": "boolean",
+          "title": "render right-to-left"
         }
       },
       "description": "Field definition within a NoteType."
@@ -1553,7 +1575,8 @@
         },
         "flags": {
           "type": "integer",
-          "format": "int32"
+          "format": "int32",
+          "title": "colour-flag bitmask (Anki flags 1–4)"
         },
         "usn": {
           "type": "string",
