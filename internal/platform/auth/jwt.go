@@ -104,7 +104,7 @@ func NewSignerFromKeys(priv ed25519.PrivateKey, pub ed25519.PublicKey, cfg Confi
 		priv: priv,
 		pub:  pub,
 		cfg:  cfg,
-		kid:  computeKID(pub),
+		kid:  ComputeKID(pub),
 	}
 }
 
@@ -189,7 +189,8 @@ func (s *Signer) PublicKey() ed25519.PublicKey {
 	return s.pub
 }
 
-// KID returns the first 16 hex characters of SHA-256(public key bytes).
+// KID returns the first 16 hex characters of the SHA-256 of the raw public
+// key bytes, used as the JWT key ID.
 func (s *Signer) KID() string {
 	return s.kid
 }
@@ -289,7 +290,9 @@ func parsePublicKeyPEM(data []byte) (ed25519.PublicKey, error) {
 	return pub, nil
 }
 
-func computeKID(pub ed25519.PublicKey) string {
+// ComputeKID returns the first 16 hex characters of the SHA-256 of the raw
+// public key bytes, used as the JWT key ID.
+func ComputeKID(pub ed25519.PublicKey) string {
 	sum := sha256.Sum256(pub)
 	return hex.EncodeToString(sum[:8])
 }
