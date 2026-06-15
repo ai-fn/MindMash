@@ -1,0 +1,619 @@
+syntax = "proto3";
+
+package collection.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+// ─── NoteType Service ─────────────────────────────────────────────────────────
+
+service NoteTypeService {
+  rpc ListNoteTypes(ListNoteTypesRequest) returns (ListNoteTypesResponse) {
+    option (google.api.http) = {
+      get: "/v1/note-types"
+    };
+  }
+
+  rpc GetNoteType(GetNoteTypeRequest) returns (GetNoteTypeResponse) {
+    option (google.api.http) = {
+      get: "/v1/note-types/{id}"
+    };
+  }
+
+  rpc CreateNoteType(CreateNoteTypeRequest) returns (CreateNoteTypeResponse) {
+    option (google.api.http) = {
+      post: "/v1/note-types"
+      body: "*"
+    };
+  }
+
+  rpc UpdateNoteType(UpdateNoteTypeRequest) returns (UpdateNoteTypeResponse) {
+    option (google.api.http) = {
+      patch: "/v1/note-types/{id}"
+      body: "*"
+    };
+  }
+
+  rpc DeleteNoteType(DeleteNoteTypeRequest) returns (DeleteNoteTypeResponse) {
+    option (google.api.http) = {
+      delete: "/v1/note-types/{id}"
+    };
+  }
+}
+
+// ─── Note Service ─────────────────────────────────────────────────────────────
+
+service NoteService {
+  rpc GetNote(GetNoteRequest) returns (GetNoteResponse) {
+    option (google.api.http) = {
+      get: "/v1/notes/{id}"
+    };
+  }
+
+  rpc CreateNote(CreateNoteRequest) returns (CreateNoteResponse) {
+    option (google.api.http) = {
+      post: "/v1/notes"
+      body: "*"
+    };
+  }
+
+  rpc UpdateNote(UpdateNoteRequest) returns (UpdateNoteResponse) {
+    option (google.api.http) = {
+      patch: "/v1/notes/{id}"
+      body: "*"
+    };
+  }
+
+  rpc DeleteNote(DeleteNoteRequest) returns (DeleteNoteResponse) {
+    option (google.api.http) = {
+      delete: "/v1/notes/{id}"
+    };
+  }
+}
+
+// ─── Card Service ─────────────────────────────────────────────────────────────
+
+service CardService {
+  rpc GetCard(GetCardRequest) returns (GetCardResponse) {
+    option (google.api.http) = {
+      get: "/v1/cards/{id}"
+    };
+  }
+
+  rpc BulkCards(BulkCardsRequest) returns (BulkCardsResponse) {
+    option (google.api.http) = {
+      post: "/v1/cards:bulk"
+      body: "*"
+    };
+  }
+}
+
+// ─── Deck Service ─────────────────────────────────────────────────────────────
+
+service DeckService {
+  rpc ListDecks(ListDecksRequest) returns (ListDecksResponse) {
+    option (google.api.http) = {
+      get: "/v1/decks"
+    };
+  }
+
+  rpc GetDeck(GetDeckRequest) returns (GetDeckResponse) {
+    option (google.api.http) = {
+      get: "/v1/decks/{id}"
+    };
+  }
+
+  rpc CreateDeck(CreateDeckRequest) returns (CreateDeckResponse) {
+    option (google.api.http) = {
+      post: "/v1/decks"
+      body: "*"
+    };
+  }
+
+  rpc UpdateDeck(UpdateDeckRequest) returns (UpdateDeckResponse) {
+    option (google.api.http) = {
+      patch: "/v1/decks/{id}"
+      body: "*"
+    };
+  }
+
+  rpc DeleteDeck(DeleteDeckRequest) returns (DeleteDeckResponse) {
+    option (google.api.http) = {
+      delete: "/v1/decks/{id}"
+    };
+  }
+
+  // ── Deck Config sub-resource ──────────────────────────────────────────────
+
+  rpc ListDeckConfigs(ListDeckConfigsRequest) returns (ListDeckConfigsResponse) {
+    option (google.api.http) = {
+      get: "/v1/deck-configs"
+    };
+  }
+
+  rpc GetDeckConfig(GetDeckConfigRequest) returns (GetDeckConfigResponse) {
+    option (google.api.http) = {
+      get: "/v1/deck-configs/{id}"
+    };
+  }
+
+  rpc CreateDeckConfig(CreateDeckConfigRequest) returns (CreateDeckConfigResponse) {
+    option (google.api.http) = {
+      post: "/v1/deck-configs"
+      body: "*"
+    };
+  }
+
+  rpc UpdateDeckConfig(UpdateDeckConfigRequest) returns (UpdateDeckConfigResponse) {
+    option (google.api.http) = {
+      patch: "/v1/deck-configs/{id}"
+      body: "*"
+    };
+  }
+
+  rpc DeleteDeckConfig(DeleteDeckConfigRequest) returns (DeleteDeckConfigResponse) {
+    option (google.api.http) = {
+      delete: "/v1/deck-configs/{id}"
+    };
+  }
+}
+
+// ─── FilteredDeck Service ─────────────────────────────────────────────────────
+
+// FilteredDeck definitions are immutable saved queries: edit = delete + recreate
+// (no Update RPC, per spec 02). Execution/queue building lives in Scheduler+Search.
+service FilteredDeckService {
+  rpc ListFilteredDecks(ListFilteredDecksRequest) returns (ListFilteredDecksResponse) {
+    option (google.api.http) = {
+      get: "/v1/filtered-decks"
+    };
+  }
+
+  rpc CreateFilteredDeck(CreateFilteredDeckRequest) returns (CreateFilteredDeckResponse) {
+    option (google.api.http) = {
+      post: "/v1/filtered-decks"
+      body: "*"
+    };
+  }
+
+  rpc DeleteFilteredDeck(DeleteFilteredDeckRequest) returns (DeleteFilteredDeckResponse) {
+    option (google.api.http) = {
+      delete: "/v1/filtered-decks/{id}"
+    };
+  }
+}
+
+// ─── Collection Internal Service (gRPC only — no HTTP annotations) ────────────
+
+service CollectionInternalService {
+  rpc GetCardsByIDs(GetCardsByIDsRequest) returns (GetCardsByIDsResponse);
+  rpc GetNote(CollectionInternalServiceGetNoteRequest) returns (CollectionInternalServiceGetNoteResponse);
+  rpc RenderCard(RenderCardRequest) returns (RenderCardResponse);
+  rpc ListCardIDs(ListCardIDsRequest) returns (ListCardIDsResponse);
+}
+
+// ─── Shared / Domain Messages ─────────────────────────────────────────────────
+
+// Field definition within a NoteType.
+message Field {
+  string name   = 1;
+  bool   sticky = 2; // persist this field's value across successive note creates
+  bool   rtl    = 3; // render right-to-left
+}
+
+// Card template within a NoteType.
+message CardTemplate {
+  string name  = 1;
+  string front = 2; // qfmt — Mustache/handlebars front template
+  string back  = 3; // afmt — back template
+}
+
+// NoteType — schema + templates + CSS.
+message NoteType {
+  string                    id             = 1;
+  string                    name           = 2;
+  repeated Field            fields         = 3;
+  repeated CardTemplate     card_templates = 4;
+  string                    css            = 5;
+  int64                     usn            = 6;
+  google.protobuf.Timestamp mtime          = 7;
+}
+
+// Note — a single unit of knowledge; generates one or more cards.
+message Note {
+  string                    id           = 1;
+  string                    note_type_id = 2;
+  map<string, string>       fields       = 3;
+  repeated string           tags         = 4;
+  int32                     flags        = 5; // colour-flag bitmask (Anki flags 1–4)
+  int64                     usn          = 6;
+  google.protobuf.Timestamp mtime        = 7;
+}
+
+// CardState is the FSRS scheduling state of a card.
+enum CardState {
+  CARD_STATE_UNSPECIFIED = 0; // never persisted; proto3 zero-value guard
+  CARD_STATE_NEW         = 1; // schema value 0
+  CARD_STATE_LEARNING    = 2; // schema value 1
+  CARD_STATE_REVIEW      = 3; // schema value 2
+  CARD_STATE_RELEARNING  = 4; // schema value 3
+}
+
+// Card — scheduling unit; always child of a Note.
+message Card {
+  string                    id           = 1;
+  string                    note_id      = 2;
+  string                    deck_id      = 3;
+  int32                     template_ord = 4; // 0-based index into NoteType.card_templates
+  CardState                 state        = 5;
+  // queue mirrors the storage SMALLINT; negative values encode suspended/buried
+  // (e.g. -1 suspended), 0+ are active queues. See spec 03 (Scheduler).
+  int32                     queue        = 6;
+  google.protobuf.Timestamp due          = 7; // TIMESTAMPTZ in schema
+  double                    stability    = 8;
+  double                    difficulty   = 9;
+  int32                     reps         = 10; // total reviews
+  int32                     lapses       = 11; // times lapsed from review back to relearning
+  google.protobuf.Timestamp last_review  = 12;
+  int64                     usn          = 13;
+  google.protobuf.Timestamp mtime        = 14; // modification time (Anki-compatible name)
+}
+
+// Deck — hierarchical; path is an LTREE string like "parent::child".
+message Deck {
+  string                    id        = 1;
+  string                    parent_id = 2;
+  string                    name      = 3;
+  string                    path      = 4;
+  string                    config_id = 5;
+  int64                     usn       = 6;
+  google.protobuf.Timestamp mtime     = 7;
+}
+
+// DeckConfig — per-deck scheduling parameters.
+message DeckConfig {
+  string          id                = 1;
+  string          name              = 2;
+  int32           new_per_day       = 3;
+  int32           rev_per_day       = 4;
+  double          desired_retention = 5;
+  repeated double fsrs_weights      = 6;
+  repeated int32            learning_steps    = 7; // minutes
+  int32                     rollover_hour     = 8;
+  string                    timezone          = 9;
+  int64                     usn               = 10;
+  google.protobuf.Timestamp mtime             = 11;
+}
+
+// FilteredDeck — saved card query (no execution via this service).
+message FilteredDeck {
+  string                    id    = 1;
+  string                    name  = 2;
+  string                    query = 3;
+  int64                     usn   = 4;
+  google.protobuf.Timestamp mtime = 5;
+}
+
+// BulkOp — operation applied in a BulkCards call.
+enum BulkOp {
+  BULK_OP_UNSPECIFIED = 0;
+  BULK_OP_MOVE        = 1;
+  BULK_OP_TAG         = 2;
+  BULK_OP_UNTAG       = 3;
+  BULK_OP_FLAG        = 4;
+  BULK_OP_SUSPEND     = 5;
+  BULK_OP_DELETE      = 6;
+}
+
+// BulkArgs — extra parameters for a BulkCards call. Only the field relevant to
+// the request's `op` is read; the rest are ignored. BULK_OP_SUSPEND and
+// BULK_OP_DELETE take no args. For BULK_OP_FLAG, flag=0 means "clear flag".
+message BulkArgs {
+  string target_deck_id = 1; // BULK_OP_MOVE
+  string tag            = 2; // BULK_OP_TAG / BULK_OP_UNTAG
+  int32  flag           = 3; // BULK_OP_FLAG (0 = clear)
+}
+
+// ─── NoteType Messages ────────────────────────────────────────────────────────
+
+message ListNoteTypesRequest {
+  string page_token = 1;
+  int32  page_size  = 2;
+}
+
+message ListNoteTypesResponse {
+  repeated NoteType items          = 1;
+  string            next_page_token = 2;
+}
+
+message GetNoteTypeRequest {
+  string id = 1;
+}
+
+message GetNoteTypeResponse {
+  NoteType note_type = 1;
+}
+
+message CreateNoteTypeRequest {
+  string                name           = 1;
+  repeated Field        fields         = 2;
+  repeated CardTemplate card_templates = 3;
+  string                css            = 4;
+}
+
+message CreateNoteTypeResponse {
+  NoteType note_type = 1;
+}
+
+// Update replaces the full desired state of the entity; every mutable field is
+// authoritative (an empty/zero value clears that field). expected_usn guards the
+// write with optimistic concurrency.
+message UpdateNoteTypeRequest {
+  string                id             = 1;
+  string                name           = 2;
+  repeated Field        fields         = 3;
+  repeated CardTemplate card_templates = 4;
+  string                css            = 5;
+  int64                 expected_usn   = 6;
+}
+
+message UpdateNoteTypeResponse {
+  NoteType note_type = 1;
+}
+
+message DeleteNoteTypeRequest {
+  string id           = 1;
+  int64  expected_usn = 2;
+}
+
+message DeleteNoteTypeResponse {}
+
+// ─── Note Messages ────────────────────────────────────────────────────────────
+
+message GetNoteRequest {
+  string id = 1;
+}
+
+message GetNoteResponse {
+  Note note = 1;
+}
+
+message CreateNoteRequest {
+  string              note_type_id = 1;
+  string              deck_id      = 2;
+  map<string, string> fields       = 3;
+  repeated string     tags         = 4;
+  int32               flags        = 5;
+}
+
+message CreateNoteResponse {
+  Note note = 1;
+}
+
+// Update replaces the full desired state of the note (see UpdateNoteTypeRequest).
+message UpdateNoteRequest {
+  string              id           = 1;
+  map<string, string> fields       = 2;
+  repeated string     tags         = 3;
+  int32               flags        = 4;
+  int64               expected_usn = 5;
+}
+
+message UpdateNoteResponse {
+  Note note = 1;
+}
+
+message DeleteNoteRequest {
+  string id           = 1;
+  int64  expected_usn = 2;
+}
+
+message DeleteNoteResponse {}
+
+// ─── Card Messages ────────────────────────────────────────────────────────────
+
+message GetCardRequest {
+  string id = 1;
+}
+
+message GetCardResponse {
+  Card   card       = 1;
+  string front_html = 2;
+  string back_html  = 3;
+}
+
+message BulkCardsRequest {
+  oneof selector {
+    CardIDList ids_list = 1;
+    string     query    = 2;
+  }
+  BulkOp   op   = 3;
+  BulkArgs args = 4;
+}
+
+// Wrapper so repeated string can live inside a oneof.
+message CardIDList {
+  repeated string ids = 1;
+}
+
+message BulkCardsResponse {
+  int64 affected_count = 1; // number of cards matched and mutated by the op
+}
+
+// ─── Deck Messages ────────────────────────────────────────────────────────────
+
+message ListDecksRequest {
+  string page_token = 1;
+  int32  page_size  = 2;
+}
+
+message ListDecksResponse {
+  repeated Deck items           = 1;
+  string        next_page_token = 2;
+}
+
+message GetDeckRequest {
+  string id = 1;
+}
+
+message GetDeckResponse {
+  Deck deck = 1;
+}
+
+message CreateDeckRequest {
+  string name      = 1;
+  string parent_id = 2;
+  string config_id = 3;
+}
+
+message CreateDeckResponse {
+  Deck deck = 1;
+}
+
+// Update replaces the full desired state of the deck (see UpdateNoteTypeRequest);
+// changing parent_id moves the subtree.
+message UpdateDeckRequest {
+  string id           = 1;
+  string name         = 2;
+  string parent_id    = 3;
+  string config_id    = 4;
+  int64  expected_usn = 5;
+}
+
+message UpdateDeckResponse {
+  Deck deck = 1;
+}
+
+message DeleteDeckRequest {
+  string id           = 1;
+  int64  expected_usn = 2;
+}
+
+message DeleteDeckResponse {}
+
+// ─── DeckConfig Messages ──────────────────────────────────────────────────────
+
+message ListDeckConfigsRequest {
+  string page_token = 1;
+  int32  page_size  = 2;
+}
+
+message ListDeckConfigsResponse {
+  repeated DeckConfig items           = 1;
+  string              next_page_token = 2;
+}
+
+message GetDeckConfigRequest {
+  string id = 1;
+}
+
+message GetDeckConfigResponse {
+  DeckConfig deck_config = 1;
+}
+
+message CreateDeckConfigRequest {
+  string          name              = 1;
+  int32           new_per_day       = 2;
+  int32           rev_per_day       = 3;
+  double          desired_retention = 4;
+  repeated double fsrs_weights      = 5;
+  repeated int32  learning_steps    = 6;
+  int32           rollover_hour     = 7;
+  string          timezone          = 8;
+}
+
+message CreateDeckConfigResponse {
+  DeckConfig deck_config = 1;
+}
+
+// Update replaces the full desired state of the config (see UpdateNoteTypeRequest).
+message UpdateDeckConfigRequest {
+  string          id                = 1;
+  string          name              = 2;
+  int32           new_per_day       = 3;
+  int32           rev_per_day       = 4;
+  double          desired_retention = 5;
+  repeated double fsrs_weights      = 6;
+  repeated int32  learning_steps    = 7;
+  int32           rollover_hour     = 8;
+  string          timezone          = 9;
+  int64           expected_usn      = 10;
+}
+
+message UpdateDeckConfigResponse {
+  DeckConfig deck_config = 1;
+}
+
+message DeleteDeckConfigRequest {
+  string id           = 1;
+  int64  expected_usn = 2;
+}
+
+message DeleteDeckConfigResponse {}
+
+// ─── FilteredDeck Messages ────────────────────────────────────────────────────
+
+message ListFilteredDecksRequest {
+  string page_token = 1;
+  int32  page_size  = 2;
+}
+
+message ListFilteredDecksResponse {
+  repeated FilteredDeck items           = 1;
+  string                next_page_token = 2;
+}
+
+message CreateFilteredDeckRequest {
+  string name  = 1;
+  string query = 2;
+}
+
+message CreateFilteredDeckResponse {
+  FilteredDeck filtered_deck = 1;
+}
+
+message DeleteFilteredDeckRequest {
+  string id           = 1;
+  int64  expected_usn = 2;
+}
+
+message DeleteFilteredDeckResponse {}
+
+// ─── Internal Messages ────────────────────────────────────────────────────────
+
+message GetCardsByIDsRequest {
+  repeated string ids = 1;
+}
+
+message GetCardsByIDsResponse {
+  repeated Card cards = 1;
+}
+
+message CollectionInternalServiceGetNoteRequest {
+  string id = 1;
+}
+
+message CollectionInternalServiceGetNoteResponse {
+  Note note = 1;
+}
+
+message RenderCardRequest {
+  string card_id = 1;
+}
+
+message RenderCardResponse {
+  string front_html = 1;
+  string back_html  = 2;
+}
+
+message ListCardIDsRequest {
+  string query      = 1;
+  string page_token = 2;
+  int32  page_size  = 3;
+}
+
+message ListCardIDsResponse {
+  repeated string ids            = 1;
+  string          next_page_token = 2;
+}

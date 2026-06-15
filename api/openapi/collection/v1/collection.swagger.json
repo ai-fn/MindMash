@@ -1,0 +1,1639 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "collection/v1/collection.proto",
+    "version": "version not set"
+  },
+  "tags": [
+    {
+      "name": "NoteTypeService"
+    },
+    {
+      "name": "NoteService"
+    },
+    {
+      "name": "CardService"
+    },
+    {
+      "name": "DeckService"
+    },
+    {
+      "name": "FilteredDeckService"
+    },
+    {
+      "name": "CollectionInternalService"
+    }
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v1/cards/{id}": {
+      "get": {
+        "operationId": "CardService_GetCard",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1GetCardResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "CardService"
+        ]
+      }
+    },
+    "/v1/cards:bulk": {
+      "post": {
+        "operationId": "CardService_BulkCards",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1BulkCardsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1BulkCardsRequest"
+            }
+          }
+        ],
+        "tags": [
+          "CardService"
+        ]
+      }
+    },
+    "/v1/deck-configs": {
+      "get": {
+        "operationId": "DeckService_ListDeckConfigs",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1ListDeckConfigsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "pageToken",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          }
+        ],
+        "tags": [
+          "DeckService"
+        ]
+      },
+      "post": {
+        "operationId": "DeckService_CreateDeckConfig",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1CreateDeckConfigResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1CreateDeckConfigRequest"
+            }
+          }
+        ],
+        "tags": [
+          "DeckService"
+        ]
+      }
+    },
+    "/v1/deck-configs/{id}": {
+      "get": {
+        "operationId": "DeckService_GetDeckConfig",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1GetDeckConfigResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "DeckService"
+        ]
+      },
+      "delete": {
+        "operationId": "DeckService_DeleteDeckConfig",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1DeleteDeckConfigResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "expectedUsn",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "int64"
+          }
+        ],
+        "tags": [
+          "DeckService"
+        ]
+      },
+      "patch": {
+        "operationId": "DeckService_UpdateDeckConfig",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1UpdateDeckConfigResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/DeckServiceUpdateDeckConfigBody"
+            }
+          }
+        ],
+        "tags": [
+          "DeckService"
+        ]
+      }
+    },
+    "/v1/decks": {
+      "get": {
+        "operationId": "DeckService_ListDecks",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1ListDecksResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "pageToken",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          }
+        ],
+        "tags": [
+          "DeckService"
+        ]
+      },
+      "post": {
+        "operationId": "DeckService_CreateDeck",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1CreateDeckResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1CreateDeckRequest"
+            }
+          }
+        ],
+        "tags": [
+          "DeckService"
+        ]
+      }
+    },
+    "/v1/decks/{id}": {
+      "get": {
+        "operationId": "DeckService_GetDeck",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1GetDeckResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "DeckService"
+        ]
+      },
+      "delete": {
+        "operationId": "DeckService_DeleteDeck",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1DeleteDeckResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "expectedUsn",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "int64"
+          }
+        ],
+        "tags": [
+          "DeckService"
+        ]
+      },
+      "patch": {
+        "operationId": "DeckService_UpdateDeck",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1UpdateDeckResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/DeckServiceUpdateDeckBody"
+            }
+          }
+        ],
+        "tags": [
+          "DeckService"
+        ]
+      }
+    },
+    "/v1/filtered-decks": {
+      "get": {
+        "operationId": "FilteredDeckService_ListFilteredDecks",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1ListFilteredDecksResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "pageToken",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          }
+        ],
+        "tags": [
+          "FilteredDeckService"
+        ]
+      },
+      "post": {
+        "operationId": "FilteredDeckService_CreateFilteredDeck",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1CreateFilteredDeckResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1CreateFilteredDeckRequest"
+            }
+          }
+        ],
+        "tags": [
+          "FilteredDeckService"
+        ]
+      }
+    },
+    "/v1/filtered-decks/{id}": {
+      "delete": {
+        "operationId": "FilteredDeckService_DeleteFilteredDeck",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1DeleteFilteredDeckResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "expectedUsn",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "int64"
+          }
+        ],
+        "tags": [
+          "FilteredDeckService"
+        ]
+      }
+    },
+    "/v1/note-types": {
+      "get": {
+        "operationId": "NoteTypeService_ListNoteTypes",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1ListNoteTypesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "pageToken",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          }
+        ],
+        "tags": [
+          "NoteTypeService"
+        ]
+      },
+      "post": {
+        "operationId": "NoteTypeService_CreateNoteType",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1CreateNoteTypeResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1CreateNoteTypeRequest"
+            }
+          }
+        ],
+        "tags": [
+          "NoteTypeService"
+        ]
+      }
+    },
+    "/v1/note-types/{id}": {
+      "get": {
+        "operationId": "NoteTypeService_GetNoteType",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1GetNoteTypeResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "NoteTypeService"
+        ]
+      },
+      "delete": {
+        "operationId": "NoteTypeService_DeleteNoteType",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1DeleteNoteTypeResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "expectedUsn",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "int64"
+          }
+        ],
+        "tags": [
+          "NoteTypeService"
+        ]
+      },
+      "patch": {
+        "operationId": "NoteTypeService_UpdateNoteType",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1UpdateNoteTypeResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/NoteTypeServiceUpdateNoteTypeBody"
+            }
+          }
+        ],
+        "tags": [
+          "NoteTypeService"
+        ]
+      }
+    },
+    "/v1/notes": {
+      "post": {
+        "operationId": "NoteService_CreateNote",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1CreateNoteResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1CreateNoteRequest"
+            }
+          }
+        ],
+        "tags": [
+          "NoteService"
+        ]
+      }
+    },
+    "/v1/notes/{id}": {
+      "get": {
+        "operationId": "NoteService_GetNote",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1GetNoteResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "NoteService"
+        ]
+      },
+      "delete": {
+        "operationId": "NoteService_DeleteNote",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1DeleteNoteResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "expectedUsn",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "int64"
+          }
+        ],
+        "tags": [
+          "NoteService"
+        ]
+      },
+      "patch": {
+        "operationId": "NoteService_UpdateNote",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1UpdateNoteResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/NoteServiceUpdateNoteBody"
+            }
+          }
+        ],
+        "tags": [
+          "NoteService"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "DeckServiceUpdateDeckBody": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "parentId": {
+          "type": "string"
+        },
+        "configId": {
+          "type": "string"
+        },
+        "expectedUsn": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "DeckServiceUpdateDeckConfigBody": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "newPerDay": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "revPerDay": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "desiredRetention": {
+          "type": "number",
+          "format": "double"
+        },
+        "fsrsWeights": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "learningSteps": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "rolloverHour": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "timezone": {
+          "type": "string"
+        },
+        "expectedUsn": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "NoteServiceUpdateNoteBody": {
+      "type": "object",
+      "properties": {
+        "fields": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "flags": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "expectedUsn": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "NoteTypeServiceUpdateNoteTypeBody": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1Field"
+          }
+        },
+        "cardTemplates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1CardTemplate"
+          }
+        },
+        "css": {
+          "type": "string"
+        },
+        "expectedUsn": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "@type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": {}
+    },
+    "rpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
+    "v1BulkArgs": {
+      "type": "object",
+      "properties": {
+        "targetDeckId": {
+          "type": "string",
+          "title": "BULK_OP_MOVE"
+        },
+        "tag": {
+          "type": "string",
+          "title": "BULK_OP_TAG / BULK_OP_UNTAG"
+        },
+        "flag": {
+          "type": "integer",
+          "format": "int32",
+          "title": "BULK_OP_FLAG"
+        }
+      },
+      "description": "BulkArgs — extra parameters specific to the chosen BulkOp."
+    },
+    "v1BulkCardsRequest": {
+      "type": "object",
+      "properties": {
+        "idsList": {
+          "$ref": "#/definitions/v1CardIDList"
+        },
+        "query": {
+          "type": "string"
+        },
+        "op": {
+          "$ref": "#/definitions/v1BulkOp"
+        },
+        "args": {
+          "$ref": "#/definitions/v1BulkArgs"
+        }
+      }
+    },
+    "v1BulkCardsResponse": {
+      "type": "object",
+      "properties": {
+        "affectedCount": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "v1BulkOp": {
+      "type": "string",
+      "enum": [
+        "BULK_OP_UNSPECIFIED",
+        "BULK_OP_MOVE",
+        "BULK_OP_TAG",
+        "BULK_OP_UNTAG",
+        "BULK_OP_FLAG",
+        "BULK_OP_SUSPEND",
+        "BULK_OP_DELETE"
+      ],
+      "default": "BULK_OP_UNSPECIFIED",
+      "description": "BulkOp — operation applied in a BulkCards call."
+    },
+    "v1Card": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "noteId": {
+          "type": "string"
+        },
+        "deckId": {
+          "type": "string"
+        },
+        "templateOrd": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "state": {
+          "type": "integer",
+          "format": "int32",
+          "title": "0=new,1=learning,2=review,3=relearning"
+        },
+        "queue": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "due": {
+          "type": "string",
+          "format": "date-time",
+          "title": "TIMESTAMPTZ in schema"
+        },
+        "stability": {
+          "type": "number",
+          "format": "double"
+        },
+        "difficulty": {
+          "type": "number",
+          "format": "double"
+        },
+        "reps": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "lapses": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "lastReview": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "usn": {
+          "type": "string",
+          "format": "int64"
+        },
+        "mtime": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "description": "Card — scheduling unit; always child of a Note."
+    },
+    "v1CardIDList": {
+      "type": "object",
+      "properties": {
+        "ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "Wrapper so repeated string can live inside a oneof."
+    },
+    "v1CardTemplate": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "front": {
+          "type": "string",
+          "title": "qfmt — Mustache/handlebars front template"
+        },
+        "back": {
+          "type": "string",
+          "title": "afmt — back template"
+        }
+      },
+      "description": "Card template within a NoteType."
+    },
+    "v1CreateDeckConfigRequest": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "newPerDay": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "revPerDay": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "desiredRetention": {
+          "type": "number",
+          "format": "double"
+        },
+        "fsrsWeights": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "learningSteps": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "rolloverHour": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "timezone": {
+          "type": "string"
+        }
+      }
+    },
+    "v1CreateDeckConfigResponse": {
+      "type": "object",
+      "properties": {
+        "deckConfig": {
+          "$ref": "#/definitions/v1DeckConfig"
+        }
+      }
+    },
+    "v1CreateDeckRequest": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "parentId": {
+          "type": "string"
+        },
+        "configId": {
+          "type": "string"
+        }
+      }
+    },
+    "v1CreateDeckResponse": {
+      "type": "object",
+      "properties": {
+        "deck": {
+          "$ref": "#/definitions/v1Deck"
+        }
+      }
+    },
+    "v1CreateFilteredDeckRequest": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "query": {
+          "type": "string"
+        }
+      }
+    },
+    "v1CreateFilteredDeckResponse": {
+      "type": "object",
+      "properties": {
+        "filteredDeck": {
+          "$ref": "#/definitions/v1FilteredDeck"
+        }
+      }
+    },
+    "v1CreateNoteRequest": {
+      "type": "object",
+      "properties": {
+        "noteTypeId": {
+          "type": "string"
+        },
+        "deckId": {
+          "type": "string"
+        },
+        "fields": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "flags": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    },
+    "v1CreateNoteResponse": {
+      "type": "object",
+      "properties": {
+        "note": {
+          "$ref": "#/definitions/v1Note"
+        }
+      }
+    },
+    "v1CreateNoteTypeRequest": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1Field"
+          }
+        },
+        "cardTemplates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1CardTemplate"
+          }
+        },
+        "css": {
+          "type": "string"
+        }
+      }
+    },
+    "v1CreateNoteTypeResponse": {
+      "type": "object",
+      "properties": {
+        "noteType": {
+          "$ref": "#/definitions/v1NoteType"
+        }
+      }
+    },
+    "v1Deck": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "parentId": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "configId": {
+          "type": "string"
+        },
+        "usn": {
+          "type": "string",
+          "format": "int64"
+        },
+        "mtime": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "description": "Deck — hierarchical; path is an LTREE string like \"parent::child\"."
+    },
+    "v1DeckConfig": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "newPerDay": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "revPerDay": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "desiredRetention": {
+          "type": "number",
+          "format": "double"
+        },
+        "fsrsWeights": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "learningSteps": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "title": "minutes"
+        },
+        "rolloverHour": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "timezone": {
+          "type": "string"
+        },
+        "usn": {
+          "type": "string",
+          "format": "int64"
+        },
+        "mtime": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "description": "DeckConfig — per-deck scheduling parameters."
+    },
+    "v1DeleteDeckConfigResponse": {
+      "type": "object"
+    },
+    "v1DeleteDeckResponse": {
+      "type": "object"
+    },
+    "v1DeleteFilteredDeckResponse": {
+      "type": "object"
+    },
+    "v1DeleteNoteResponse": {
+      "type": "object"
+    },
+    "v1DeleteNoteTypeResponse": {
+      "type": "object"
+    },
+    "v1Field": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "sticky": {
+          "type": "boolean"
+        },
+        "rtl": {
+          "type": "boolean"
+        }
+      },
+      "description": "Field definition within a NoteType."
+    },
+    "v1FilteredDeck": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "query": {
+          "type": "string"
+        },
+        "usn": {
+          "type": "string",
+          "format": "int64"
+        },
+        "mtime": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "description": "FilteredDeck — saved card query (no execution via this service)."
+    },
+    "v1GetCardResponse": {
+      "type": "object",
+      "properties": {
+        "card": {
+          "$ref": "#/definitions/v1Card"
+        },
+        "frontHtml": {
+          "type": "string"
+        },
+        "backHtml": {
+          "type": "string"
+        }
+      }
+    },
+    "v1GetDeckConfigResponse": {
+      "type": "object",
+      "properties": {
+        "deckConfig": {
+          "$ref": "#/definitions/v1DeckConfig"
+        }
+      }
+    },
+    "v1GetDeckResponse": {
+      "type": "object",
+      "properties": {
+        "deck": {
+          "$ref": "#/definitions/v1Deck"
+        }
+      }
+    },
+    "v1GetNoteResponse": {
+      "type": "object",
+      "properties": {
+        "note": {
+          "$ref": "#/definitions/v1Note"
+        }
+      }
+    },
+    "v1GetNoteTypeResponse": {
+      "type": "object",
+      "properties": {
+        "noteType": {
+          "$ref": "#/definitions/v1NoteType"
+        }
+      }
+    },
+    "v1ListDeckConfigsResponse": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1DeckConfig"
+          }
+        },
+        "nextPageToken": {
+          "type": "string"
+        }
+      }
+    },
+    "v1ListDecksResponse": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1Deck"
+          }
+        },
+        "nextPageToken": {
+          "type": "string"
+        }
+      }
+    },
+    "v1ListFilteredDecksResponse": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1FilteredDeck"
+          }
+        },
+        "nextPageToken": {
+          "type": "string"
+        }
+      }
+    },
+    "v1ListNoteTypesResponse": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1NoteType"
+          }
+        },
+        "nextPageToken": {
+          "type": "string"
+        }
+      }
+    },
+    "v1Note": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "noteTypeId": {
+          "type": "string"
+        },
+        "fields": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "flags": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "usn": {
+          "type": "string",
+          "format": "int64"
+        },
+        "mtime": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "description": "Note — a single unit of knowledge; generates one or more cards."
+    },
+    "v1NoteType": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1Field"
+          }
+        },
+        "cardTemplates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1CardTemplate"
+          }
+        },
+        "css": {
+          "type": "string"
+        },
+        "usn": {
+          "type": "string",
+          "format": "int64"
+        },
+        "mtime": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "description": "NoteType — schema + templates + CSS."
+    },
+    "v1UpdateDeckConfigResponse": {
+      "type": "object",
+      "properties": {
+        "deckConfig": {
+          "$ref": "#/definitions/v1DeckConfig"
+        }
+      }
+    },
+    "v1UpdateDeckResponse": {
+      "type": "object",
+      "properties": {
+        "deck": {
+          "$ref": "#/definitions/v1Deck"
+        }
+      }
+    },
+    "v1UpdateNoteResponse": {
+      "type": "object",
+      "properties": {
+        "note": {
+          "$ref": "#/definitions/v1Note"
+        }
+      }
+    },
+    "v1UpdateNoteTypeResponse": {
+      "type": "object",
+      "properties": {
+        "noteType": {
+          "$ref": "#/definitions/v1NoteType"
+        }
+      }
+    }
+  }
+}
