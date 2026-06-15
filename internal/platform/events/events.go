@@ -209,7 +209,8 @@ func (c *KafkaConsumer) Close() error {
 
 // OutboxEntry is a single row written to the transactional outbox table.
 type OutboxEntry struct {
-	ID            string // ULID assigned by the caller
+	ID            string // ULID/UUID assigned by the caller
+	UserID        string // tenant + Kafka partition key (Citus shard key)
 	AggregateType string
 	AggregateID   string
 	EventType     string
@@ -220,14 +221,22 @@ type OutboxEntry struct {
 // WriteOutbox inserts outbox entries into the outbox table within an existing
 // transaction. Using the caller's tx keeps the domain write and the outbox
 // append atomic, which is the core guarantee of the transactional outbox pattern.
+// user_id is required: the outbox is sharded by it and the relay uses it as the
+// Kafka partition key so a user's events stay ordered.
 func WriteOutbox(ctx context.Context, tx pgx.Tx, entries []OutboxEntry) error {
 	const q = `INSERT INTO outbox
-		(id, aggregate_type, aggregate_id, event_type, payload, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6)`
+		(id, user_id, aggregate_type, aggregate_id, event_type, payload, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`
 
 	for _, e := range entries {
+		// user_id is the shard key + Kafka partition key; an empty value would
+		// otherwise surface only as an opaque invalid-UUID error mid-transaction
+		// and break per-user event ordering. Fail fast and clearly instead.
+		if e.UserID == "" {
+			return fmt.Errorf("events: write outbox entry %s: user_id is required", e.ID)
+		}
 		if _, err := tx.Exec(ctx, q,
-			e.ID, e.AggregateType, e.AggregateID, e.EventType, e.Payload, e.CreatedAt,
+			e.ID, e.UserID, e.AggregateType, e.AggregateID, e.EventType, e.Payload, e.CreatedAt,
 		); err != nil {
 			return fmt.Errorf("events: write outbox entry %s: %w", e.ID, err)
 		}

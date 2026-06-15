@@ -7,9 +7,9 @@ CREATE TABLE deck_configs (
     name              TEXT          NOT NULL,
     new_per_day       INT           NOT NULL DEFAULT 20,
     rev_per_day       INT           NOT NULL DEFAULT 200,
-    desired_retention REAL          NOT NULL DEFAULT 0.9,
-    fsrs_weights      REAL[]        NOT NULL DEFAULT '{}',
-    learning_steps    INT[]         NOT NULL DEFAULT '{1,10}', -- minutes
+    desired_retention DOUBLE PRECISION   NOT NULL DEFAULT 0.9,
+    fsrs_weights      DOUBLE PRECISION[] NOT NULL DEFAULT '{}',
+    learning_steps    INT[]              NOT NULL DEFAULT '{1,10}', -- minutes
     rollover_hour     SMALLINT      NOT NULL DEFAULT 4,
     timezone          TEXT          NOT NULL DEFAULT 'UTC',
     usn               BIGINT        NOT NULL DEFAULT 0, -- update sequence number for sync

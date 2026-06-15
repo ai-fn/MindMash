@@ -13,8 +13,8 @@ CREATE TABLE cards (
     state        SMALLINT      NOT NULL DEFAULT 0, -- 0 new | 1 learning | 2 review | 3 relearning
     queue        SMALLINT      NOT NULL DEFAULT 0, -- negative = suspended/buried
     due          TIMESTAMPTZ,                      -- next review time; NULL for unseen new cards
-    stability    REAL,                             -- FSRS stability (days)
-    difficulty   REAL,                             -- FSRS difficulty [0,1]
+    stability    DOUBLE PRECISION,                 -- FSRS stability (days)
+    difficulty   DOUBLE PRECISION,                 -- FSRS difficulty [0,1]
     reps         INT           NOT NULL DEFAULT 0,
     lapses       INT           NOT NULL DEFAULT 0,
     last_review  TIMESTAMPTZ,

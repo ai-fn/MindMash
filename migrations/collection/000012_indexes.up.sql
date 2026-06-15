@@ -6,6 +6,11 @@ CREATE INDEX cards_due ON cards (user_id, deck_id, due) WHERE queue >= 0 AND sta
 -- New-card queue: fetch unseen cards in insertion order within a deck.
 CREATE INDEX cards_new ON cards (user_id, deck_id, id) WHERE state = 0;
 
+-- Note→cards lookups: card generation (ListCardsByNote on every note edit), the
+-- bulk tag/flag subqueries, and the ON DELETE RESTRICT FK check on note delete.
+-- Postgres does not auto-index the child side of the (user_id, note_id) FK.
+CREATE INDEX cards_note ON cards (user_id, note_id);
+
 -- Tag search on notes (GIN over TEXT[]).
 CREATE INDEX notes_tags ON notes USING GIN (tags);
 

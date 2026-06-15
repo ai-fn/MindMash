@@ -39,6 +39,18 @@ func TestAppErrorConstructors(t *testing.T) {
 			wantHTTP: http.StatusBadRequest,
 		},
 		{
+			name:     "FailedPrecondition",
+			err:      apperrors.FailedPrecondition("note type in use", sentinel),
+			wantGRPC: codes.FailedPrecondition,
+			wantHTTP: http.StatusBadRequest,
+		},
+		{
+			name:     "Aborted",
+			err:      apperrors.Aborted("stale write", sentinel),
+			wantGRPC: codes.Aborted,
+			wantHTTP: http.StatusConflict,
+		},
+		{
 			name:     "Unauthenticated",
 			err:      apperrors.Unauthenticated("missing token", sentinel),
 			wantGRPC: codes.Unauthenticated,
