@@ -87,6 +87,10 @@ func Unavailable(msg string, cause ...error) *AppError {
 	return newAppError(codes.Unavailable, msg, cause)
 }
 
+func Unimplemented(msg string, cause ...error) *AppError {
+	return newAppError(codes.Unimplemented, msg, cause)
+}
+
 // grpcToHTTP mirrors the mapping used by grpc-gateway's runtime.HTTPStatusFromCode.
 var grpcToHTTP = map[codes.Code]int{
 	codes.NotFound:           http.StatusNotFound,
@@ -98,6 +102,7 @@ var grpcToHTTP = map[codes.Code]int{
 	codes.PermissionDenied:   http.StatusForbidden,
 	codes.Internal:           http.StatusInternalServerError,
 	codes.Unavailable:        http.StatusServiceUnavailable,
+	codes.Unimplemented:      http.StatusNotImplemented,
 }
 
 // HTTPStatus extracts the HTTP status code that corresponds to err.

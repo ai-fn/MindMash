@@ -7,6 +7,8 @@ package collection
 import (
 	"context"
 	"time"
+
+	"github.com/mindmesh/mindmesh/internal/platform/events"
 )
 
 // CardState is the FSRS scheduling state of a card, stored as the schema
@@ -24,11 +26,13 @@ const (
 // Tombstone entity types, written to the tombstones table on hard delete so the
 // Sync service can propagate deletions to clients.
 const (
-	TombstoneNote     = "note"
-	TombstoneCard     = "card"
-	TombstoneDeck     = "deck"
-	TombstoneNoteType = "note_type"
-	TombstoneTag      = "tag"
+	TombstoneNote         = "note"
+	TombstoneCard         = "card"
+	TombstoneDeck         = "deck"
+	TombstoneNoteType     = "note_type"
+	TombstoneTag          = "tag"
+	TombstoneDeckConfig   = "deck_config"
+	TombstoneFilteredDeck = "filtered_deck"
 )
 
 // ─── Domain entities ────────────────────────────────────────────────────────
@@ -240,21 +244,30 @@ type Repository interface {
 	// Tombstone records a hard delete for the Sync service.
 	WriteTombstone(ctx context.Context, userID, typ, id string, usn int64) error
 
+	// WriteOutbox appends outbox entries to the outbox table within the current
+	// transaction. Must be called inside a WithTx callback — calling it on the
+	// pool-backed repository panics.
+	WriteOutbox(ctx context.Context, entries []events.OutboxEntry) error
+
 	// ── Bulk operations (scoped by userID, batched by card-id set) ──
 	// Each returns the number of rows affected and stamps usn/mtime.
 
-	// MoveCards reassigns the given cards to deckID.
-	MoveCards(ctx context.Context, userID string, cardIDs []string, deckID string, usn int64) (int64, error)
-	// SuspendCards sets the cards' queue to the suspended sentinel.
-	SuspendCards(ctx context.Context, userID string, cardIDs []string, usn int64) (int64, error)
+	// MoveCards reassigns the given cards to deckID and returns the IDs of rows
+	// actually updated (input IDs that don't belong to userID are silently skipped).
+	MoveCards(ctx context.Context, userID string, cardIDs []string, deckID string, usn int64) ([]string, error)
+	// SuspendCards sets the cards' queue to the suspended sentinel and returns
+	// the IDs of rows actually updated.
+	SuspendCards(ctx context.Context, userID string, cardIDs []string, usn int64) ([]string, error)
 	// DeleteCardsByIDs deletes the given cards and returns the rows deleted so
 	// the caller can write tombstones in the same tx.
 	DeleteCardsByIDs(ctx context.Context, userID string, cardIDs []string) ([]Card, error)
-	// AddTagToNotesOfCards adds tag to the notes owning the given cards.
-	AddTagToNotesOfCards(ctx context.Context, userID string, cardIDs []string, tag string, usn int64) (int64, error)
-	// RemoveTagFromNotesOfCards removes tag from the notes owning the given cards.
-	RemoveTagFromNotesOfCards(ctx context.Context, userID string, cardIDs []string, tag string, usn int64) (int64, error)
+	// AddTagToNotesOfCards adds tag to the notes owning the given cards and
+	// returns the IDs of the notes actually updated.
+	AddTagToNotesOfCards(ctx context.Context, userID string, cardIDs []string, tag string, usn int64) ([]string, error)
+	// RemoveTagFromNotesOfCards removes tag from the notes owning the given
+	// cards and returns the IDs of the notes actually updated.
+	RemoveTagFromNotesOfCards(ctx context.Context, userID string, cardIDs []string, tag string, usn int64) ([]string, error)
 	// SetFlagOnNotesOfCards sets flags on the notes owning the given cards
-	// (flag 0 clears). Flags live on notes per the schema.
-	SetFlagOnNotesOfCards(ctx context.Context, userID string, cardIDs []string, flag int32, usn int64) (int64, error)
+	// (flag 0 clears) and returns the IDs of the notes actually updated.
+	SetFlagOnNotesOfCards(ctx context.Context, userID string, cardIDs []string, flag int32, usn int64) ([]string, error)
 }

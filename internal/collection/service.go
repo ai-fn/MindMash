@@ -1,0 +1,954 @@
+package collection
+
+import (
+	"context"
+	"strings"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+	"go.uber.org/zap"
+
+	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
+	"github.com/mindmesh/mindmesh/internal/platform/events"
+	"github.com/mindmesh/mindmesh/internal/platform/ids"
+	"github.com/mindmesh/mindmesh/pkg/template"
+)
+
+// Service orchestrates Collection domain operations. It is the single entry
+// point between the handler layer and the repository + cache.
+type Service struct {
+	repo  Repository
+	redis *redis.Client
+	log   *zap.Logger
+}
+
+// NewService constructs a Service. redis may be nil (cache disabled).
+func NewService(repo Repository, rdb *redis.Client, log *zap.Logger) *Service {
+	return &Service{repo: repo, redis: rdb, log: log}
+}
+
+// ─── NoteType ────────────────────────────────────────────────────────────────
+
+func (s *Service) CreateNoteType(ctx context.Context, userID, profileID, name, css string, fields []Field, templates []CardTemplate) (*NoteType, error) {
+	now := time.Now().UTC()
+	nt := &NoteType{
+		ID:            ids.NewUUID(),
+		UserID:        userID,
+		ProfileID:     profileID,
+		Name:          name,
+		Fields:        fields,
+		CardTemplates: templates,
+		CSS:           css,
+		Mtime:         now,
+	}
+
+	if err := s.repo.WithTx(ctx, func(tx Repository) error {
+		usn, err := tx.NextUSN(ctx, userID)
+		if err != nil {
+			return err
+		}
+		nt.USN = usn
+		if err := tx.CreateNoteType(ctx, nt); err != nil {
+			return err
+		}
+		return tx.WriteOutbox(ctx, []events.OutboxEntry{noteTypeEntry(nt, EventNoteTypeCreated)})
+	}); err != nil {
+		return nil, err
+	}
+	return nt, nil
+}
+
+func (s *Service) GetNoteType(ctx context.Context, userID, id string) (*NoteType, error) {
+	return s.repo.GetNoteType(ctx, userID, id)
+}
+
+func (s *Service) ListNoteTypes(ctx context.Context, userID string, page Page) ([]NoteType, string, error) {
+	return s.repo.ListNoteTypes(ctx, userID, page)
+}
+
+func (s *Service) UpdateNoteType(ctx context.Context, userID, id string, expectedUSN int64, name, css string, fields []Field, templates []CardTemplate) (*NoteType, error) {
+	var existing *NoteType
+	if err := s.repo.WithTx(ctx, func(tx Repository) error {
+		var err error
+		// Read inside the transaction so the USN check and the subsequent UPDATE
+		// are not separated by a window where a concurrent write could commit.
+		existing, err = tx.GetNoteType(ctx, userID, id)
+		if err != nil {
+			return err
+		}
+		if expectedUSN != 0 && existing.USN != expectedUSN {
+			return platformerrors.Aborted("stale expected_usn; refetch and retry")
+		}
+
+		existing.Name = name
+		existing.CSS = css
+		existing.Fields = fields
+		existing.CardTemplates = templates
+		existing.Mtime = time.Now().UTC()
+
+		usn, err := tx.NextUSN(ctx, userID)
+		if err != nil {
+			return err
+		}
+		existing.USN = usn
+		if err := tx.UpdateNoteType(ctx, existing); err != nil {
+			return err
+		}
+		return tx.WriteOutbox(ctx, []events.OutboxEntry{noteTypeEntry(existing, EventNoteTypeUpdated)})
+	}); err != nil {
+		return nil, err
+	}
+	return existing, nil
+}
+
+func (s *Service) DeleteNoteType(ctx context.Context, userID, id string, expectedUSN int64) error {
+	return s.repo.WithTx(ctx, func(tx Repository) error {
+		if expectedUSN != 0 {
+			existing, err := tx.GetNoteType(ctx, userID, id)
+			if err != nil {
+				return err
+			}
+			if existing.USN != expectedUSN {
+				return platformerrors.Aborted("stale expected_usn; refetch and retry")
+			}
+		}
+		usn, err := tx.NextUSN(ctx, userID)
+		if err != nil {
+			return err
+		}
+		if err := tx.DeleteNoteType(ctx, userID, id); err != nil {
+			return err
+		}
+		if err := tx.WriteTombstone(ctx, userID, TombstoneNoteType, id, usn); err != nil {
+			return err
+		}
+		return tx.WriteOutbox(ctx, []events.OutboxEntry{{
+			ID:            ids.NewULID(),
+			UserID:        userID,
+			AggregateType: "note_type",
+			AggregateID:   id,
+			EventType:     EventNoteTypeDeleted,
+			Payload:       mustMarshal(map[string]any{"id": id, "user_id": userID, "usn": usn}),
+			CreatedAt:     time.Now().UTC(),
+		}})
+	})
+}
+
+// ─── Note ────────────────────────────────────────────────────────────────────
+
+func (s *Service) CreateNote(ctx context.Context, userID, profileID, noteTypeID, deckID string, fields map[string]string, tags []string, flags int32) (*Note, error) {
+	now := time.Now().UTC()
+	note := &Note{
+		ID:         ids.NewUUID(),
+		UserID:     userID,
+		ProfileID:  profileID,
+		NoteTypeID: noteTypeID,
+		Fields:     fields,
+		Tags:       tags,
+		Flags:      flags,
+		Mtime:      now,
+	}
+
+	if err := s.repo.WithTx(ctx, func(tx Repository) error {
+		nt, err := tx.GetNoteType(ctx, userID, noteTypeID)
+		if err != nil {
+			return err
+		}
+		usn, err := tx.NextUSN(ctx, userID)
+		if err != nil {
+			return err
+		}
+		note.USN = usn
+
+		if err := tx.CreateNote(ctx, note); err != nil {
+			return err
+		}
+
+		diff, err := GenerateCardDiff(nt, note, nil, deckID, ids.NewUUID)
+		if err != nil {
+			return err
+		}
+
+		outboxEntries := []events.OutboxEntry{noteEntry(note, EventNoteCreated)}
+		for i := range diff.ToCreate {
+			c := &diff.ToCreate[i]
+			c.USN = usn
+			c.Mtime = now
+			if err := tx.CreateCard(ctx, c); err != nil {
+				return err
+			}
+			outboxEntries = append(outboxEntries, cardEntry(c, EventCardCreated))
+		}
+
+		for _, tag := range tags {
+			if err := tx.UpsertTag(ctx, &Tag{
+				ID:        ids.NewUUID(),
+				UserID:    userID,
+				ProfileID: profileID,
+				Name:      tag,
+				USN:       usn,
+				Mtime:     now,
+			}); err != nil {
+				return err
+			}
+		}
+
+		return tx.WriteOutbox(ctx, outboxEntries)
+	}); err != nil {
+		return nil, err
+	}
+	return note, nil
+}
+
+func (s *Service) GetNote(ctx context.Context, userID, id string) (*Note, error) {
+	return s.repo.GetNote(ctx, userID, id)
+}
+
+func (s *Service) UpdateNote(ctx context.Context, userID, id string, expectedUSN int64, fields map[string]string, tags []string, flags int32) (*Note, error) {
+	var existing *Note
+	if err := s.repo.WithTx(ctx, func(tx Repository) error {
+		var err error
+		// Read inside the transaction to close the TOCTOU window between the USN
+		// check and the subsequent UPDATE.
+		existing, err = tx.GetNote(ctx, userID, id)
+		if err != nil {
+			return err
+		}
+		if expectedUSN != 0 && existing.USN != expectedUSN {
+			return platformerrors.Aborted("stale expected_usn; refetch and retry")
+		}
+
+		now := time.Now().UTC()
+		existing.Fields = fields
+		existing.Tags = tags
+		existing.Flags = flags
+		existing.Mtime = now
+
+		nt, err := tx.GetNoteType(ctx, userID, existing.NoteTypeID)
+		if err != nil {
+			return err
+		}
+		existingCards, err := tx.ListCardsByNote(ctx, userID, id)
+		if err != nil {
+			return err
+		}
+		usn, err := tx.NextUSN(ctx, userID)
+		if err != nil {
+			return err
+		}
+		existing.USN = usn
+
+		if err := tx.UpdateNote(ctx, existing); err != nil {
+			return err
+		}
+
+		// Use the deck of the first existing card so newly generated cards land in
+		// the same deck. Empty string falls through to cardgen's zero default.
+		deckID := ""
+		if len(existingCards) > 0 {
+			deckID = existingCards[0].DeckID
+		}
+
+		diff, err := GenerateCardDiff(nt, existing, existingCards, deckID, ids.NewUUID)
+		if err != nil {
+			return err
+		}
+
+		outboxEntries := []events.OutboxEntry{noteEntry(existing, EventNoteUpdated)}
+
+		for i := range diff.ToCreate {
+			c := &diff.ToCreate[i]
+			c.USN = usn
+			c.Mtime = now
+			if err := tx.CreateCard(ctx, c); err != nil {
+				return err
+			}
+			outboxEntries = append(outboxEntries, cardEntry(c, EventCardCreated))
+		}
+		for i := range diff.ToDelete {
+			c := &diff.ToDelete[i]
+			if err := tx.DeleteCard(ctx, userID, c.ID); err != nil {
+				return err
+			}
+			if err := tx.WriteTombstone(ctx, userID, TombstoneCard, c.ID, usn); err != nil {
+				return err
+			}
+			tmp := c
+			outboxEntries = append(outboxEntries, cardEntry(tmp, EventCardDeleted))
+		}
+
+		for _, tag := range tags {
+			if err := tx.UpsertTag(ctx, &Tag{
+				ID:        ids.NewUUID(),
+				UserID:    userID,
+				ProfileID: existing.ProfileID,
+				Name:      tag,
+				USN:       usn,
+				Mtime:     now,
+			}); err != nil {
+				return err
+			}
+		}
+
+		return tx.WriteOutbox(ctx, outboxEntries)
+	}); err != nil {
+		return nil, err
+	}
+	return existing, nil
+}
+
+func (s *Service) DeleteNote(ctx context.Context, userID, id string, expectedUSN int64) error {
+	return s.repo.WithTx(ctx, func(tx Repository) error {
+		// Read inside the transaction so the USN check and the DELETE are atomic.
+		existing, err := tx.GetNote(ctx, userID, id)
+		if err != nil {
+			return err
+		}
+		if expectedUSN != 0 && existing.USN != expectedUSN {
+			return platformerrors.Aborted("stale expected_usn; refetch and retry")
+		}
+
+		cards, err := tx.ListCardsByNote(ctx, userID, id)
+		if err != nil {
+			return err
+		}
+		usn, err := tx.NextUSN(ctx, userID)
+		if err != nil {
+			return err
+		}
+
+		outboxEntries := make([]events.OutboxEntry, 0, len(cards)+1)
+		for _, c := range cards {
+			if err := tx.DeleteCard(ctx, userID, c.ID); err != nil {
+				return err
+			}
+			if err := tx.WriteTombstone(ctx, userID, TombstoneCard, c.ID, usn); err != nil {
+				return err
+			}
+			tmp := c
+			outboxEntries = append(outboxEntries, cardEntry(&tmp, EventCardDeleted))
+		}
+		if err := tx.DeleteNote(ctx, userID, id); err != nil {
+			return err
+		}
+		if err := tx.WriteTombstone(ctx, userID, TombstoneNote, id, usn); err != nil {
+			return err
+		}
+		outboxEntries = append(outboxEntries, noteEntry(existing, EventNoteDeleted))
+		return tx.WriteOutbox(ctx, outboxEntries)
+	})
+}
+
+// ─── Card ────────────────────────────────────────────────────────────────────
+
+// RenderCard fetches and renders a card. The result is cached in Redis keyed by
+// (cardID, USN) so a stale key is retired naturally when the USN increments.
+func (s *Service) RenderCard(ctx context.Context, userID, cardID string) (card *Card, front, back string, err error) {
+	card, err = s.repo.GetCard(ctx, userID, cardID)
+	if err != nil {
+		return nil, "", "", err
+	}
+
+	if f, b, ok := getRenderCache(ctx, s.redis, cardID, card.USN); ok {
+		return card, f, b, nil
+	}
+
+	note, err := s.repo.GetNote(ctx, userID, card.NoteID)
+	if err != nil {
+		return nil, "", "", err
+	}
+	nt, err := s.repo.GetNoteType(ctx, userID, note.NoteTypeID)
+	if err != nil {
+		return nil, "", "", err
+	}
+
+	var tmplIdx, clozeOrd int
+	if nt.IsCloze() {
+		tmplIdx = 0
+		clozeOrd = card.TemplateOrd + 1
+	} else {
+		tmplIdx = card.TemplateOrd
+	}
+	if tmplIdx >= len(nt.CardTemplates) {
+		return nil, "", "", platformerrors.Internal("template ordinal out of range")
+	}
+	tmpl := nt.CardTemplates[tmplIdx]
+
+	front, err = template.Render(tmpl.Front, note.Fields, template.Opts{ClozeOrd: clozeOrd})
+	if err != nil {
+		return nil, "", "", platformerrors.Internal("render front: " + err.Error())
+	}
+	back, err = template.Render(tmpl.Back, note.Fields, template.Opts{ClozeOrd: clozeOrd, FrontSide: front})
+	if err != nil {
+		return nil, "", "", platformerrors.Internal("render back: " + err.Error())
+	}
+
+	setRenderCache(ctx, s.redis, cardID, card.USN, front, back)
+	return card, front, back, nil
+}
+
+func (s *Service) GetCardsByIDs(ctx context.Context, userID string, cardIDs []string) ([]Card, error) {
+	return s.repo.GetCardsByIDs(ctx, userID, cardIDs)
+}
+
+func (s *Service) ListCardIDs(ctx context.Context, userID string, page Page) ([]string, string, error) {
+	return s.repo.ListCardIDs(ctx, userID, page)
+}
+
+// ─── Bulk card operations ────────────────────────────────────────────────────
+
+func (s *Service) MoveCards(ctx context.Context, userID string, cardIDs []string, deckID string) (int64, error) {
+	var affected int64
+	if err := s.repo.WithTx(ctx, func(tx Repository) error {
+		usn, err := tx.NextUSN(ctx, userID)
+		if err != nil {
+			return err
+		}
+		updatedIDs, err := tx.MoveCards(ctx, userID, cardIDs, deckID, usn)
+		if err != nil {
+			return err
+		}
+		affected = int64(len(updatedIDs))
+		if len(updatedIDs) == 0 {
+			return nil
+		}
+		outboxEntries := make([]events.OutboxEntry, 0, len(updatedIDs))
+		now := time.Now().UTC()
+		for _, cid := range updatedIDs {
+			outboxEntries = append(outboxEntries, events.OutboxEntry{
+				ID:            ids.NewULID(),
+				UserID:        userID,
+				AggregateType: "card",
+				AggregateID:   cid,
+				EventType:     EventCardUpdated,
+				Payload:       mustMarshal(map[string]any{"id": cid, "user_id": userID, "deck_id": deckID, "usn": usn}),
+				CreatedAt:     now,
+			})
+		}
+		return tx.WriteOutbox(ctx, outboxEntries)
+	}); err != nil {
+		return 0, err
+	}
+	return affected, nil
+}
+
+func (s *Service) SuspendCards(ctx context.Context, userID string, cardIDs []string) (int64, error) {
+	var affected int64
+	if err := s.repo.WithTx(ctx, func(tx Repository) error {
+		usn, err := tx.NextUSN(ctx, userID)
+		if err != nil {
+			return err
+		}
+		updatedIDs, err := tx.SuspendCards(ctx, userID, cardIDs, usn)
+		if err != nil {
+			return err
+		}
+		affected = int64(len(updatedIDs))
+		if len(updatedIDs) == 0 {
+			return nil
+		}
+		outboxEntries := make([]events.OutboxEntry, 0, len(updatedIDs))
+		now := time.Now().UTC()
+		for _, cid := range updatedIDs {
+			outboxEntries = append(outboxEntries, events.OutboxEntry{
+				ID:            ids.NewULID(),
+				UserID:        userID,
+				AggregateType: "card",
+				AggregateID:   cid,
+				EventType:     EventCardUpdated,
+				Payload:       mustMarshal(map[string]any{"id": cid, "user_id": userID, "suspended": true, "usn": usn}),
+				CreatedAt:     now,
+			})
+		}
+		return tx.WriteOutbox(ctx, outboxEntries)
+	}); err != nil {
+		return 0, err
+	}
+	return affected, nil
+}
+
+func (s *Service) DeleteCards(ctx context.Context, userID string, cardIDs []string) (int64, error) {
+	var affected int64
+	if err := s.repo.WithTx(ctx, func(tx Repository) error {
+		usn, err := tx.NextUSN(ctx, userID)
+		if err != nil {
+			return err
+		}
+		deleted, err := tx.DeleteCardsByIDs(ctx, userID, cardIDs)
+		if err != nil {
+			return err
+		}
+		affected = int64(len(deleted))
+		outboxEntries := make([]events.OutboxEntry, 0, len(deleted))
+		for i := range deleted {
+			c := &deleted[i]
+			if err := tx.WriteTombstone(ctx, userID, TombstoneCard, c.ID, usn); err != nil {
+				return err
+			}
+			outboxEntries = append(outboxEntries, cardEntry(c, EventCardDeleted))
+		}
+		return tx.WriteOutbox(ctx, outboxEntries)
+	}); err != nil {
+		return 0, err
+	}
+	return affected, nil
+}
+
+func (s *Service) AddTagToCards(ctx context.Context, userID string, cardIDs []string, tag string) (int64, error) {
+	var affected int64
+	if err := s.repo.WithTx(ctx, func(tx Repository) error {
+		usn, err := tx.NextUSN(ctx, userID)
+		if err != nil {
+			return err
+		}
+		noteIDs, err := tx.AddTagToNotesOfCards(ctx, userID, cardIDs, tag, usn)
+		if err != nil {
+			return err
+		}
+		affected = int64(len(noteIDs))
+		if len(noteIDs) == 0 {
+			return nil
+		}
+		now := time.Now().UTC()
+		outboxEntries := make([]events.OutboxEntry, 0, len(noteIDs))
+		for _, nid := range noteIDs {
+			outboxEntries = append(outboxEntries, events.OutboxEntry{
+				ID:            ids.NewULID(),
+				UserID:        userID,
+				AggregateType: "note",
+				AggregateID:   nid,
+				EventType:     EventNoteUpdated,
+				Payload:       mustMarshal(map[string]any{"id": nid, "user_id": userID, "tag": tag, "op": "add", "usn": usn}),
+				CreatedAt:     now,
+			})
+		}
+		return tx.WriteOutbox(ctx, outboxEntries)
+	}); err != nil {
+		return 0, err
+	}
+	return affected, nil
+}
+
+func (s *Service) RemoveTagFromCards(ctx context.Context, userID string, cardIDs []string, tag string) (int64, error) {
+	var affected int64
+	if err := s.repo.WithTx(ctx, func(tx Repository) error {
+		usn, err := tx.NextUSN(ctx, userID)
+		if err != nil {
+			return err
+		}
+		noteIDs, err := tx.RemoveTagFromNotesOfCards(ctx, userID, cardIDs, tag, usn)
+		if err != nil {
+			return err
+		}
+		affected = int64(len(noteIDs))
+		if len(noteIDs) == 0 {
+			return nil
+		}
+		now := time.Now().UTC()
+		outboxEntries := make([]events.OutboxEntry, 0, len(noteIDs))
+		for _, nid := range noteIDs {
+			outboxEntries = append(outboxEntries, events.OutboxEntry{
+				ID:            ids.NewULID(),
+				UserID:        userID,
+				AggregateType: "note",
+				AggregateID:   nid,
+				EventType:     EventNoteUpdated,
+				Payload:       mustMarshal(map[string]any{"id": nid, "user_id": userID, "tag": tag, "op": "remove", "usn": usn}),
+				CreatedAt:     now,
+			})
+		}
+		return tx.WriteOutbox(ctx, outboxEntries)
+	}); err != nil {
+		return 0, err
+	}
+	return affected, nil
+}
+
+func (s *Service) SetFlagOnCards(ctx context.Context, userID string, cardIDs []string, flag int32) (int64, error) {
+	var affected int64
+	if err := s.repo.WithTx(ctx, func(tx Repository) error {
+		usn, err := tx.NextUSN(ctx, userID)
+		if err != nil {
+			return err
+		}
+		noteIDs, err := tx.SetFlagOnNotesOfCards(ctx, userID, cardIDs, flag, usn)
+		if err != nil {
+			return err
+		}
+		affected = int64(len(noteIDs))
+		if len(noteIDs) == 0 {
+			return nil
+		}
+		now := time.Now().UTC()
+		outboxEntries := make([]events.OutboxEntry, 0, len(noteIDs))
+		for _, nid := range noteIDs {
+			outboxEntries = append(outboxEntries, events.OutboxEntry{
+				ID:            ids.NewULID(),
+				UserID:        userID,
+				AggregateType: "note",
+				AggregateID:   nid,
+				EventType:     EventNoteUpdated,
+				Payload:       mustMarshal(map[string]any{"id": nid, "user_id": userID, "flag": flag, "usn": usn}),
+				CreatedAt:     now,
+			})
+		}
+		return tx.WriteOutbox(ctx, outboxEntries)
+	}); err != nil {
+		return 0, err
+	}
+	return affected, nil
+}
+
+// ─── Deck ────────────────────────────────────────────────────────────────────
+
+// deckLabel strips hyphens from a UUID so it is a valid ltree label.
+func deckLabel(id string) string {
+	return strings.ReplaceAll(id, "-", "")
+}
+
+// deckPath computes the ltree path for a deck given its ID and its parent's path.
+func deckPath(id, parentPath string) string {
+	label := deckLabel(id)
+	if parentPath == "" {
+		return label
+	}
+	return parentPath + "." + label
+}
+
+func (s *Service) CreateDeck(ctx context.Context, userID, profileID, name, parentID, configID string) (*Deck, error) {
+	now := time.Now().UTC()
+	deck := &Deck{
+		ID:        ids.NewUUID(),
+		UserID:    userID,
+		ProfileID: profileID,
+		Name:      name,
+		Mtime:     now,
+	}
+	if parentID != "" {
+		deck.ParentID = &parentID
+	}
+	if configID != "" {
+		deck.ConfigID = &configID
+	}
+
+	if err := s.repo.WithTx(ctx, func(tx Repository) error {
+		parentPath := ""
+		if parentID != "" {
+			parent, err := tx.GetDeck(ctx, userID, parentID)
+			if err != nil {
+				return err
+			}
+			parentPath = parent.Path
+		}
+		deck.Path = deckPath(deck.ID, parentPath)
+
+		usn, err := tx.NextUSN(ctx, userID)
+		if err != nil {
+			return err
+		}
+		deck.USN = usn
+		if err := tx.CreateDeck(ctx, deck); err != nil {
+			return err
+		}
+		return tx.WriteOutbox(ctx, []events.OutboxEntry{deckEntry(deck, EventDeckCreated)})
+	}); err != nil {
+		return nil, err
+	}
+	return deck, nil
+}
+
+func (s *Service) GetDeck(ctx context.Context, userID, id string) (*Deck, error) {
+	return s.repo.GetDeck(ctx, userID, id)
+}
+
+func (s *Service) ListDecks(ctx context.Context, userID string, page Page) ([]Deck, string, error) {
+	return s.repo.ListDecks(ctx, userID, page)
+}
+
+func (s *Service) UpdateDeck(ctx context.Context, userID, id string, expectedUSN int64, name, parentID, configID string) (*Deck, error) {
+	var updated *Deck
+	if err := s.repo.WithTx(ctx, func(tx Repository) error {
+		// Read inside the transaction to close the TOCTOU window between the USN
+		// check and the subsequent UPDATE. existing.Path is also needed for the
+		// subtree recompute, so the in-tx read serves both purposes.
+		existing, err := tx.GetDeck(ctx, userID, id)
+		if err != nil {
+			return err
+		}
+		if expectedUSN != 0 && existing.USN != expectedUSN {
+			return platformerrors.Aborted("stale expected_usn; refetch and retry")
+		}
+
+		usn, err := tx.NextUSN(ctx, userID)
+		if err != nil {
+			return err
+		}
+		now := time.Now().UTC()
+
+		existingParentID := ""
+		if existing.ParentID != nil {
+			existingParentID = *existing.ParentID
+		}
+		parentChanged := parentID != existingParentID
+
+		newParentPath := ""
+		if parentID != "" {
+			parent, err := tx.GetDeck(ctx, userID, parentID)
+			if err != nil {
+				return err
+			}
+			newParentPath = parent.Path
+		}
+		newPath := deckPath(id, newParentPath)
+
+		var newParentIDPtr *string
+		if parentID != "" {
+			newParentIDPtr = &parentID
+		}
+		var newConfigIDPtr *string
+		if configID != "" {
+			newConfigIDPtr = &configID
+		}
+
+		if parentChanged {
+			subtree, err := tx.ListSubtreeDecks(ctx, userID, existing.Path)
+			if err != nil {
+				return err
+			}
+			oldPrefix := existing.Path
+			outboxEntries := make([]events.OutboxEntry, 0, len(subtree))
+			for _, d := range subtree {
+				d.Path = newPath + d.Path[len(oldPrefix):]
+				d.USN = usn
+				d.Mtime = now
+				if d.ID == id {
+					d.Name = name
+					d.ParentID = newParentIDPtr
+					d.ConfigID = newConfigIDPtr
+				}
+				tmp := d
+				if err := tx.UpdateDeck(ctx, &tmp); err != nil {
+					return err
+				}
+				outboxEntries = append(outboxEntries, deckEntry(&tmp, EventDeckUpdated))
+				if tmp.ID == id {
+					updated = &tmp
+				}
+			}
+			return tx.WriteOutbox(ctx, outboxEntries)
+		}
+
+		existing.Name = name
+		existing.ConfigID = newConfigIDPtr
+		existing.Path = newPath
+		existing.USN = usn
+		existing.Mtime = now
+		if err := tx.UpdateDeck(ctx, existing); err != nil {
+			return err
+		}
+		updated = existing
+		return tx.WriteOutbox(ctx, []events.OutboxEntry{deckEntry(updated, EventDeckUpdated)})
+	}); err != nil {
+		return nil, err
+	}
+	return updated, nil
+}
+
+func (s *Service) DeleteDeck(ctx context.Context, userID, id string, expectedUSN int64) error {
+	return s.repo.WithTx(ctx, func(tx Repository) error {
+		if expectedUSN != 0 {
+			existing, err := tx.GetDeck(ctx, userID, id)
+			if err != nil {
+				return err
+			}
+			if existing.USN != expectedUSN {
+				return platformerrors.Aborted("stale expected_usn; refetch and retry")
+			}
+		}
+		usn, err := tx.NextUSN(ctx, userID)
+		if err != nil {
+			return err
+		}
+		if err := tx.DeleteDeck(ctx, userID, id); err != nil {
+			return err
+		}
+		if err := tx.WriteTombstone(ctx, userID, TombstoneDeck, id, usn); err != nil {
+			return err
+		}
+		return tx.WriteOutbox(ctx, []events.OutboxEntry{{
+			ID:            ids.NewULID(),
+			UserID:        userID,
+			AggregateType: "deck",
+			AggregateID:   id,
+			EventType:     EventDeckDeleted,
+			Payload:       mustMarshal(map[string]any{"id": id, "user_id": userID, "usn": usn}),
+			CreatedAt:     time.Now().UTC(),
+		}})
+	})
+}
+
+// ─── DeckConfig ──────────────────────────────────────────────────────────────
+
+func (s *Service) CreateDeckConfig(ctx context.Context, userID, profileID string, req DeckConfig) (*DeckConfig, error) {
+	now := time.Now().UTC()
+	dc := req
+	dc.ID = ids.NewUUID()
+	dc.UserID = userID
+	dc.ProfileID = profileID
+	dc.Mtime = now
+
+	if err := s.repo.WithTx(ctx, func(tx Repository) error {
+		usn, err := tx.NextUSN(ctx, userID)
+		if err != nil {
+			return err
+		}
+		dc.USN = usn
+		if err := tx.CreateDeckConfig(ctx, &dc); err != nil {
+			return err
+		}
+		return tx.WriteOutbox(ctx, []events.OutboxEntry{deckConfigEntry(&dc, EventDeckConfigCreated)})
+	}); err != nil {
+		return nil, err
+	}
+	return &dc, nil
+}
+
+func (s *Service) GetDeckConfig(ctx context.Context, userID, id string) (*DeckConfig, error) {
+	return s.repo.GetDeckConfig(ctx, userID, id)
+}
+
+func (s *Service) ListDeckConfigs(ctx context.Context, userID string, page Page) ([]DeckConfig, string, error) {
+	return s.repo.ListDeckConfigs(ctx, userID, page)
+}
+
+func (s *Service) UpdateDeckConfig(ctx context.Context, userID, id string, expectedUSN int64, req DeckConfig) (*DeckConfig, error) {
+	var existing *DeckConfig
+	if err := s.repo.WithTx(ctx, func(tx Repository) error {
+		var err error
+		// Read inside the transaction to close the TOCTOU window.
+		existing, err = tx.GetDeckConfig(ctx, userID, id)
+		if err != nil {
+			return err
+		}
+		if expectedUSN != 0 && existing.USN != expectedUSN {
+			return platformerrors.Aborted("stale expected_usn; refetch and retry")
+		}
+
+		existing.Name = req.Name
+		existing.NewPerDay = req.NewPerDay
+		existing.RevPerDay = req.RevPerDay
+		existing.DesiredRetention = req.DesiredRetention
+		existing.FSRSWeights = req.FSRSWeights
+		existing.LearningSteps = req.LearningSteps
+		existing.RolloverHour = req.RolloverHour
+		existing.Timezone = req.Timezone
+		existing.Mtime = time.Now().UTC()
+
+		usn, err := tx.NextUSN(ctx, userID)
+		if err != nil {
+			return err
+		}
+		existing.USN = usn
+		if err := tx.UpdateDeckConfig(ctx, existing); err != nil {
+			return err
+		}
+		return tx.WriteOutbox(ctx, []events.OutboxEntry{deckConfigEntry(existing, EventDeckConfigUpdated)})
+	}); err != nil {
+		return nil, err
+	}
+	return existing, nil
+}
+
+func (s *Service) DeleteDeckConfig(ctx context.Context, userID, id string, expectedUSN int64) error {
+	return s.repo.WithTx(ctx, func(tx Repository) error {
+		if expectedUSN != 0 {
+			existing, err := tx.GetDeckConfig(ctx, userID, id)
+			if err != nil {
+				return err
+			}
+			if existing.USN != expectedUSN {
+				return platformerrors.Aborted("stale expected_usn; refetch and retry")
+			}
+		}
+		usn, err := tx.NextUSN(ctx, userID)
+		if err != nil {
+			return err
+		}
+		if err := tx.DeleteDeckConfig(ctx, userID, id); err != nil {
+			return err
+		}
+		if err := tx.WriteTombstone(ctx, userID, TombstoneDeckConfig, id, usn); err != nil {
+			return err
+		}
+		return tx.WriteOutbox(ctx, []events.OutboxEntry{{
+			ID:            ids.NewULID(),
+			UserID:        userID,
+			AggregateType: "deck_config",
+			AggregateID:   id,
+			EventType:     EventDeckConfigDeleted,
+			Payload:       mustMarshal(map[string]any{"id": id, "user_id": userID, "usn": usn}),
+			CreatedAt:     time.Now().UTC(),
+		}})
+	})
+}
+
+// ─── FilteredDeck ────────────────────────────────────────────────────────────
+
+func (s *Service) CreateFilteredDeck(ctx context.Context, userID, profileID, name, query string) (*FilteredDeck, error) {
+	now := time.Now().UTC()
+	fd := &FilteredDeck{
+		ID:        ids.NewUUID(),
+		UserID:    userID,
+		ProfileID: profileID,
+		Name:      name,
+		Query:     query,
+		Mtime:     now,
+	}
+
+	if err := s.repo.WithTx(ctx, func(tx Repository) error {
+		usn, err := tx.NextUSN(ctx, userID)
+		if err != nil {
+			return err
+		}
+		fd.USN = usn
+		if err := tx.CreateFilteredDeck(ctx, fd); err != nil {
+			return err
+		}
+		return tx.WriteOutbox(ctx, []events.OutboxEntry{filteredDeckEntry(fd, EventFilteredDeckCreated)})
+	}); err != nil {
+		return nil, err
+	}
+	return fd, nil
+}
+
+func (s *Service) GetFilteredDeck(ctx context.Context, userID, id string) (*FilteredDeck, error) {
+	return s.repo.GetFilteredDeck(ctx, userID, id)
+}
+
+func (s *Service) ListFilteredDecks(ctx context.Context, userID string, page Page) ([]FilteredDeck, string, error) {
+	return s.repo.ListFilteredDecks(ctx, userID, page)
+}
+
+func (s *Service) DeleteFilteredDeck(ctx context.Context, userID, id string) error {
+	return s.repo.WithTx(ctx, func(tx Repository) error {
+		usn, err := tx.NextUSN(ctx, userID)
+		if err != nil {
+			return err
+		}
+		if err := tx.DeleteFilteredDeck(ctx, userID, id); err != nil {
+			return err
+		}
+		if err := tx.WriteTombstone(ctx, userID, TombstoneFilteredDeck, id, usn); err != nil {
+			return err
+		}
+		return tx.WriteOutbox(ctx, []events.OutboxEntry{{
+			ID:            ids.NewULID(),
+			UserID:        userID,
+			AggregateType: "filtered_deck",
+			AggregateID:   id,
+			EventType:     EventFilteredDeckDeleted,
+			Payload:       mustMarshal(map[string]any{"id": id, "user_id": userID, "usn": usn}),
+			CreatedAt:     time.Now().UTC(),
+		}})
+	})
+}

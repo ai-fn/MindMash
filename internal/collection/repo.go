@@ -12,6 +12,7 @@ import (
 
 	platformdb "github.com/mindmesh/mindmesh/internal/platform/db"
 	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
+	"github.com/mindmesh/mindmesh/internal/platform/events"
 )
 
 // Pagination bounds and the keyset sentinel. An empty page token means "from the
@@ -749,33 +750,35 @@ func (r *PostgresRepository) WriteTombstone(ctx context.Context, userID, typ, id
 
 // ─── Bulk operations ─────────────────────────────────────────────────────────
 
-func (r *PostgresRepository) MoveCards(ctx context.Context, userID string, cardIDs []string, deckID string, usn int64) (int64, error) {
-	ct, err := r.db.Exec(ctx, `
+func (r *PostgresRepository) MoveCards(ctx context.Context, userID string, cardIDs []string, deckID string, usn int64) ([]string, error) {
+	rows, err := r.db.Query(ctx, `
 		UPDATE cards SET deck_id = $3, usn = $4, mtime = now()
-		WHERE user_id = $1 AND id = ANY($2)`,
+		WHERE user_id = $1 AND id = ANY($2)
+		RETURNING id`,
 		userID, cardIDs, deckID, usn)
 	if err != nil {
 		if isForeignKeyViolation(err) {
-			return 0, platformerrors.FailedPrecondition("target deck does not exist")
+			return nil, platformerrors.FailedPrecondition("target deck does not exist")
 		}
-		return 0, fmt.Errorf("collection: move cards: %w", err)
+		return nil, fmt.Errorf("collection: move cards: %w", err)
 	}
-	return ct.RowsAffected(), nil
+	return collectIDs(rows, "move cards")
 }
 
 // suspendedQueue is the queue sentinel for suspended cards (negative = out of
 // the study queue).
 const suspendedQueue = -1
 
-func (r *PostgresRepository) SuspendCards(ctx context.Context, userID string, cardIDs []string, usn int64) (int64, error) {
-	ct, err := r.db.Exec(ctx, `
+func (r *PostgresRepository) SuspendCards(ctx context.Context, userID string, cardIDs []string, usn int64) ([]string, error) {
+	rows, err := r.db.Query(ctx, `
 		UPDATE cards SET queue = $3, usn = $4, mtime = now()
-		WHERE user_id = $1 AND id = ANY($2)`,
+		WHERE user_id = $1 AND id = ANY($2)
+		RETURNING id`,
 		userID, cardIDs, int16(suspendedQueue), usn)
 	if err != nil {
-		return 0, fmt.Errorf("collection: suspend cards: %w", err)
+		return nil, fmt.Errorf("collection: suspend cards: %w", err)
 	}
-	return ct.RowsAffected(), nil
+	return collectIDs(rows, "suspend cards")
 }
 
 func (r *PostgresRepository) DeleteCardsByIDs(ctx context.Context, userID string, cardIDs []string) ([]Card, error) {
@@ -787,42 +790,56 @@ func (r *PostgresRepository) DeleteCardsByIDs(ctx context.Context, userID string
 	return collectCards(rows, "delete cards by ids")
 }
 
-func (r *PostgresRepository) AddTagToNotesOfCards(ctx context.Context, userID string, cardIDs []string, tag string, usn int64) (int64, error) {
-	ct, err := r.db.Exec(ctx, `
+func (r *PostgresRepository) AddTagToNotesOfCards(ctx context.Context, userID string, cardIDs []string, tag string, usn int64) ([]string, error) {
+	rows, err := r.db.Query(ctx, `
 		UPDATE notes SET tags = array_append(tags, $3), usn = $4, mtime = now()
 		WHERE user_id = $1
 		  AND id IN (SELECT note_id FROM cards WHERE user_id = $1 AND id = ANY($2))
-		  AND NOT (tags @> ARRAY[$3]::text[])`,
+		  AND NOT (tags @> ARRAY[$3]::text[])
+		RETURNING id`,
 		userID, cardIDs, tag, usn)
 	if err != nil {
-		return 0, fmt.Errorf("collection: add tag to notes of cards: %w", err)
+		return nil, fmt.Errorf("collection: add tag to notes of cards: %w", err)
 	}
-	return ct.RowsAffected(), nil
+	return collectIDs(rows, "add tag to notes of cards")
 }
 
-func (r *PostgresRepository) RemoveTagFromNotesOfCards(ctx context.Context, userID string, cardIDs []string, tag string, usn int64) (int64, error) {
-	ct, err := r.db.Exec(ctx, `
+func (r *PostgresRepository) RemoveTagFromNotesOfCards(ctx context.Context, userID string, cardIDs []string, tag string, usn int64) ([]string, error) {
+	rows, err := r.db.Query(ctx, `
 		UPDATE notes SET tags = array_remove(tags, $3), usn = $4, mtime = now()
 		WHERE user_id = $1
 		  AND id IN (SELECT note_id FROM cards WHERE user_id = $1 AND id = ANY($2))
-		  AND tags @> ARRAY[$3]::text[]`,
+		  AND tags @> ARRAY[$3]::text[]
+		RETURNING id`,
 		userID, cardIDs, tag, usn)
 	if err != nil {
-		return 0, fmt.Errorf("collection: remove tag from notes of cards: %w", err)
+		return nil, fmt.Errorf("collection: remove tag from notes of cards: %w", err)
 	}
-	return ct.RowsAffected(), nil
+	return collectIDs(rows, "remove tag from notes of cards")
 }
 
-func (r *PostgresRepository) SetFlagOnNotesOfCards(ctx context.Context, userID string, cardIDs []string, flag int32, usn int64) (int64, error) {
-	ct, err := r.db.Exec(ctx, `
+func (r *PostgresRepository) SetFlagOnNotesOfCards(ctx context.Context, userID string, cardIDs []string, flag int32, usn int64) ([]string, error) {
+	rows, err := r.db.Query(ctx, `
 		UPDATE notes SET flags = $3, usn = $4, mtime = now()
 		WHERE user_id = $1
-		  AND id IN (SELECT note_id FROM cards WHERE user_id = $1 AND id = ANY($2))`,
+		  AND id IN (SELECT note_id FROM cards WHERE user_id = $1 AND id = ANY($2))
+		RETURNING id`,
 		userID, cardIDs, int16(flag), usn)
 	if err != nil {
-		return 0, fmt.Errorf("collection: set flag on notes of cards: %w", err)
+		return nil, fmt.Errorf("collection: set flag on notes of cards: %w", err)
 	}
-	return ct.RowsAffected(), nil
+	return collectIDs(rows, "set flag on notes of cards")
+}
+
+// WriteOutbox appends outbox entries to the outbox table within the current
+// transaction. It panics if called on a pool-backed repository (i.e. outside
+// a WithTx callback), because the atomicity guarantee requires a tx.
+func (r *PostgresRepository) WriteOutbox(ctx context.Context, entries []events.OutboxEntry) error {
+	tx, ok := r.db.(pgx.Tx)
+	if !ok {
+		panic("collection: WriteOutbox called outside a WithTx transaction")
+	}
+	return events.WriteOutbox(ctx, tx, entries)
 }
 
 // ─── Generic helpers ─────────────────────────────────────────────────────────
@@ -835,6 +852,24 @@ func paginate[T any](items []T, limit int, idOf func(T) string) ([]T, string, er
 		return items, idOf(items[len(items)-1]), nil
 	}
 	return items, "", nil
+}
+
+// collectIDs drains a pgx.Rows result that contains a single `id` text column
+// and returns the values as a string slice. Used by bulk UPDATE ... RETURNING id.
+func collectIDs(rows pgx.Rows, op string) ([]string, error) {
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("collection: %s scan id: %w", op, err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("collection: %s rows: %w", op, err)
+	}
+	return ids, nil
 }
 
 // normSlice replaces a nil slice with an empty, non-nil one so pgx encodes a SQL
