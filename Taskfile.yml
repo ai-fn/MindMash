@@ -50,13 +50,14 @@ tasks:
       - cd api && buf lint
 
   migrate:
-    desc: Apply all migrations — identity then collection (override DB_URL as needed)
+    desc: Apply all migrations — identity, collection, scheduler (override DB_URL as needed)
     vars:
       DB_URL: '{{.DB_URL | default "postgres://mindmesh:mindmesh@localhost:5432/mindmesh?sslmode=disable"}}'
     cmds:
       # Each store uses its own schema_migrations table to avoid version-namespace collisions.
       - migrate -path migrations/identity   -database "{{.DB_URL}}&x-migrations-table=schema_migrations_identity"   up
       - migrate -path migrations/collection -database "{{.DB_URL}}&x-migrations-table=schema_migrations_collection" up
+      - migrate -path migrations/scheduler  -database "{{.DB_URL}}&x-migrations-table=schema_migrations_scheduler"  up
 
   keygen:
     desc: Generate local Ed25519 signing keys (skips if they already exist)

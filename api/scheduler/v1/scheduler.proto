@@ -1,0 +1,168 @@
+syntax = "proto3";
+
+package scheduler.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+option go_package = "github.com/mindmesh/mindmesh/api/scheduler/v1;schedulerv1";
+
+// ─── Study Service ────────────────────────────────────────────────────────────
+
+service StudyService {
+  // GetQueue returns the next batch of due and new cards for a deck,
+  // with server-rendered front HTML ready to display.
+  rpc GetQueue(GetQueueRequest) returns (GetQueueResponse) {
+    option (google.api.http) = {
+      get: "/v1/study/{deck_id}/queue"
+    };
+  }
+
+  // GetPreview returns the four next-interval estimates for a card without
+  // advancing its state. Shown to the user before they commit an answer.
+  rpc GetPreview(GetPreviewRequest) returns (GetPreviewResponse) {
+    option (google.api.http) = {
+      get: "/v1/cards/{card_id}/preview"
+    };
+  }
+
+  // Answer submits a grade for a card, advances its FSRS state, and returns
+  // the new scheduling info plus the four next-interval previews.
+  rpc Answer(AnswerRequest) returns (AnswerResponse) {
+    option (google.api.http) = {
+      post: "/v1/cards/{card_id}/answer"
+      body: "*"
+    };
+  }
+
+  // Reschedule applies a manual action (suspend / bury / reset) to a card.
+  rpc Reschedule(RescheduleRequest) returns (RescheduleResponse) {
+    option (google.api.http) = {
+      post: "/v1/cards/{card_id}:reschedule"
+      body: "*"
+    };
+  }
+
+  // GetCounts returns today's remaining new / learning / review card counts
+  // for a deck (or deck subtree).
+  rpc GetCounts(GetCountsRequest) returns (GetCountsResponse) {
+    option (google.api.http) = {
+      get: "/v1/study/{deck_id}/counts"
+    };
+  }
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+// Grade represents the four FSRS answer ratings. Starts at 1 so the proto3
+// zero value (GRADE_UNSPECIFIED = 0) is never a valid answer.
+enum Grade {
+  GRADE_UNSPECIFIED = 0;
+  GRADE_AGAIN       = 1;
+  GRADE_HARD        = 2;
+  GRADE_GOOD        = 3;
+  GRADE_EASY        = 4;
+}
+
+// CardState mirrors the card state machine column.
+enum CardState {
+  CARD_STATE_UNSPECIFIED  = 0;
+  CARD_STATE_NEW          = 1;
+  CARD_STATE_LEARNING     = 2;
+  CARD_STATE_REVIEW       = 3;
+  CARD_STATE_RELEARNING   = 4;
+}
+
+// RescheduleAction lists the manual scheduling operations available.
+enum RescheduleAction {
+  RESCHEDULE_ACTION_UNSPECIFIED = 0;
+  RESCHEDULE_ACTION_SUSPEND     = 1;
+  RESCHEDULE_ACTION_BURY        = 2;
+  RESCHEDULE_ACTION_RESET       = 3;
+}
+
+// ─── Messages ─────────────────────────────────────────────────────────────────
+
+// QueueCard is a single card entry in the study queue.
+message QueueCard {
+  string    card_id    = 1;
+  string    deck_id    = 2;
+  CardState state      = 3;
+  string    front_html = 4;
+}
+
+// IntervalPreview holds the four hypothetical next-due intervals (in seconds)
+// for each possible grade.
+message IntervalPreview {
+  int64 again_sec = 1;
+  int64 hard_sec  = 2;
+  int64 good_sec  = 3;
+  int64 easy_sec  = 4;
+}
+
+// SchedulingInfo describes a card's scheduling state after an answer.
+message SchedulingInfo {
+  CardState                 state        = 1;
+  google.protobuf.Timestamp due          = 2;
+  double                    stability    = 3;
+  double                    difficulty   = 4;
+  int32                     reps         = 5;
+  int32                     lapses       = 6;
+  int64                     interval_sec = 7;
+}
+
+// ─── GetQueue ─────────────────────────────────────────────────────────────────
+
+message GetQueueRequest {
+  string deck_id = 1;
+  int32  limit   = 2; // default 20 when 0
+}
+
+message GetQueueResponse {
+  repeated QueueCard cards = 1;
+}
+
+// ─── GetPreview ───────────────────────────────────────────────────────────────
+
+message GetPreviewRequest {
+  string card_id = 1;
+}
+
+message GetPreviewResponse {
+  IntervalPreview preview = 1;
+}
+
+// ─── Answer ───────────────────────────────────────────────────────────────────
+
+message AnswerRequest {
+  string card_id = 1;
+  Grade  grade   = 2;
+  int32  time_ms = 3; // time taken to answer (milliseconds)
+}
+
+message AnswerResponse {
+  SchedulingInfo  scheduling = 1;
+  IntervalPreview preview    = 2; // next previews after this answer
+}
+
+// ─── Reschedule ───────────────────────────────────────────────────────────────
+
+message RescheduleRequest {
+  string           card_id = 1;
+  RescheduleAction action  = 2;
+}
+
+message RescheduleResponse {}
+
+// ─── GetCounts ────────────────────────────────────────────────────────────────
+
+message GetCountsRequest {
+  string deck_id = 1;
+}
+
+message GetCountsResponse {
+  int32 new_count      = 1;
+  int32 learning_count = 2;
+  int32 review_count   = 3;
+}

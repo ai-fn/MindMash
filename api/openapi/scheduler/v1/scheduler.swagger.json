@@ -1,0 +1,410 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "scheduler/v1/scheduler.proto",
+    "version": "version not set"
+  },
+  "tags": [
+    {
+      "name": "StudyService"
+    }
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v1/cards/{cardId}/answer": {
+      "post": {
+        "summary": "Answer submits a grade for a card, advances its FSRS state, and returns\nthe new scheduling info plus the four next-interval previews.",
+        "operationId": "StudyService_Answer",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1AnswerResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "cardId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/StudyServiceAnswerBody"
+            }
+          }
+        ],
+        "tags": [
+          "StudyService"
+        ]
+      }
+    },
+    "/v1/cards/{cardId}/preview": {
+      "get": {
+        "summary": "GetPreview returns the four next-interval estimates for a card without\nadvancing its state. Shown to the user before they commit an answer.",
+        "operationId": "StudyService_GetPreview",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1GetPreviewResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "cardId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "StudyService"
+        ]
+      }
+    },
+    "/v1/cards/{cardId}:reschedule": {
+      "post": {
+        "summary": "Reschedule applies a manual action (suspend / bury / reset) to a card.",
+        "operationId": "StudyService_Reschedule",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1RescheduleResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "cardId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/StudyServiceRescheduleBody"
+            }
+          }
+        ],
+        "tags": [
+          "StudyService"
+        ]
+      }
+    },
+    "/v1/study/{deckId}/counts": {
+      "get": {
+        "summary": "GetCounts returns today's remaining new / learning / review card counts\nfor a deck (or deck subtree).",
+        "operationId": "StudyService_GetCounts",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1GetCountsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "deckId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "StudyService"
+        ]
+      }
+    },
+    "/v1/study/{deckId}/queue": {
+      "get": {
+        "summary": "GetQueue returns the next batch of due and new cards for a deck,\nwith server-rendered front HTML ready to display.",
+        "operationId": "StudyService_GetQueue",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1GetQueueResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "deckId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "limit",
+            "description": "default 20 when 0",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          }
+        ],
+        "tags": [
+          "StudyService"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "StudyServiceAnswerBody": {
+      "type": "object",
+      "properties": {
+        "grade": {
+          "$ref": "#/definitions/v1Grade"
+        },
+        "timeMs": {
+          "type": "integer",
+          "format": "int32",
+          "title": "time taken to answer (milliseconds)"
+        }
+      }
+    },
+    "StudyServiceRescheduleBody": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "$ref": "#/definitions/v1RescheduleAction"
+        }
+      }
+    },
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "@type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": {}
+    },
+    "rpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
+    "v1AnswerResponse": {
+      "type": "object",
+      "properties": {
+        "scheduling": {
+          "$ref": "#/definitions/v1SchedulingInfo"
+        },
+        "preview": {
+          "$ref": "#/definitions/v1IntervalPreview",
+          "title": "next previews after this answer"
+        }
+      }
+    },
+    "v1CardState": {
+      "type": "string",
+      "enum": [
+        "CARD_STATE_UNSPECIFIED",
+        "CARD_STATE_NEW",
+        "CARD_STATE_LEARNING",
+        "CARD_STATE_REVIEW",
+        "CARD_STATE_RELEARNING"
+      ],
+      "default": "CARD_STATE_UNSPECIFIED",
+      "description": "CardState mirrors the card state machine column."
+    },
+    "v1GetCountsResponse": {
+      "type": "object",
+      "properties": {
+        "newCount": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "learningCount": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "reviewCount": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    },
+    "v1GetPreviewResponse": {
+      "type": "object",
+      "properties": {
+        "preview": {
+          "$ref": "#/definitions/v1IntervalPreview"
+        }
+      }
+    },
+    "v1GetQueueResponse": {
+      "type": "object",
+      "properties": {
+        "cards": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1QueueCard"
+          }
+        }
+      }
+    },
+    "v1Grade": {
+      "type": "string",
+      "enum": [
+        "GRADE_UNSPECIFIED",
+        "GRADE_AGAIN",
+        "GRADE_HARD",
+        "GRADE_GOOD",
+        "GRADE_EASY"
+      ],
+      "default": "GRADE_UNSPECIFIED",
+      "description": "Grade represents the four FSRS answer ratings. Starts at 1 so the proto3\nzero value (GRADE_UNSPECIFIED = 0) is never a valid answer."
+    },
+    "v1IntervalPreview": {
+      "type": "object",
+      "properties": {
+        "againSec": {
+          "type": "string",
+          "format": "int64"
+        },
+        "hardSec": {
+          "type": "string",
+          "format": "int64"
+        },
+        "goodSec": {
+          "type": "string",
+          "format": "int64"
+        },
+        "easySec": {
+          "type": "string",
+          "format": "int64"
+        }
+      },
+      "description": "IntervalPreview holds the four hypothetical next-due intervals (in seconds)\nfor each possible grade."
+    },
+    "v1QueueCard": {
+      "type": "object",
+      "properties": {
+        "cardId": {
+          "type": "string"
+        },
+        "deckId": {
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/definitions/v1CardState"
+        },
+        "frontHtml": {
+          "type": "string"
+        }
+      },
+      "description": "QueueCard is a single card entry in the study queue."
+    },
+    "v1RescheduleAction": {
+      "type": "string",
+      "enum": [
+        "RESCHEDULE_ACTION_UNSPECIFIED",
+        "RESCHEDULE_ACTION_SUSPEND",
+        "RESCHEDULE_ACTION_BURY",
+        "RESCHEDULE_ACTION_RESET"
+      ],
+      "default": "RESCHEDULE_ACTION_UNSPECIFIED",
+      "description": "RescheduleAction lists the manual scheduling operations available."
+    },
+    "v1RescheduleResponse": {
+      "type": "object"
+    },
+    "v1SchedulingInfo": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "$ref": "#/definitions/v1CardState"
+        },
+        "due": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "stability": {
+          "type": "number",
+          "format": "double"
+        },
+        "difficulty": {
+          "type": "number",
+          "format": "double"
+        },
+        "reps": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "lapses": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "intervalSec": {
+          "type": "string",
+          "format": "int64"
+        }
+      },
+      "description": "SchedulingInfo describes a card's scheduling state after an answer."
+    }
+  }
+}

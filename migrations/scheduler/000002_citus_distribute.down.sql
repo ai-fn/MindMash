@@ -1,0 +1,1 @@
+-- No-op: Citus distribution cannot be reversed without dropping the table.
