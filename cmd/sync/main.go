@@ -1,8 +1,9 @@
 // Command sync runs the MindMesh Sync service: gRPC + grpc-gateway REST for
 // the USN delta pull (GetChanges), plus an SSE route for the multi-tab
-// realtime notifier. Sync owns no tables of its own — it reads Collection's
-// and Scheduler's colocated Postgres tables directly (see internal/sync's
-// package doc) and runs no migrations.
+// realtime notifier. Sync reads Collection's and Scheduler's colocated
+// Postgres tables directly (see internal/sync's package doc) and owns one
+// small migrated table of its own, sync_applied_ops, for /sync/apply op_id
+// idempotency.
 package main
 
 import (
@@ -67,7 +68,8 @@ func run() error {
 		}
 	}()
 
-	// Postgres — same cluster as Collection/Scheduler; no migrations to run.
+	// Postgres — same cluster as Collection/Scheduler, plus Sync's own
+	// sync_applied_ops table for /sync/apply idempotency.
 	dbCfg, err := db.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("sync: load db config: %w", err)
@@ -77,6 +79,15 @@ func run() error {
 		return fmt.Errorf("sync: connect db: %w", err)
 	}
 	defer pool.Close()
+
+	if migrationsEnabled(base.Env) {
+		dir := envOr("SYNC_MIGRATIONS_DIR", "migrations/sync")
+		dsn := dbCfg.DSN + "&x-migrations-table=schema_migrations_sync"
+		if err := db.RunMigrations(ctx, dsn, dir); err != nil {
+			return fmt.Errorf("sync: run migrations: %w", err)
+		}
+		logger.Info("sync: migrations applied", zap.String("dir", dir))
+	}
 
 	// Redis — backs the SSE notifier's pub/sub so a nudge published by
 	// whichever replica consumes the Kafka event reaches subscribers on
@@ -180,6 +191,15 @@ func run() error {
 	}
 	logger.Info("sync: stopped")
 	return nil
+}
+
+// migrationsEnabled reports whether migrations should run at boot. Defaults to
+// on in dev; RUN_MIGRATIONS overrides explicitly.
+func migrationsEnabled(env string) bool {
+	if v, ok := os.LookupEnv("RUN_MIGRATIONS"); ok {
+		return v == "true" || v == "1"
+	}
+	return env == "dev"
 }
 
 func envOr(key, def string) string {
