@@ -37,6 +37,15 @@
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/gofmt.sh\""
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/progress-doc-reminder.sh\""
+          }
+        ]
       }
     ]
   }
