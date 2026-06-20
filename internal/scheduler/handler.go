@@ -7,7 +7,6 @@ import (
 
 	schedulerv1 "github.com/mindmesh/mindmesh/api/scheduler/v1"
 	"github.com/mindmesh/mindmesh/internal/platform/auth"
-	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
 	"github.com/mindmesh/mindmesh/pkg/fsrs"
 )
 
@@ -22,14 +21,10 @@ func NewHandler(svc *Service) *Handler {
 	return &Handler{svc: svc}
 }
 
-// identity extracts the caller's identity from the context, returning an
-// error if the auth interceptor did not inject it.
+// identity extracts the caller's identity from the context, returning a
+// typed Unauthenticated error if the auth interceptor did not inject it.
 func identity(ctx context.Context) (auth.IdentityContext, error) {
-	id, ok := auth.IdentityFromContext(ctx)
-	if !ok {
-		return auth.IdentityContext{}, platformerrors.Unauthenticated("missing identity context")
-	}
-	return id, nil
+	return auth.RequireIdentity(ctx)
 }
 
 // ─── Proto ↔ domain enum mappers ─────────────────────────────────────────────

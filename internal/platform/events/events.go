@@ -147,22 +147,28 @@ func NewConsumer(cfg Config) (*KafkaConsumer, error) {
 // Subscribe starts a blocking read loop over topics, calling handler for each
 // message. It commits the offset only after handler returns nil.  The loop
 // exits when ctx is cancelled or a fatal read error occurs.
+//
+// A single topic uses kafka-go's plain Topic field; two or more use
+// GroupTopics, which makes one Reader (one consumer-group member, one set of
+// broker connections) consume all of them — callers needing several topics
+// should pass them all in one Subscribe call rather than calling Subscribe
+// once per topic, which would open a redundant reader per topic.
 func (c *KafkaConsumer) Subscribe(ctx context.Context, topics []string, handler func(ctx context.Context, msg Message) error) (retErr error) {
-	// kafka-go Reader supports a single topic; we iterate topics and start a
-	// reader per topic, but for the common single-topic case this is transparent.
-	// For multi-topic, callers are expected to call Subscribe once per topic or
-	// use a fan-out approach at the service layer.
 	if len(topics) == 0 {
 		return fmt.Errorf("events: subscribe: topics must not be empty")
 	}
 
-	// Use first topic; multi-topic fan-out is wired above this abstraction.
-	r := kafka.NewReader(kafka.ReaderConfig{
+	readerCfg := kafka.ReaderConfig{
 		Brokers:        c.cfg.Brokers,
 		GroupID:        c.cfg.GroupID,
-		Topic:          topics[0],
 		ReadBackoffMax: c.cfg.ReadTimeout,
-	})
+	}
+	if len(topics) == 1 {
+		readerCfg.Topic = topics[0]
+	} else {
+		readerCfg.GroupTopics = topics
+	}
+	r := kafka.NewReader(readerCfg)
 	defer func() {
 		if err := r.Close(); err != nil && retErr == nil {
 			retErr = fmt.Errorf("events: close reader: %w", err)

@@ -9,6 +9,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+
+	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
 )
 
 // IdentityContext holds the authenticated caller's identity.
@@ -29,6 +31,19 @@ func WithIdentity(ctx context.Context, id IdentityContext) context.Context {
 func IdentityFromContext(ctx context.Context) (IdentityContext, bool) {
 	id, ok := ctx.Value(ctxKey{}).(IdentityContext)
 	return id, ok
+}
+
+// RequireIdentity retrieves the IdentityContext stored by WithIdentity, or
+// returns a typed Unauthenticated error if the auth interceptor/middleware
+// did not inject one. Every service's gRPC handler calls this at the top of
+// each RPC instead of duplicating the IdentityFromContext-plus-error-mapping
+// pattern locally.
+func RequireIdentity(ctx context.Context) (IdentityContext, error) {
+	id, ok := IdentityFromContext(ctx)
+	if !ok {
+		return IdentityContext{}, platformerrors.Unauthenticated("missing identity context")
+	}
+	return id, nil
 }
 
 // Verifier is the subset of *Signer used by middleware.

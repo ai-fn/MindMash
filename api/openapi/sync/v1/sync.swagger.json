@@ -1,0 +1,464 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "sync/v1/sync.proto",
+    "version": "version not set"
+  },
+  "tags": [
+    {
+      "name": "SyncService"
+    }
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v1/sync/changes": {
+      "get": {
+        "summary": "GetChanges returns every entity with usn \u003e since_usn (and tombstones for\nhard deletes), paginated, plus the latest known usn so the client knows\nwhen it has caught up.",
+        "operationId": "SyncService_GetChanges",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1GetChangesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "sinceUsn",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "int64"
+          },
+          {
+            "name": "pageToken",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "SyncService"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "@type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": {}
+    },
+    "rpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
+    "syncV1Tag": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "usn": {
+          "type": "string",
+          "format": "int64"
+        },
+        "mtime": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "description": "Tag is a normalized tag-registry entry (see collection.v1 Tag registry)."
+    },
+    "v1Card": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "noteId": {
+          "type": "string"
+        },
+        "deckId": {
+          "type": "string"
+        },
+        "templateOrd": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "state": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "queue": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "due": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "stability": {
+          "type": "number",
+          "format": "double"
+        },
+        "difficulty": {
+          "type": "number",
+          "format": "double"
+        },
+        "reps": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "lapses": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "lastReview": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "usn": {
+          "type": "string",
+          "format": "int64"
+        },
+        "mtime": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "description": "Card mirrors collection.v1.Card (scheduling columns included; owned by Scheduler)."
+    },
+    "v1CardTemplate": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "front": {
+          "type": "string"
+        },
+        "back": {
+          "type": "string"
+        }
+      },
+      "description": "Card template within a NoteType (mirrors collection.v1.CardTemplate)."
+    },
+    "v1Deck": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "parentId": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "configId": {
+          "type": "string"
+        },
+        "usn": {
+          "type": "string",
+          "format": "int64"
+        },
+        "mtime": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "description": "Deck mirrors collection.v1.Deck."
+    },
+    "v1DeckConfig": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "newPerDay": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "revPerDay": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "desiredRetention": {
+          "type": "number",
+          "format": "double"
+        },
+        "fsrsWeights": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "learningSteps": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "rolloverHour": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "timezone": {
+          "type": "string"
+        },
+        "usn": {
+          "type": "string",
+          "format": "int64"
+        },
+        "mtime": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "description": "DeckConfig mirrors collection.v1.DeckConfig."
+    },
+    "v1Field": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "sticky": {
+          "type": "boolean"
+        },
+        "rtl": {
+          "type": "boolean"
+        }
+      },
+      "description": "Field definition within a NoteType (mirrors collection.v1.Field)."
+    },
+    "v1FilteredDeck": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "query": {
+          "type": "string"
+        },
+        "usn": {
+          "type": "string",
+          "format": "int64"
+        },
+        "mtime": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "description": "FilteredDeck mirrors collection.v1.FilteredDeck."
+    },
+    "v1GetChangesResponse": {
+      "type": "object",
+      "properties": {
+        "latestUsn": {
+          "type": "string",
+          "format": "int64"
+        },
+        "noteTypes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1NoteType"
+          }
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1Note"
+          }
+        },
+        "cards": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1Card"
+          }
+        },
+        "decks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1Deck"
+          }
+        },
+        "deckConfigs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1DeckConfig"
+          }
+        },
+        "filteredDecks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1FilteredDeck"
+          }
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/syncV1Tag"
+          }
+        },
+        "deleted": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1Tombstone"
+          }
+        },
+        "nextPageToken": {
+          "type": "string"
+        }
+      }
+    },
+    "v1Note": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "noteTypeId": {
+          "type": "string"
+        },
+        "fields": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "flags": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "usn": {
+          "type": "string",
+          "format": "int64"
+        },
+        "mtime": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "description": "Note mirrors collection.v1.Note."
+    },
+    "v1NoteType": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "css": {
+          "type": "string"
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1Field"
+          }
+        },
+        "cardTemplates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1CardTemplate"
+          }
+        },
+        "usn": {
+          "type": "string",
+          "format": "int64"
+        },
+        "mtime": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "description": "NoteType mirrors collection.v1.NoteType (read-only projection for sync)."
+    },
+    "v1Tombstone": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "title": "note_type | note | card | deck | deck_config | filtered_deck | tag"
+        },
+        "id": {
+          "type": "string"
+        },
+        "usn": {
+          "type": "string",
+          "format": "int64"
+        },
+        "deletedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "description": "Tombstone records a hard delete the client must remove locally."
+    }
+  }
+}

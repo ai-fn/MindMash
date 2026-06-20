@@ -1,0 +1,152 @@
+syntax = "proto3";
+
+package sync.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+option go_package = "github.com/mindmesh/mindmesh/api/sync/v1;syncv1";
+
+// ─── Sync Service ─────────────────────────────────────────────────────────────
+
+// SyncService serves the server-authoritative USN delta pull. The realtime
+// "new data available" nudge for multi-tab consistency is a plain SSE route
+// (GET /v1/sync/stream), not a proto RPC: grpc-gateway has no clean mapping
+// from a server-streaming RPC to a real SSE response, and the nudge payload
+// only ever carries a user id, so there's nothing proto buys here.
+service SyncService {
+  // GetChanges returns every entity with usn > since_usn (and tombstones for
+  // hard deletes), paginated, plus the latest known usn so the client knows
+  // when it has caught up.
+  rpc GetChanges(GetChangesRequest) returns (GetChangesResponse) {
+    option (google.api.http) = {
+      get: "/v1/sync/changes"
+    };
+  }
+}
+
+// ─── Messages ─────────────────────────────────────────────────────────────────
+
+// Tombstone records a hard delete the client must remove locally.
+message Tombstone {
+  string                    type       = 1; // note_type | note | card | deck | deck_config | filtered_deck | tag
+  string                    id         = 2;
+  int64                     usn        = 3;
+  google.protobuf.Timestamp deleted_at = 4;
+}
+
+// Field definition within a NoteType (mirrors collection.v1.Field).
+message Field {
+  string name   = 1;
+  bool   sticky = 2;
+  bool   rtl    = 3;
+}
+
+// Card template within a NoteType (mirrors collection.v1.CardTemplate).
+message CardTemplate {
+  string name  = 1;
+  string front = 2;
+  string back  = 3;
+}
+
+// NoteType mirrors collection.v1.NoteType (read-only projection for sync).
+message NoteType {
+  string                    id             = 1;
+  string                    name           = 2;
+  string                    css            = 3;
+  repeated Field            fields         = 4;
+  repeated CardTemplate     card_templates = 5;
+  int64                     usn            = 6;
+  google.protobuf.Timestamp mtime          = 7;
+}
+
+// Note mirrors collection.v1.Note.
+message Note {
+  string                    id           = 1;
+  string                    note_type_id = 2;
+  map<string, string>       fields       = 3;
+  repeated string           tags         = 4;
+  int32                     flags        = 5;
+  int64                     usn          = 6;
+  google.protobuf.Timestamp mtime        = 7;
+}
+
+// Card mirrors collection.v1.Card (scheduling columns included; owned by Scheduler).
+message Card {
+  string                    id           = 1;
+  string                    note_id      = 2;
+  string                    deck_id      = 3;
+  int32                     template_ord = 4;
+  int32                     state        = 5;
+  int32                     queue        = 6;
+  google.protobuf.Timestamp due          = 7;
+  double                    stability    = 8;
+  double                    difficulty   = 9;
+  int32                     reps         = 10;
+  int32                     lapses       = 11;
+  google.protobuf.Timestamp last_review  = 12;
+  int64                     usn          = 13;
+  google.protobuf.Timestamp mtime        = 14;
+}
+
+// Deck mirrors collection.v1.Deck.
+message Deck {
+  string                    id        = 1;
+  string                    parent_id = 2;
+  string                    name      = 3;
+  string                    path      = 4;
+  string                    config_id = 5;
+  int64                     usn       = 6;
+  google.protobuf.Timestamp mtime     = 7;
+}
+
+// DeckConfig mirrors collection.v1.DeckConfig.
+message DeckConfig {
+  string                    id                = 1;
+  string                    name              = 2;
+  int32                     new_per_day       = 3;
+  int32                     rev_per_day       = 4;
+  double                    desired_retention = 5;
+  repeated double           fsrs_weights      = 6;
+  repeated int32            learning_steps    = 7;
+  int32                     rollover_hour     = 8;
+  string                    timezone          = 9;
+  int64                     usn               = 10;
+  google.protobuf.Timestamp mtime             = 11;
+}
+
+// FilteredDeck mirrors collection.v1.FilteredDeck.
+message FilteredDeck {
+  string                    id    = 1;
+  string                    name  = 2;
+  string                    query = 3;
+  int64                     usn   = 4;
+  google.protobuf.Timestamp mtime = 5;
+}
+
+// Tag is a normalized tag-registry entry (see collection.v1 Tag registry).
+message Tag {
+  string                    id    = 1;
+  string                    name  = 2;
+  int64                     usn   = 3;
+  google.protobuf.Timestamp mtime = 4;
+}
+
+message GetChangesRequest {
+  int64  since_usn  = 1;
+  string page_token = 2;
+}
+
+message GetChangesResponse {
+  int64                 latest_usn      = 1;
+  repeated NoteType     note_types      = 2;
+  repeated Note         notes           = 3;
+  repeated Card         cards           = 4;
+  repeated Deck         decks           = 5;
+  repeated DeckConfig   deck_configs    = 6;
+  repeated FilteredDeck filtered_decks  = 7;
+  repeated Tag          tags            = 8;
+  repeated Tombstone    deleted         = 9;
+  string                next_page_token = 10;
+}
