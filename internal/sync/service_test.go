@@ -63,6 +63,16 @@ func (f *fakeRepository) ListTombstonesSince(_ context.Context, _ string, since 
 	return sinceLimit(f.tombstones, since, limit, func(t Tombstone) int64 { return t.USN }), nil
 }
 
+// GetAppliedOp/RecordAppliedOp are not exercised by Service's existing
+// (delta-pull) unit tests; they're stubbed here only so fakeRepository keeps
+// satisfying Repository. The apply (push) path tests land in a later task.
+func (f *fakeRepository) GetAppliedOp(context.Context, string, string) (*AppliedOp, error) {
+	return nil, nil
+}
+func (f *fakeRepository) RecordAppliedOp(context.Context, string, string, ApplyOutcome, int64) error {
+	return nil
+}
+
 func newTestService(repo *fakeRepository, pageSize int) *Service {
 	svc := NewService(repo, nil, zap.NewNop())
 	svc.pageSize = pageSize
