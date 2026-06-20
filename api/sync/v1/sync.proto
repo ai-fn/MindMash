@@ -24,6 +24,17 @@ service SyncService {
       get: "/v1/sync/changes"
     };
   }
+
+  // Apply pushes a batch of client-side mutations. Each mutation is resolved
+  // independently (fast-forward / last-write-wins / scheduler-always-wins)
+  // and is idempotent by op_id: replaying the same op_id is a no-op that
+  // returns the previously recorded outcome.
+  rpc Apply(ApplyRequest) returns (ApplyResponse) {
+    option (google.api.http) = {
+      post: "/v1/sync/apply"
+      body: "*"
+    };
+  }
 }
 
 // ─── Messages ─────────────────────────────────────────────────────────────────
@@ -149,4 +160,109 @@ message GetChangesResponse {
   repeated Tag          tags            = 8;
   repeated Tombstone    deleted         = 9;
   string                next_page_token = 10;
+}
+
+// ─── Apply (push path) ──────────────────────────────────────────────────────
+
+// MutationType enumerates the entity mutations a client may push. There is
+// deliberately no card variant: cards/scheduling state are owned by
+// Scheduler and never travel through /sync/apply.
+enum MutationType {
+  MUTATION_TYPE_UNSPECIFIED          = 0;
+  MUTATION_TYPE_NOTE_TYPE_UPDATE     = 1;
+  MUTATION_TYPE_NOTE_TYPE_DELETE     = 2;
+  MUTATION_TYPE_NOTE_UPDATE          = 3;
+  MUTATION_TYPE_NOTE_DELETE          = 4;
+  MUTATION_TYPE_DECK_UPDATE          = 5;
+  MUTATION_TYPE_DECK_DELETE          = 6;
+  MUTATION_TYPE_DECK_CONFIG_UPDATE   = 7;
+  MUTATION_TYPE_DECK_CONFIG_DELETE   = 8;
+  MUTATION_TYPE_FILTERED_DECK_DELETE = 9;
+}
+
+// NoteTypePayload mirrors collection.v1.UpdateNoteTypeRequest's body fields
+// (minus id/expected_usn, which live on Mutation itself).
+message NoteTypePayload {
+  string                name           = 1;
+  repeated Field        fields         = 2;
+  repeated CardTemplate card_templates = 3;
+  string                css            = 4;
+}
+
+// NotePayload mirrors collection.v1.UpdateNoteRequest's body fields.
+message NotePayload {
+  map<string, string> fields = 1;
+  repeated string      tags  = 2;
+  int32                flags = 3;
+}
+
+// DeckPayload mirrors collection.v1.UpdateDeckRequest's body fields.
+message DeckPayload {
+  string name      = 1;
+  string parent_id = 2;
+  string config_id = 3;
+}
+
+// DeckConfigPayload mirrors collection.v1.UpdateDeckConfigRequest's body fields.
+message DeckConfigPayload {
+  string          name              = 1;
+  int32           new_per_day       = 2;
+  int32           rev_per_day       = 3;
+  double          desired_retention = 4;
+  repeated double fsrs_weights      = 5;
+  repeated int32  learning_steps    = 6;
+  int32           rollover_hour     = 7;
+  string          timezone          = 8;
+}
+
+// Mutation is a single client-side change to apply against server state.
+message Mutation {
+  string                    op_id        = 1; // client-generated; replays are no-ops
+  MutationType              type         = 2;
+  string                    entity_id    = 3;
+  int64                     base_usn     = 4;
+  google.protobuf.Timestamp client_mtime = 5; // LWW tie-breaking on conflict only
+
+  oneof payload {
+    NoteTypePayload   note_type   = 6; // NOTE_TYPE_UPDATE only
+    NotePayload       note        = 7; // NOTE_UPDATE only
+    DeckPayload       deck        = 8; // DECK_UPDATE only
+    DeckConfigPayload deck_config = 9; // DECK_CONFIG_UPDATE only
+    // *_DELETE / FILTERED_DECK_DELETE mutations carry no payload.
+  }
+}
+
+message ApplyRequest {
+  repeated Mutation mutations = 1;
+}
+
+// ApplyOutcome reports how each mutation in a batch was resolved.
+enum ApplyOutcome {
+  APPLY_OUTCOME_UNSPECIFIED = 0;
+  APPLY_OUTCOME_APPLIED     = 1;
+  APPLY_OUTCOME_MERGED      = 2;
+  APPLY_OUTCOME_SERVER_WON  = 3;
+  APPLY_OUTCOME_REPLAYED    = 4;
+  APPLY_OUTCOME_FAILED      = 5;
+}
+
+// ApplyResult is the per-mutation outcome, keyed by the client's op_id.
+message ApplyResult {
+  string       op_id   = 1;
+  ApplyOutcome outcome = 2;
+  string       reason  = 3; // human-readable; set for FAILED/MERGED/SERVER_WON
+  int64        new_usn = 4; // 0 if no new usn was produced
+
+  oneof entity {
+    NoteType     note_type     = 5;
+    Note         note          = 6;
+    Deck         deck          = 7;
+    DeckConfig   deck_config   = 8;
+    FilteredDeck filtered_deck = 9;
+  }
+}
+
+message ApplyResponse {
+  repeated ApplyResult results    = 1;
+  int64                latest_usn = 2;
 }

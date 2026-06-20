@@ -16,6 +16,39 @@
     "application/json"
   ],
   "paths": {
+    "/v1/sync/apply": {
+      "post": {
+        "summary": "Apply pushes a batch of client-side mutations. Each mutation is resolved\nindependently (fast-forward / last-write-wins / scheduler-always-wins)\nand is idempotent by op_id: replaying the same op_id is a no-op that\nreturns the previously recorded outcome.",
+        "operationId": "SyncService_Apply",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1ApplyResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1ApplyRequest"
+            }
+          }
+        ],
+        "tags": [
+          "SyncService"
+        ]
+      }
+    },
     "/v1/sync/changes": {
       "get": {
         "summary": "GetChanges returns every entity with usn \u003e since_usn (and tombstones for\nhard deletes), paginated, plus the latest known usn so the client knows\nwhen it has caught up.",
@@ -103,6 +136,83 @@
         }
       },
       "description": "Tag is a normalized tag-registry entry (see collection.v1 Tag registry)."
+    },
+    "v1ApplyOutcome": {
+      "type": "string",
+      "enum": [
+        "APPLY_OUTCOME_UNSPECIFIED",
+        "APPLY_OUTCOME_APPLIED",
+        "APPLY_OUTCOME_MERGED",
+        "APPLY_OUTCOME_SERVER_WON",
+        "APPLY_OUTCOME_REPLAYED",
+        "APPLY_OUTCOME_FAILED"
+      ],
+      "default": "APPLY_OUTCOME_UNSPECIFIED",
+      "description": "ApplyOutcome reports how each mutation in a batch was resolved."
+    },
+    "v1ApplyRequest": {
+      "type": "object",
+      "properties": {
+        "mutations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1Mutation"
+          }
+        }
+      }
+    },
+    "v1ApplyResponse": {
+      "type": "object",
+      "properties": {
+        "results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1ApplyResult"
+          }
+        },
+        "latestUsn": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "v1ApplyResult": {
+      "type": "object",
+      "properties": {
+        "opId": {
+          "type": "string"
+        },
+        "outcome": {
+          "$ref": "#/definitions/v1ApplyOutcome"
+        },
+        "reason": {
+          "type": "string",
+          "title": "human-readable; set for FAILED/MERGED/SERVER_WON"
+        },
+        "newUsn": {
+          "type": "string",
+          "format": "int64",
+          "title": "0 if no new usn was produced"
+        },
+        "noteType": {
+          "$ref": "#/definitions/v1NoteType"
+        },
+        "note": {
+          "$ref": "#/definitions/v1Note"
+        },
+        "deck": {
+          "$ref": "#/definitions/v1Deck"
+        },
+        "deckConfig": {
+          "$ref": "#/definitions/v1DeckConfig"
+        },
+        "filteredDeck": {
+          "$ref": "#/definitions/v1FilteredDeck"
+        }
+      },
+      "description": "ApplyResult is the per-mutation outcome, keyed by the client's op_id."
     },
     "v1Card": {
       "type": "object",
@@ -260,6 +370,63 @@
       },
       "description": "DeckConfig mirrors collection.v1.DeckConfig."
     },
+    "v1DeckConfigPayload": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "newPerDay": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "revPerDay": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "desiredRetention": {
+          "type": "number",
+          "format": "double"
+        },
+        "fsrsWeights": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "learningSteps": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "rolloverHour": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "timezone": {
+          "type": "string"
+        }
+      },
+      "description": "DeckConfigPayload mirrors collection.v1.UpdateDeckConfigRequest's body fields."
+    },
+    "v1DeckPayload": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "parentId": {
+          "type": "string"
+        },
+        "configId": {
+          "type": "string"
+        }
+      },
+      "description": "DeckPayload mirrors collection.v1.UpdateDeckRequest's body fields."
+    },
     "v1Field": {
       "type": "object",
       "properties": {
@@ -366,6 +533,64 @@
         }
       }
     },
+    "v1Mutation": {
+      "type": "object",
+      "properties": {
+        "opId": {
+          "type": "string",
+          "title": "client-generated; replays are no-ops"
+        },
+        "type": {
+          "$ref": "#/definitions/v1MutationType"
+        },
+        "entityId": {
+          "type": "string"
+        },
+        "baseUsn": {
+          "type": "string",
+          "format": "int64"
+        },
+        "clientMtime": {
+          "type": "string",
+          "format": "date-time",
+          "title": "LWW tie-breaking on conflict only"
+        },
+        "noteType": {
+          "$ref": "#/definitions/v1NoteTypePayload",
+          "title": "NOTE_TYPE_UPDATE only"
+        },
+        "note": {
+          "$ref": "#/definitions/v1NotePayload",
+          "title": "NOTE_UPDATE only"
+        },
+        "deck": {
+          "$ref": "#/definitions/v1DeckPayload",
+          "title": "DECK_UPDATE only"
+        },
+        "deckConfig": {
+          "$ref": "#/definitions/v1DeckConfigPayload",
+          "title": "DECK_CONFIG_UPDATE only"
+        }
+      },
+      "description": "Mutation is a single client-side change to apply against server state."
+    },
+    "v1MutationType": {
+      "type": "string",
+      "enum": [
+        "MUTATION_TYPE_UNSPECIFIED",
+        "MUTATION_TYPE_NOTE_TYPE_UPDATE",
+        "MUTATION_TYPE_NOTE_TYPE_DELETE",
+        "MUTATION_TYPE_NOTE_UPDATE",
+        "MUTATION_TYPE_NOTE_DELETE",
+        "MUTATION_TYPE_DECK_UPDATE",
+        "MUTATION_TYPE_DECK_DELETE",
+        "MUTATION_TYPE_DECK_CONFIG_UPDATE",
+        "MUTATION_TYPE_DECK_CONFIG_DELETE",
+        "MUTATION_TYPE_FILTERED_DECK_DELETE"
+      ],
+      "default": "MUTATION_TYPE_UNSPECIFIED",
+      "description": "MutationType enumerates the entity mutations a client may push. There is\ndeliberately no card variant: cards/scheduling state are owned by\nScheduler and never travel through /sync/apply."
+    },
     "v1Note": {
       "type": "object",
       "properties": {
@@ -401,6 +626,28 @@
         }
       },
       "description": "Note mirrors collection.v1.Note."
+    },
+    "v1NotePayload": {
+      "type": "object",
+      "properties": {
+        "fields": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "flags": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      "description": "NotePayload mirrors collection.v1.UpdateNoteRequest's body fields."
     },
     "v1NoteType": {
       "type": "object",
@@ -438,6 +685,32 @@
         }
       },
       "description": "NoteType mirrors collection.v1.NoteType (read-only projection for sync)."
+    },
+    "v1NoteTypePayload": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1Field"
+          }
+        },
+        "cardTemplates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1CardTemplate"
+          }
+        },
+        "css": {
+          "type": "string"
+        }
+      },
+      "description": "NoteTypePayload mirrors collection.v1.UpdateNoteTypeRequest's body fields\n(minus id/expected_usn, which live on Mutation itself)."
     },
     "v1Tombstone": {
       "type": "object",
