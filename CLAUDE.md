@@ -98,3 +98,19 @@ phases; don't block a service's core on them unless that phase is in scope.)
 - Default branch: `main`. Active work branch: `feat/dev-implementation`. Detailed specs live on
   the `docs` branch.
 - Commit/push only when asked. End commit messages with the required `Co-Authored-By` trailer.
+
+## Implementation progress tracking
+
+- `docs/implementation-progress.md` (on the `docs` branch) tracks actual status against
+  `docs/detailed/19-build-roadmap.md`'s phases. Edit it only via the dedicated worktree at
+  `../MindMesh-docs` (checked out to `docs`) — never by switching the main worktree's branch.
+- After a commit that plausibly completes a tracked milestone (a service's definition-of-done,
+  a roadmap phase, or a previously-confirmed MVP-scoping decision), update the doc in that
+  worktree and commit there. A `PostToolUse` hook reminds you to check after every `git commit`;
+  use your judgment about whether the commit actually warrants an update — most won't.
+- Commits to the `docs` worktree are local only. Never push from there unless explicitly asked.
+- **MVP-scoping decisions** (marking something `🟡 Partial` because scope was deliberately
+  reduced, not just because it isn't built yet) must already be confirmed with the user in the
+  conversation — via plan approval or an explicit question — before being recorded. If it
+  wasn't confirmed, ask first; don't record it unilaterally.
+- Run `/update-progress` to refresh the doc on demand instead of waiting for the next commit.
