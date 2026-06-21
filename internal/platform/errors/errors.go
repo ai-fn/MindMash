@@ -117,3 +117,18 @@ func HTTPStatus(err error) int {
 	}
 	return http.StatusInternalServerError
 }
+
+func is(err error, code codes.Code) bool {
+	var ae *AppError
+	return errors.As(err, &ae) && ae.Code == code
+}
+
+func IsNotFound(err error) bool { return is(err, codes.NotFound) }
+
+func IsAlreadyExists(err error) bool { return is(err, codes.AlreadyExists) }
+
+func IsInvalidArgument(err error) bool { return is(err, codes.InvalidArgument) }
+
+func IsFailedPrecondition(err error) bool { return is(err, codes.FailedPrecondition) }
+
+func IsAborted(err error) bool { return is(err, codes.Aborted) }
