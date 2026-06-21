@@ -1,10 +1,15 @@
-// Package sync implements the read-only USN delta-pull service: it reads the
-// usn/mtime columns Collection (and Scheduler, for cards' scheduling columns)
-// already stamp on every mutation, and assembles them into a per-user change
-// feed so a user's open tabs/devices converge. Sync owns no tables of its own;
-// it connects to the same Postgres/Citus cluster as Collection and Scheduler
-// (see internal/scheduler/repo.go for the established precedent of one
-// service reading another's colocated tables directly).
+// Package sync implements the USN delta-pull (read) and apply (push) paths:
+// it reads the usn/mtime columns Collection (and Scheduler, for cards'
+// scheduling columns) already stamp on every mutation, and assembles them
+// into a per-user change feed so a user's open tabs/devices converge; it also
+// accepts client-submitted mutations via /sync/apply, resolves conflicts
+// (fast-forward / last-write-wins / scheduler-always-wins), and forwards them
+// to Collection's existing mutation RPCs. Sync owns one table of its own —
+// sync_applied_ops, used for op_id idempotency on the push path (see
+// migrations/sync/) — and otherwise connects to the same Postgres/Citus
+// cluster as Collection and Scheduler (see internal/scheduler/repo.go for the
+// established precedent of one service reading another's colocated tables
+// directly).
 package sync
 
 import (
@@ -146,7 +151,8 @@ type ChangeSet struct {
 	NextCursors Cursors
 }
 
-// Repository defines the read-only storage operations Sync needs. Every
+// Repository defines the storage operations Sync needs: read-only delta-pull
+// projections, plus push-path idempotency bookkeeping for /sync/apply. Every
 // method is tenant-scoped by userID, matching the convention in
 // internal/collection and internal/scheduler.
 type Repository interface {
@@ -162,4 +168,145 @@ type Repository interface {
 	ListFilteredDecksSince(ctx context.Context, userID string, sinceUSN int64, limit int) ([]FilteredDeck, error)
 	ListTagsSince(ctx context.Context, userID string, sinceUSN int64, limit int) ([]Tag, error)
 	ListTombstonesSince(ctx context.Context, userID string, sinceUSN int64, limit int) ([]Tombstone, error)
+
+	// GetAppliedOp returns the previously recorded outcome for (userID, opID),
+	// or (nil, nil) if this op_id has never been applied — the push-path
+	// idempotency check. A non-nil result means the mutation was already
+	// processed and must not be re-applied to Collection.
+	GetAppliedOp(ctx context.Context, userID, opID string) (*AppliedOp, error)
+	// RecordAppliedOp persists the outcome of applying op_id so a future
+	// replay short-circuits via GetAppliedOp. Per Global Constraint 7, a
+	// codes.Aborted outcome from Collection must never reach this method.
+	RecordAppliedOp(ctx context.Context, userID, opID string, outcome ApplyOutcome, newUSN int64) error
+}
+
+// ─── Apply (push) path domain types ─────────────────────────────────────────
+// These are plain Go mirrors of api/sync/v1/sync.proto's Apply RPC messages
+// (Mutation/ApplyRequest/ApplyResult/ApplyResponse) — not generated, but kept
+// field-for-field in sync with the proto so handler.go's translation layer
+// (a later task) is a straight copy.
+
+// MutationType identifies which Collection entity/operation a Mutation
+// targets. Mirrors sync.v1.MutationType 1:1, offset by one so the zero value
+// (no MUTATION_TYPE_UNSPECIFIED equivalent here) is invalid rather than
+// silently meaning "note type update". No card variant exists — Collection
+// exposes no UpdateCard RPC, so "scheduler always wins" is enforced by this
+// omission (see plan Global Constraint 4).
+type MutationType int
+
+const (
+	MutationNoteTypeUpdate MutationType = iota + 1
+	MutationNoteTypeDelete
+	MutationNoteUpdate
+	MutationNoteDelete
+	MutationDeckUpdate
+	MutationDeckDelete
+	MutationDeckConfigUpdate
+	MutationDeckConfigDelete
+	MutationFilteredDeckDelete
+)
+
+// ApplyOutcome reports how a single Mutation was resolved.
+type ApplyOutcome int16
+
+const (
+	// OutcomeApplied means the mutation was written to Collection as-is
+	// (fast-forward: base_usn matched the entity's current usn), or a delete
+	// against an already-deleted entity (idempotent no-op success).
+	OutcomeApplied ApplyOutcome = iota + 1
+	// OutcomeMerged means a conflicting update was resolved client-wins via
+	// last-write-wins and applied.
+	OutcomeMerged
+	// OutcomeServerWon means a conflicting mutation was resolved server-wins
+	// (LWW lost, or a delete raced against a concurrent update) and the
+	// client's mutation was discarded.
+	OutcomeServerWon
+	// OutcomeReplayed means this op_id was already applied previously; the
+	// response reflects the recorded outcome, and no write was issued.
+	OutcomeReplayed
+	// OutcomeFailed means the mutation could not be applied (e.g. Collection
+	// returned codes.Aborted because a third write raced in between Sync's
+	// read and write). Per Global Constraint 7, a Failed outcome is never
+	// recorded in sync_applied_ops, so a retry of the same op_id re-resolves
+	// against fresh state.
+	OutcomeFailed
+)
+
+// NoteTypePayload carries the fields of a NOTE_TYPE_UPDATE mutation. Mirrors
+// collection.v1.UpdateNoteTypeRequest's body (minus id/expected_usn, which
+// live on Mutation itself).
+type NoteTypePayload struct {
+	Name          string
+	Fields        []Field
+	CardTemplates []CardTemplate
+	CSS           string
+}
+
+// NotePayload carries the fields of a NOTE_UPDATE mutation.
+type NotePayload struct {
+	Fields map[string]string
+	Tags   []string
+	Flags  int32
+}
+
+// DeckPayload carries the fields of a DECK_UPDATE mutation.
+type DeckPayload struct {
+	Name     string
+	ParentID string
+	ConfigID string
+}
+
+// DeckConfigPayload carries the fields of a DECK_CONFIG_UPDATE mutation.
+type DeckConfigPayload struct {
+	Name             string
+	NewPerDay        int32
+	RevPerDay        int32
+	DesiredRetention float64
+	FSRSWeights      []float64
+	LearningSteps    []int32
+	RolloverHour     int32
+	Timezone         string
+}
+
+// Mutation is a single client-submitted change in an ApplyRequest. Exactly
+// one payload field is set, matching Type; *_DELETE and
+// FILTERED_DECK_DELETE mutations carry no payload.
+type Mutation struct {
+	OpID        string // client-generated; replays are no-ops
+	Type        MutationType
+	EntityID    string
+	BaseUSN     int64
+	ClientMtime time.Time // LWW tie-breaking on conflict only
+
+	NoteType   *NoteTypePayload   // NOTE_TYPE_UPDATE only
+	Note       *NotePayload       // NOTE_UPDATE only
+	Deck       *DeckPayload       // DECK_UPDATE only
+	DeckConfig *DeckConfigPayload // DECK_CONFIG_UPDATE only
+}
+
+// ApplyResult is the per-mutation outcome returned in an ApplyResponse. At
+// most one entity field is set, reflecting the post-apply (or post-replay)
+// state of the entity the mutation targeted; it is nil for deletes and for
+// OutcomeFailed.
+type ApplyResult struct {
+	OpID    string
+	Outcome ApplyOutcome
+	Reason  string
+	NewUSN  int64
+
+	NoteType     *NoteType
+	Note         *Note
+	Deck         *Deck
+	DeckConfig   *DeckConfig
+	FilteredDeck *FilteredDeck
+}
+
+// AppliedOp is the row shape sync_applied_ops stores for op_id idempotency.
+// Per plan Global Constraint 9, only the outcome/usn are cached — never the
+// entity payload; a replay re-fetches the entity live from Collection.
+type AppliedOp struct {
+	OpID      string
+	Outcome   ApplyOutcome
+	NewUSN    int64
+	AppliedAt time.Time
 }

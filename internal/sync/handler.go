@@ -154,6 +154,141 @@ func tombstoneToProto(t Tombstone) *syncv1.Tombstone {
 	}
 }
 
+// ─── Apply (push) path proto ↔ domain mappers ─────────────────────────────────
+
+func fieldFromProto(f *syncv1.Field) Field {
+	return Field{Name: f.GetName(), Sticky: f.GetSticky(), RTL: f.GetRtl()}
+}
+
+func cardTemplateFromProto(ct *syncv1.CardTemplate) CardTemplate {
+	return CardTemplate{Name: ct.GetName(), Front: ct.GetFront(), Back: ct.GetBack()}
+}
+
+func mutationTypeFromProto(t syncv1.MutationType) MutationType {
+	switch t {
+	case syncv1.MutationType_MUTATION_TYPE_NOTE_TYPE_UPDATE:
+		return MutationNoteTypeUpdate
+	case syncv1.MutationType_MUTATION_TYPE_NOTE_TYPE_DELETE:
+		return MutationNoteTypeDelete
+	case syncv1.MutationType_MUTATION_TYPE_NOTE_UPDATE:
+		return MutationNoteUpdate
+	case syncv1.MutationType_MUTATION_TYPE_NOTE_DELETE:
+		return MutationNoteDelete
+	case syncv1.MutationType_MUTATION_TYPE_DECK_UPDATE:
+		return MutationDeckUpdate
+	case syncv1.MutationType_MUTATION_TYPE_DECK_DELETE:
+		return MutationDeckDelete
+	case syncv1.MutationType_MUTATION_TYPE_DECK_CONFIG_UPDATE:
+		return MutationDeckConfigUpdate
+	case syncv1.MutationType_MUTATION_TYPE_DECK_CONFIG_DELETE:
+		return MutationDeckConfigDelete
+	case syncv1.MutationType_MUTATION_TYPE_FILTERED_DECK_DELETE:
+		return MutationFilteredDeckDelete
+	default:
+		return 0
+	}
+}
+
+func noteTypePayloadFromProto(p *syncv1.NoteTypePayload) *NoteTypePayload {
+	if p == nil {
+		return nil
+	}
+	out := &NoteTypePayload{Name: p.GetName(), CSS: p.GetCss()}
+	for _, f := range p.GetFields() {
+		out.Fields = append(out.Fields, fieldFromProto(f))
+	}
+	for _, ct := range p.GetCardTemplates() {
+		out.CardTemplates = append(out.CardTemplates, cardTemplateFromProto(ct))
+	}
+	return out
+}
+
+func notePayloadFromProto(p *syncv1.NotePayload) *NotePayload {
+	if p == nil {
+		return nil
+	}
+	return &NotePayload{Fields: p.GetFields(), Tags: p.GetTags(), Flags: p.GetFlags()}
+}
+
+func deckPayloadFromProto(p *syncv1.DeckPayload) *DeckPayload {
+	if p == nil {
+		return nil
+	}
+	return &DeckPayload{Name: p.GetName(), ParentID: p.GetParentId(), ConfigID: p.GetConfigId()}
+}
+
+func deckConfigPayloadFromProto(p *syncv1.DeckConfigPayload) *DeckConfigPayload {
+	if p == nil {
+		return nil
+	}
+	return &DeckConfigPayload{
+		Name:             p.GetName(),
+		NewPerDay:        p.GetNewPerDay(),
+		RevPerDay:        p.GetRevPerDay(),
+		DesiredRetention: p.GetDesiredRetention(),
+		FSRSWeights:      p.GetFsrsWeights(),
+		LearningSteps:    p.GetLearningSteps(),
+		RolloverHour:     p.GetRolloverHour(),
+		Timezone:         p.GetTimezone(),
+	}
+}
+
+func mutationFromProto(m *syncv1.Mutation) Mutation {
+	out := Mutation{
+		OpID:     m.GetOpId(),
+		Type:     mutationTypeFromProto(m.GetType()),
+		EntityID: m.GetEntityId(),
+		BaseUSN:  m.GetBaseUsn(),
+	}
+	if m.GetClientMtime() != nil {
+		out.ClientMtime = m.GetClientMtime().AsTime()
+	}
+	out.NoteType = noteTypePayloadFromProto(m.GetNoteType())
+	out.Note = notePayloadFromProto(m.GetNote())
+	out.Deck = deckPayloadFromProto(m.GetDeck())
+	out.DeckConfig = deckConfigPayloadFromProto(m.GetDeckConfig())
+	return out
+}
+
+func applyOutcomeToProto(o ApplyOutcome) syncv1.ApplyOutcome {
+	switch o {
+	case OutcomeApplied:
+		return syncv1.ApplyOutcome_APPLY_OUTCOME_APPLIED
+	case OutcomeMerged:
+		return syncv1.ApplyOutcome_APPLY_OUTCOME_MERGED
+	case OutcomeServerWon:
+		return syncv1.ApplyOutcome_APPLY_OUTCOME_SERVER_WON
+	case OutcomeReplayed:
+		return syncv1.ApplyOutcome_APPLY_OUTCOME_REPLAYED
+	case OutcomeFailed:
+		return syncv1.ApplyOutcome_APPLY_OUTCOME_FAILED
+	default:
+		return syncv1.ApplyOutcome_APPLY_OUTCOME_UNSPECIFIED
+	}
+}
+
+func applyResultToProto(r ApplyResult) *syncv1.ApplyResult {
+	p := &syncv1.ApplyResult{
+		OpId:    r.OpID,
+		Outcome: applyOutcomeToProto(r.Outcome),
+		Reason:  r.Reason,
+		NewUsn:  r.NewUSN,
+	}
+	switch {
+	case r.NoteType != nil:
+		p.Entity = &syncv1.ApplyResult_NoteType{NoteType: noteTypeToProto(*r.NoteType)}
+	case r.Note != nil:
+		p.Entity = &syncv1.ApplyResult_Note{Note: noteToProto(*r.Note)}
+	case r.Deck != nil:
+		p.Entity = &syncv1.ApplyResult_Deck{Deck: deckToProto(*r.Deck)}
+	case r.DeckConfig != nil:
+		p.Entity = &syncv1.ApplyResult_DeckConfig{DeckConfig: deckConfigToProto(*r.DeckConfig)}
+	case r.FilteredDeck != nil:
+		p.Entity = &syncv1.ApplyResult_FilteredDeck{FilteredDeck: filteredDeckToProto(*r.FilteredDeck)}
+	}
+	return p
+}
+
 // ─── SyncService ──────────────────────────────────────────────────────────────
 
 func (h *Handler) GetChanges(ctx context.Context, req *syncv1.GetChangesRequest) (*syncv1.GetChangesResponse, error) {
@@ -194,6 +329,29 @@ func (h *Handler) GetChanges(ctx context.Context, req *syncv1.GetChangesRequest)
 	}
 	for _, t := range cs.Deleted {
 		resp.Deleted = append(resp.Deleted, tombstoneToProto(t))
+	}
+	return resp, nil
+}
+
+func (h *Handler) Apply(ctx context.Context, req *syncv1.ApplyRequest) (*syncv1.ApplyResponse, error) {
+	id, err := identity(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	mutations := make([]Mutation, len(req.GetMutations()))
+	for i, m := range req.GetMutations() {
+		mutations[i] = mutationFromProto(m)
+	}
+
+	results, latestUSN, err := h.svc.Apply(ctx, id.UserID, mutations)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := &syncv1.ApplyResponse{LatestUsn: latestUSN}
+	for _, r := range results {
+		resp.Results = append(resp.Results, applyResultToProto(r))
 	}
 	return resp, nil
 }

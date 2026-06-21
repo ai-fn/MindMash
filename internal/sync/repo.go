@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -21,11 +22,14 @@ const (
 	tagColumns          = "id, name, usn, mtime"
 )
 
-// dbtx is the subset of *pgxpool.Pool that Sync needs. Sync issues no writes
-// or transactions; every method here is a read.
+// dbtx is the subset of *pgxpool.Pool that Sync needs. Most methods here are
+// reads against Collection/Scheduler's colocated tables; Exec backs the
+// sync_applied_ops writes Sync issues for its own push-path idempotency
+// bookkeeping (see GetAppliedOp/RecordAppliedOp below).
 type dbtx interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
 }
 
 // PostgresRepository implements Repository over the shared Collection
@@ -266,4 +270,31 @@ func (r *PostgresRepository) ListTombstonesSince(ctx context.Context, userID str
 		return nil, fmt.Errorf("sync: list tombstones rows: %w", err)
 	}
 	return items, nil
+}
+
+// ─── AppliedOp (push-path idempotency) ──────────────────────────────────────
+
+func (r *PostgresRepository) GetAppliedOp(ctx context.Context, userID, opID string) (*AppliedOp, error) {
+	var op AppliedOp
+	op.OpID = opID
+	err := r.db.QueryRow(ctx,
+		`SELECT outcome, new_usn, applied_at FROM sync_applied_ops WHERE user_id = $1 AND op_id = $2`,
+		userID, opID).Scan(&op.Outcome, &op.NewUSN, &op.AppliedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("sync: get applied op: %w", err)
+	}
+	return &op, nil
+}
+
+func (r *PostgresRepository) RecordAppliedOp(ctx context.Context, userID, opID string, outcome ApplyOutcome, newUSN int64) error {
+	_, err := r.db.Exec(ctx,
+		`INSERT INTO sync_applied_ops (user_id, op_id, outcome, new_usn) VALUES ($1, $2, $3, $4) ON CONFLICT (user_id, op_id) DO NOTHING`,
+		userID, opID, outcome, newUSN)
+	if err != nil {
+		return fmt.Errorf("sync: record applied op: %w", err)
+	}
+	return nil
 }

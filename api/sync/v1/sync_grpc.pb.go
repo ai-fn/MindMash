@@ -20,6 +20,7 @@ const _ = grpc.SupportPackageIsVersion8
 
 const (
 	SyncService_GetChanges_FullMethodName = "/sync.v1.SyncService/GetChanges"
+	SyncService_Apply_FullMethodName      = "/sync.v1.SyncService/Apply"
 )
 
 // SyncServiceClient is the client API for SyncService service.
@@ -36,6 +37,11 @@ type SyncServiceClient interface {
 	// hard deletes), paginated, plus the latest known usn so the client knows
 	// when it has caught up.
 	GetChanges(ctx context.Context, in *GetChangesRequest, opts ...grpc.CallOption) (*GetChangesResponse, error)
+	// Apply pushes a batch of client-side mutations. Each mutation is resolved
+	// independently (fast-forward / last-write-wins / scheduler-always-wins)
+	// and is idempotent by op_id: replaying the same op_id is a no-op that
+	// returns the previously recorded outcome.
+	Apply(ctx context.Context, in *ApplyRequest, opts ...grpc.CallOption) (*ApplyResponse, error)
 }
 
 type syncServiceClient struct {
@@ -56,6 +62,16 @@ func (c *syncServiceClient) GetChanges(ctx context.Context, in *GetChangesReques
 	return out, nil
 }
 
+func (c *syncServiceClient) Apply(ctx context.Context, in *ApplyRequest, opts ...grpc.CallOption) (*ApplyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ApplyResponse)
+	err := c.cc.Invoke(ctx, SyncService_Apply_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SyncServiceServer is the server API for SyncService service.
 // All implementations should embed UnimplementedSyncServiceServer
 // for forward compatibility
@@ -70,6 +86,11 @@ type SyncServiceServer interface {
 	// hard deletes), paginated, plus the latest known usn so the client knows
 	// when it has caught up.
 	GetChanges(context.Context, *GetChangesRequest) (*GetChangesResponse, error)
+	// Apply pushes a batch of client-side mutations. Each mutation is resolved
+	// independently (fast-forward / last-write-wins / scheduler-always-wins)
+	// and is idempotent by op_id: replaying the same op_id is a no-op that
+	// returns the previously recorded outcome.
+	Apply(context.Context, *ApplyRequest) (*ApplyResponse, error)
 }
 
 // UnimplementedSyncServiceServer should be embedded to have forward compatible implementations.
@@ -78,6 +99,9 @@ type UnimplementedSyncServiceServer struct {
 
 func (UnimplementedSyncServiceServer) GetChanges(context.Context, *GetChangesRequest) (*GetChangesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetChanges not implemented")
+}
+func (UnimplementedSyncServiceServer) Apply(context.Context, *ApplyRequest) (*ApplyResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Apply not implemented")
 }
 
 // UnsafeSyncServiceServer may be embedded to opt out of forward compatibility for this service.
@@ -109,6 +133,24 @@ func _SyncService_GetChanges_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SyncService_Apply_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ApplyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SyncServiceServer).Apply(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SyncService_Apply_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SyncServiceServer).Apply(ctx, req.(*ApplyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // SyncService_ServiceDesc is the grpc.ServiceDesc for SyncService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -119,6 +161,10 @@ var SyncService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetChanges",
 			Handler:    _SyncService_GetChanges_Handler,
+		},
+		{
+			MethodName: "Apply",
+			Handler:    _SyncService_Apply_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

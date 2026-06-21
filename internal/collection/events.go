@@ -95,7 +95,7 @@ func mustMarshal(v any) []byte {
 
 func noteTypeEntry(nt *NoteType, eventType string) events.OutboxEntry {
 	return events.OutboxEntry{
-		ID:            ids.NewULID(),
+		ID:            ids.NewUUID(), // outbox.id is UUID, not ULID
 		UserID:        nt.UserID,
 		AggregateType: "note_type",
 		AggregateID:   nt.ID,
@@ -110,7 +110,7 @@ func noteTypeEntry(nt *NoteType, eventType string) events.OutboxEntry {
 
 func noteEntry(n *Note, eventType string) events.OutboxEntry {
 	return events.OutboxEntry{
-		ID:            ids.NewULID(),
+		ID:            ids.NewUUID(), // outbox.id is UUID, not ULID
 		UserID:        n.UserID,
 		AggregateType: "note",
 		AggregateID:   n.ID,
@@ -125,7 +125,7 @@ func noteEntry(n *Note, eventType string) events.OutboxEntry {
 
 func cardEntry(c *Card, eventType string) events.OutboxEntry {
 	return events.OutboxEntry{
-		ID:            ids.NewULID(),
+		ID:            ids.NewUUID(), // outbox.id is UUID, not ULID
 		UserID:        c.UserID,
 		AggregateType: "card",
 		AggregateID:   c.ID,
@@ -140,7 +140,7 @@ func cardEntry(c *Card, eventType string) events.OutboxEntry {
 
 func deckEntry(d *Deck, eventType string) events.OutboxEntry {
 	return events.OutboxEntry{
-		ID:            ids.NewULID(),
+		ID:            ids.NewUUID(), // outbox.id is UUID, not ULID
 		UserID:        d.UserID,
 		AggregateType: "deck",
 		AggregateID:   d.ID,
@@ -155,7 +155,7 @@ func deckEntry(d *Deck, eventType string) events.OutboxEntry {
 
 func deckConfigEntry(dc *DeckConfig, eventType string) events.OutboxEntry {
 	return events.OutboxEntry{
-		ID:            ids.NewULID(),
+		ID:            ids.NewUUID(), // outbox.id is UUID, not ULID
 		UserID:        dc.UserID,
 		AggregateType: "deck_config",
 		AggregateID:   dc.ID,
@@ -170,7 +170,7 @@ func deckConfigEntry(dc *DeckConfig, eventType string) events.OutboxEntry {
 
 func filteredDeckEntry(fd *FilteredDeck, eventType string) events.OutboxEntry {
 	return events.OutboxEntry{
-		ID:            ids.NewULID(),
+		ID:            ids.NewUUID(), // outbox.id is UUID, not ULID
 		UserID:        fd.UserID,
 		AggregateType: "filtered_deck",
 		AggregateID:   fd.ID,
