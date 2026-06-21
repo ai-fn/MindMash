@@ -207,7 +207,7 @@ const (
 )
 
 // ApplyOutcome reports how a single Mutation was resolved.
-type ApplyOutcome int
+type ApplyOutcome int16
 
 const (
 	// OutcomeApplied means the mutation was written to Collection as-is
