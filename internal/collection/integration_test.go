@@ -5,11 +5,14 @@ package collection
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
+	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	tcredis "github.com/testcontainers/testcontainers-go/modules/redis"
+	"github.com/testcontainers/testcontainers-go/wait"
 	"go.uber.org/zap"
 
 	platformdb "github.com/mindmesh/mindmesh/internal/platform/db"
@@ -27,10 +30,19 @@ func setupIntegration(t *testing.T) integrationComponents {
 	t.Helper()
 	ctx := context.Background()
 
+	// The postgres image restarts its server process after initdb; without an
+	// explicit occurrence count the default wait strategy can report ready
+	// after the first (pre-restart) boot, so the first connection attempt
+	// hits a server that's about to restart ("connection reset by peer").
 	pgCtr, err := postgres.Run(ctx, "postgres:18-alpine",
 		postgres.WithDatabase("collection_test"),
 		postgres.WithUsername("test"),
 		postgres.WithPassword("test"),
+		testcontainers.WithWaitStrategy(
+			wait.ForLog("database system is ready to accept connections").
+				WithOccurrence(2).
+				WithStartupTimeout(2*time.Minute),
+		),
 	)
 	if err != nil {
 		t.Fatalf("start postgres: %v", err)
