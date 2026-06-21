@@ -81,11 +81,17 @@ func isUniqueViolation(err error) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
-// isForeignKeyViolation reports a 23503 (foreign_key_violation), raised when an
-// ON DELETE RESTRICT child still references the row being deleted.
+// isForeignKeyViolation reports whether err is a Postgres foreign-key
+// constraint violation, raised when an ON DELETE RESTRICT child still
+// references the row being deleted.
 func isForeignKeyViolation(err error) bool {
 	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == "23503"
+	if !errors.As(err, &pgErr) {
+		return false
+	}
+	// 23503 = foreign_key_violation (INSERT/UPDATE referencing a missing row);
+	// 23001 = restrict_violation (DELETE/UPDATE blocked by ON DELETE RESTRICT).
+	return pgErr.Code == "23503" || pgErr.Code == "23001"
 }
 
 // mapNoRows maps pgx.ErrNoRows to a platform NotFound error; other errors pass through.
