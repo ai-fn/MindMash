@@ -74,7 +74,7 @@ func (f *fakeRepository) RecordAppliedOp(context.Context, string, string, ApplyO
 }
 
 func newTestService(repo *fakeRepository, pageSize int) *Service {
-	svc := NewService(repo, nil, zap.NewNop())
+	svc := NewService(repo, nil, nil, zap.NewNop())
 	svc.pageSize = pageSize
 	return svc
 }

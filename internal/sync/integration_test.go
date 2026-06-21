@@ -83,7 +83,7 @@ func setupIntegration(t *testing.T) integrationComponents {
 	t.Cleanup(func() { _ = rdb.Close() })
 
 	repo := NewPostgresRepository(pool)
-	svc := NewService(repo, rdb, zap.NewNop())
+	svc := NewService(repo, nil, rdb, zap.NewNop())
 	return integrationComponents{pool: pool, rdb: rdb, repo: repo, svc: svc}
 }
 
@@ -271,8 +271,8 @@ func TestSubscribeNotify_WorksAcrossReplicas(t *testing.T) {
 	c := setupIntegration(t)
 	ctx := context.Background()
 
-	replicaA := NewService(c.repo, c.rdb, zap.NewNop())
-	replicaB := NewService(c.repo, c.rdb, zap.NewNop())
+	replicaA := NewService(c.repo, nil, c.rdb, zap.NewNop())
+	replicaB := NewService(c.repo, nil, c.rdb, zap.NewNop())
 
 	ch, unsub, err := replicaA.Subscribe(ctx, "userA")
 	if err != nil {

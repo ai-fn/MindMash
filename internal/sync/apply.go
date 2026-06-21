@@ -75,13 +75,6 @@ func (s *Service) dispatchMutation(ctx context.Context, userID string, m Mutatio
 	}
 }
 
-// classifyResolverErr is the shared tail of every resolver's Get call: a
-// NotFound means the entity is gone, anything else is a transport/internal
-// error. Neither path is ever recordEvenOnFailure=true on its own — callers
-// override per the specific semantics of their entity (e.g. Note/NoteType/
-// Deck/DeckConfig updates record "not found" as a hard failure; deletes treat
-// NotFound as an idempotent success instead of routing through here at all).
-
 // ─── NoteType ────────────────────────────────────────────────────────────────
 
 func protoToNoteType(nt *collectionv1.NoteType) *NoteType {
@@ -461,18 +454,31 @@ func (s *Service) applyDeckConfigDelete(ctx context.Context, m Mutation) (ApplyR
 
 // ─── FilteredDeck ────────────────────────────────────────────────────────────
 //
-// FilteredDecks are immutable saved queries (no Update RPC — edit is delete +
-// recreate, per spec 02's FilteredDeckService) and Collection exposes no
-// GetFilteredDeck RPC at all, so unlike the other four entities this resolver
-// cannot pre-read server state to decide fast-forward vs LWW vs server-won
-// before writing. It calls DeleteFilteredDeck directly with the client's
-// base_usn as expected_usn and classifies the result: NotFound means already
-// deleted (idempotent success per Global Constraint 8), anything else is
-// dispatched through the normal Aborted/other classification. Collection's
-// DeleteFilteredDeck does not currently enforce expected_usn-based optimistic
-// concurrency for this entity (no Update RPC exists to race against), so
-// codes.Aborted is not expected in practice here, but is still handled
-// identically to every other resolver for forward-compatibility.
+// This resolver provides NO conflict/staleness detection, by construction —
+// not by a fixable bug, and not at parity with the other 8 resolvers in this
+// file. Two structural facts force that:
+//
+//  1. Collection's Handler.DeleteFilteredDeck (internal/collection/handler.go)
+//     calls Service.DeleteFilteredDeck(ctx, userID, id) — it never reads
+//     req.GetExpectedUsn() at all. Service.DeleteFilteredDeck itself
+//     (internal/collection/service.go) takes no expected-usn parameter and
+//     does no USN comparison anywhere in its body; it unconditionally mints a
+//     new USN, deletes the row, and writes the tombstone. So the ExpectedUsn
+//     we pass below (m.BaseUSN, the client's stale value) is accepted by the
+//     wire format but is inert — Collection silently ignores it server-side.
+//  2. There is no GetFilteredDeck RPC, so even if Collection did honor
+//     expected_usn, this resolver has no way to read a fresh server-side USN
+//     before deciding fast-forward vs LWW vs server-won, the way the other
+//     resolvers do. FilteredDecks are also immutable (no Update RPC — edit is
+//     delete + recreate, per spec 02's FilteredDeckService), so there is
+//     nothing for a delete to race against in practice. Adding a Get RPC to
+//     Collection to fix this would violate Global Constraint 1 and is out of
+//     scope.
+//
+// Net effect: this call always succeeds idempotently (NotFound is treated as
+// already-deleted success per Global Constraint 8) regardless of whether the
+// client's view of the FilteredDeck was stale. codes.Aborted is still handled
+// below for forward-compatibility, but Collection never returns it today.
 func (s *Service) applyFilteredDeckDelete(ctx context.Context, _ string, m Mutation) (ApplyResult, bool) {
 	_, err := s.coll.DeleteFilteredDeck(ctx, &collectionv1.DeleteFilteredDeckRequest{Id: m.EntityID, ExpectedUsn: m.BaseUSN})
 	if err != nil {
