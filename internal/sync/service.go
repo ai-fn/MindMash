@@ -27,14 +27,15 @@ const defaultPageSize = 500
 // guarantee.
 type Service struct {
 	repo     Repository
+	coll     CollectionClient
 	rdb      *redis.Client
 	log      *zap.Logger
 	pageSize int // per-entity-type page size; tests shrink this to exercise pagination cheaply
 }
 
 // NewService constructs a Service.
-func NewService(repo Repository, rdb *redis.Client, log *zap.Logger) *Service {
-	return &Service{repo: repo, rdb: rdb, log: log, pageSize: defaultPageSize}
+func NewService(repo Repository, coll CollectionClient, rdb *redis.Client, log *zap.Logger) *Service {
+	return &Service{repo: repo, coll: coll, rdb: rdb, log: log, pageSize: defaultPageSize}
 }
 
 // GetChanges returns one page of the delta feed for userID: every entity with
