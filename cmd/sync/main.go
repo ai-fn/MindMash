@@ -136,6 +136,21 @@ func run() error {
 	}
 	defer func() { _ = consumer.Close() }()
 
+	// Collection client for /sync/apply's conflict-resolved mutation calls
+	// (forwards the caller's JWT, same dial pattern as Scheduler's Collection
+	// client). Not yet wired into sync.NewService — that lands in a later
+	// task once the service constructor's signature grows to accept it.
+	collAddr := envOr("COLLECTION_GRPC_ADDR", "localhost:9090")
+	collConn, err := grpcx.Dial(ctx, collAddr,
+		grpc.WithChainUnaryInterceptor(grpcx.ForwardAuthInterceptor()),
+	)
+	if err != nil {
+		return fmt.Errorf("sync: dial collection: %w", err)
+	}
+	defer func() { _ = collConn.Close() }()
+	collClient := sync.NewGRPCCollectionClient(collConn)
+	_ = collClient // TODO: wire into sync.NewService once its signature accepts a CollectionClient
+
 	// Domain wiring.
 	repo := sync.NewPostgresRepository(pool)
 	svc := sync.NewService(repo, rdb, logger)
