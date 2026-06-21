@@ -123,7 +123,7 @@ func (s *Service) DeleteNoteType(ctx context.Context, userID, id string, expecte
 			return err
 		}
 		return tx.WriteOutbox(ctx, []events.OutboxEntry{{
-			ID:            ids.NewULID(),
+			ID:            ids.NewUUID(), // outbox.id is UUID, not ULID
 			UserID:        userID,
 			AggregateType: "note_type",
 			AggregateID:   id,
@@ -416,7 +416,7 @@ func (s *Service) MoveCards(ctx context.Context, userID string, cardIDs []string
 		now := time.Now().UTC()
 		for _, cid := range updatedIDs {
 			outboxEntries = append(outboxEntries, events.OutboxEntry{
-				ID:            ids.NewULID(),
+				ID:            ids.NewUUID(), // outbox.id is UUID, not ULID
 				UserID:        userID,
 				AggregateType: "card",
 				AggregateID:   cid,
@@ -451,7 +451,7 @@ func (s *Service) SuspendCards(ctx context.Context, userID string, cardIDs []str
 		now := time.Now().UTC()
 		for _, cid := range updatedIDs {
 			outboxEntries = append(outboxEntries, events.OutboxEntry{
-				ID:            ids.NewULID(),
+				ID:            ids.NewUUID(), // outbox.id is UUID, not ULID
 				UserID:        userID,
 				AggregateType: "card",
 				AggregateID:   cid,
@@ -513,7 +513,7 @@ func (s *Service) AddTagToCards(ctx context.Context, userID string, cardIDs []st
 		outboxEntries := make([]events.OutboxEntry, 0, len(noteIDs))
 		for _, nid := range noteIDs {
 			outboxEntries = append(outboxEntries, events.OutboxEntry{
-				ID:            ids.NewULID(),
+				ID:            ids.NewUUID(), // outbox.id is UUID, not ULID
 				UserID:        userID,
 				AggregateType: "note",
 				AggregateID:   nid,
@@ -548,7 +548,7 @@ func (s *Service) RemoveTagFromCards(ctx context.Context, userID string, cardIDs
 		outboxEntries := make([]events.OutboxEntry, 0, len(noteIDs))
 		for _, nid := range noteIDs {
 			outboxEntries = append(outboxEntries, events.OutboxEntry{
-				ID:            ids.NewULID(),
+				ID:            ids.NewUUID(), // outbox.id is UUID, not ULID
 				UserID:        userID,
 				AggregateType: "note",
 				AggregateID:   nid,
@@ -583,7 +583,7 @@ func (s *Service) SetFlagOnCards(ctx context.Context, userID string, cardIDs []s
 		outboxEntries := make([]events.OutboxEntry, 0, len(noteIDs))
 		for _, nid := range noteIDs {
 			outboxEntries = append(outboxEntries, events.OutboxEntry{
-				ID:            ids.NewULID(),
+				ID:            ids.NewUUID(), // outbox.id is UUID, not ULID
 				UserID:        userID,
 				AggregateType: "note",
 				AggregateID:   nid,
@@ -776,7 +776,7 @@ func (s *Service) DeleteDeck(ctx context.Context, userID, id string, expectedUSN
 			return err
 		}
 		return tx.WriteOutbox(ctx, []events.OutboxEntry{{
-			ID:            ids.NewULID(),
+			ID:            ids.NewUUID(), // outbox.id is UUID, not ULID
 			UserID:        userID,
 			AggregateType: "deck",
 			AggregateID:   id,
@@ -881,7 +881,7 @@ func (s *Service) DeleteDeckConfig(ctx context.Context, userID, id string, expec
 			return err
 		}
 		return tx.WriteOutbox(ctx, []events.OutboxEntry{{
-			ID:            ids.NewULID(),
+			ID:            ids.NewUUID(), // outbox.id is UUID, not ULID
 			UserID:        userID,
 			AggregateType: "deck_config",
 			AggregateID:   id,
@@ -942,7 +942,7 @@ func (s *Service) DeleteFilteredDeck(ctx context.Context, userID, id string) err
 			return err
 		}
 		return tx.WriteOutbox(ctx, []events.OutboxEntry{{
-			ID:            ids.NewULID(),
+			ID:            ids.NewUUID(), // outbox.id is UUID, not ULID
 			UserID:        userID,
 			AggregateType: "filtered_deck",
 			AggregateID:   id,
