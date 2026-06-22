@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 
 import { useAuthStore } from '../auth/authStore'
 import { useDeckServiceListDecks } from '../../lib/api/collection/deck-service/deck-service'
+import type { V1ListDecksResponse } from '../../lib/api/collection/collectionV1CollectionProto.schemas'
 import { DeckRow } from './DeckRow'
 
 // Home / deck-picker (Task 4, see task-4-brief.md). Replaces the Task 3 placeholder
@@ -13,7 +14,11 @@ export function DecksScreen() {
   const logout = useAuthStore((state) => state.logout)
   const { data, isPending } = useDeckServiceListDecks()
 
-  const items = data?.data.items ?? []
+  // The generated response type is a `{status: 200, data: T} | {status: <error>,
+  // data: RpcStatus}` union, but `customFetch` already throws on any non-2xx
+  // response (see mutator.ts) — by the time `data` is defined here it is always
+  // the success shape (same invariant authStore.ts's `unwrap` documents).
+  const items = (data?.data as V1ListDecksResponse | undefined)?.items ?? []
 
   return (
     <main className="flex min-h-screen flex-col gap-6 bg-slate-50 p-6">
@@ -36,7 +41,7 @@ export function DecksScreen() {
         <p className="text-slate-600">{t('empty')}</p>
       ) : (
         <ul className="flex flex-col gap-2">
-          {items.map((deck) => (
+          {items.map((deck: NonNullable<V1ListDecksResponse['items']>[number]) => (
             <li key={deck.id}>
               <Link to={`/study/${deck.id}`}>
                 <DeckRow deckId={deck.id ?? ''} name={deck.name ?? ''} />

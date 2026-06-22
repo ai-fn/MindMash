@@ -34,12 +34,10 @@ describe('DecksScreen', () => {
   })
 
   it('renders the deck list with names + counts when decks are returned', async () => {
-    const { useDeckServiceListDecks } = await import(
-      '../../lib/api/collection/deck-service/deck-service'
-    )
-    const { useStudyServiceGetCounts } = await import(
-      '../../lib/api/scheduler/study-service/study-service'
-    )
+    const { useDeckServiceListDecks } =
+      await import('../../lib/api/collection/deck-service/deck-service')
+    const { useStudyServiceGetCounts } =
+      await import('../../lib/api/scheduler/study-service/study-service')
     vi.mocked(useDeckServiceListDecks).mockReturnValue({
       data: { data: { items: [{ id: 'deck-1', name: 'Spanish' }] } },
       isPending: false,
@@ -58,12 +56,10 @@ describe('DecksScreen', () => {
   })
 
   it('renders the empty-state message when items is empty', async () => {
-    const { useDeckServiceListDecks } = await import(
-      '../../lib/api/collection/deck-service/deck-service'
-    )
-    const { useStudyServiceGetCounts } = await import(
-      '../../lib/api/scheduler/study-service/study-service'
-    )
+    const { useDeckServiceListDecks } =
+      await import('../../lib/api/collection/deck-service/deck-service')
+    const { useStudyServiceGetCounts } =
+      await import('../../lib/api/scheduler/study-service/study-service')
     vi.mocked(useDeckServiceListDecks).mockReturnValue({
       data: { data: { items: [] } },
       isPending: false,
@@ -79,12 +75,10 @@ describe('DecksScreen', () => {
   })
 
   it('renders the empty-state message when items is undefined', async () => {
-    const { useDeckServiceListDecks } = await import(
-      '../../lib/api/collection/deck-service/deck-service'
-    )
-    const { useStudyServiceGetCounts } = await import(
-      '../../lib/api/scheduler/study-service/study-service'
-    )
+    const { useDeckServiceListDecks } =
+      await import('../../lib/api/collection/deck-service/deck-service')
+    const { useStudyServiceGetCounts } =
+      await import('../../lib/api/scheduler/study-service/study-service')
     vi.mocked(useDeckServiceListDecks).mockReturnValue({
       data: { data: {} },
       isPending: false,
@@ -100,12 +94,10 @@ describe('DecksScreen', () => {
   })
 
   it('links each deck row to /study/{deckId}', async () => {
-    const { useDeckServiceListDecks } = await import(
-      '../../lib/api/collection/deck-service/deck-service'
-    )
-    const { useStudyServiceGetCounts } = await import(
-      '../../lib/api/scheduler/study-service/study-service'
-    )
+    const { useDeckServiceListDecks } =
+      await import('../../lib/api/collection/deck-service/deck-service')
+    const { useStudyServiceGetCounts } =
+      await import('../../lib/api/scheduler/study-service/study-service')
     vi.mocked(useDeckServiceListDecks).mockReturnValue({
       data: { data: { items: [{ id: 'deck-42', name: 'Japanese' }] } },
       isPending: false,
@@ -121,12 +113,10 @@ describe('DecksScreen', () => {
   })
 
   it('calls logout when the Logout button is clicked', async () => {
-    const { useDeckServiceListDecks } = await import(
-      '../../lib/api/collection/deck-service/deck-service'
-    )
-    const { useStudyServiceGetCounts } = await import(
-      '../../lib/api/scheduler/study-service/study-service'
-    )
+    const { useDeckServiceListDecks } =
+      await import('../../lib/api/collection/deck-service/deck-service')
+    const { useStudyServiceGetCounts } =
+      await import('../../lib/api/scheduler/study-service/study-service')
     vi.mocked(useDeckServiceListDecks).mockReturnValue({
       data: { data: { items: [] } },
       isPending: false,
@@ -146,12 +136,10 @@ describe('DecksScreen', () => {
   })
 
   it('shows a loading message while decks are pending', async () => {
-    const { useDeckServiceListDecks } = await import(
-      '../../lib/api/collection/deck-service/deck-service'
-    )
-    const { useStudyServiceGetCounts } = await import(
-      '../../lib/api/scheduler/study-service/study-service'
-    )
+    const { useDeckServiceListDecks } =
+      await import('../../lib/api/collection/deck-service/deck-service')
+    const { useStudyServiceGetCounts } =
+      await import('../../lib/api/scheduler/study-service/study-service')
     vi.mocked(useDeckServiceListDecks).mockReturnValue({
       data: undefined,
       isPending: true,

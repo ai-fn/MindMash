@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -14,6 +15,17 @@ vi.mock('../lib/api/identity/auth-service/auth-service', () => ({
   authServiceGetMe: vi.fn(),
 }))
 
+// DecksScreen (the post-login `/` route, see DecksScreen.tsx) calls these
+// generated hooks; mock them so this integration test never hits the network.
+// An empty deck list keeps post-login assertions on the empty-state message
+// rather than real deck content, which is DecksScreen.test.tsx's job to cover.
+vi.mock('../lib/api/collection/deck-service/deck-service', () => ({
+  useDeckServiceListDecks: vi.fn(() => ({ data: { data: { items: [] } }, isPending: false })),
+}))
+vi.mock('../lib/api/scheduler/study-service/study-service', () => ({
+  useStudyServiceGetCounts: vi.fn(() => ({ data: undefined, isPending: true })),
+}))
+
 async function renderRouterAt(initialPath: string) {
   // Imported dynamically (after vi.resetModules + mocks are set up) so each test gets
   // a fresh authStore module-level singleton, matching the pattern used in
@@ -25,7 +37,14 @@ async function renderRouterAt(initialPath: string) {
   // the same app-start silent-refresh call itself.
   void useAuthStore.getState().bootstrap()
   const router = createMemoryRouter(routes, { initialEntries: [initialPath] })
-  render(<RouterProvider router={router} />)
+  // DecksScreen (the post-login `/` route) uses React Query hooks, so this test
+  // needs the same QueryClientProvider the real app gets from providers.tsx.
+  const queryClient = new QueryClient()
+  render(
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  )
   return router
 }
 
@@ -48,11 +67,11 @@ describe('router + ProtectedRoute integration', () => {
     await renderRouterAt('/')
 
     expect(await screen.findByRole('heading', { name: 'Log in' })).toBeInTheDocument()
-    expect(screen.queryByText(/Welcome,/)).not.toBeInTheDocument()
+    expect(screen.queryByText('Your decks')).not.toBeInTheDocument()
     expect(authService.authServiceRefresh).not.toHaveBeenCalled()
   })
 
-  it('drives login -> home -> logout -> redirected back to /login', async () => {
+  it('drives login -> decks -> logout -> redirected back to /login', async () => {
     const authService = await import('../lib/api/identity/auth-service/auth-service')
     vi.mocked(authService.authServiceLogin).mockResolvedValue({
       status: 200,
@@ -88,7 +107,8 @@ describe('router + ProtectedRoute integration', () => {
     await user.type(screen.getByLabelText('Password'), 'hunter2')
     await user.click(screen.getByRole('button', { name: 'Log in' }))
 
-    expect(await screen.findByText('Welcome, person@example.com')).toBeInTheDocument()
+    expect(await screen.findByText('Your decks')).toBeInTheDocument()
+    expect(screen.getByText("You don't have any decks yet.")).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Log out' }))
 
