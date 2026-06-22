@@ -1,0 +1,66 @@
+# MindMesh Web SPA
+
+The MindMesh web client: a React + TypeScript SPA built with Vite. This is the **Phase-1
+study-loop MVP** — login, deck picker, the core study loop (review queue → reveal → grade), and
+minimal authoring to reach a studyable state. The full editor/browser/stats/plugins/PWA surface
+from [`docs/detailed/12-frontend-web-spa.md`](../docs/detailed/12-frontend-web-spa.md) is deferred
+to Phase 2.
+
+## Prerequisites
+
+- Node 22 (see `.nvmrc`; `nvm use` if you use nvm)
+- `npm install`
+
+## Local development
+
+The backend is **not** behind a single gateway — each service exposes its own HTTP port. The Vite
+dev server proxies API requests to the right service by path, so the SPA always talks to
+`localhost:5173` and never needs CORS configured on the Go side.
+
+Default port convention (override an individual target via the matching `VITE_*_URL` env var):
+
+| Service    | Default URL             | Env override          | Example routes                                                     |
+| ---------- | ----------------------- | --------------------- | ------------------------------------------------------------------ |
+| Identity   | `http://localhost:8080` | `VITE_IDENTITY_URL`   | `/v1/auth/*`, `/v1/users/*`, `/v1/profiles/*`                      |
+| Collection | `http://localhost:8081` | `VITE_COLLECTION_URL` | `/v1/decks/*`, `/v1/cards/{id}`, `/v1/notes/*`, `/v1/note-types/*` |
+| Scheduler  | `http://localhost:8082` | `VITE_SCHEDULER_URL`  | `/v1/study/*`, `/v1/cards/{id}/answer`, `/v1/cards/{id}/preview`   |
+| Sync       | `http://localhost:8083` | `VITE_SYNC_URL`       | `/v1/sync/*`                                                       |
+
+Because the same Go binary defaults `HTTP_ADDR` to `:8080`, running all four services
+simultaneously locally requires overriding each one's address, e.g.:
+
+```bash
+HTTP_ADDR=:8080 go run ./cmd/identity
+HTTP_ADDR=:8081 go run ./cmd/collection
+HTTP_ADDR=:8082 go run ./cmd/scheduler
+HTTP_ADDR=:8083 go run ./cmd/sync
+```
+
+Then, from `web/`:
+
+```bash
+npm run dev
+```
+
+and open `http://localhost:5173`.
+
+Path-overlap note: `GET /v1/cards/{id}` is owned by Collection, but
+`POST /v1/cards/{id}/answer` and `GET /v1/cards/{id}/preview` are owned by Scheduler. The dev
+proxy in `vite.config.ts` orders its regex routes so the Scheduler sub-routes (and `/v1/study`)
+match _before_ the generic `/v1/cards` → Collection rule.
+
+## Scripts
+
+| Script                 | Description                                    |
+| ---------------------- | ---------------------------------------------- |
+| `npm run dev`          | Start the Vite dev server (with backend proxy) |
+| `npm run build`        | Type-check + production build                  |
+| `npm run preview`      | Preview the production build locally           |
+| `npm run typecheck`    | `tsc -b` project-references type-check         |
+| `npm run lint`         | ESLint (flat config)                           |
+| `npm run format`       | Prettier — write                               |
+| `npm run format:check` | Prettier — check only                          |
+| `npm run test`         | Vitest unit/component tests (run once)         |
+| `npm run test:watch`   | Vitest in watch mode                           |
+| `npm run coverage`     | Vitest with coverage report                    |
+| `npm run e2e`          | Playwright end-to-end tests                    |

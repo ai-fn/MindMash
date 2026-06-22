@@ -88,3 +88,33 @@ tasks:
     desc: Stop the local stack
     cmds:
       - docker compose down
+
+  web-install:
+    desc: Install web SPA dependencies
+    dir: web
+    cmds:
+      - npm install
+
+  web-dev:
+    desc: Run the web SPA dev server (Vite, with backend proxy)
+    dir: web
+    cmds:
+      - npm run dev
+
+  web-lint:
+    desc: Lint the web SPA
+    dir: web
+    cmds:
+      - npm run lint
+
+  web-test:
+    desc: Run web SPA unit tests
+    dir: web
+    cmds:
+      - npm run test
+
+  web-build:
+    desc: Type-check + build the web SPA
+    dir: web
+    cmds:
+      - npm run build
