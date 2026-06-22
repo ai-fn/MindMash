@@ -3,10 +3,12 @@ import LanguageDetector from 'i18next-browser-languagedetector'
 import { initReactI18next } from 'react-i18next'
 
 import common from '../locales/en/common.json'
+import auth from '../locales/en/auth.json'
 
-// MVP scope: English only. The JWT `locale` claim will drive the active
-// language once auth lands (Task 3); additional locale bundles + RTL/CJK
-// support are deferred to Phase 2 (see plan.md Global Constraint 5/8).
+// MVP scope: English only. The backend-reported `locale` (from GetMe, see
+// features/auth/authStore.ts) will drive the active language once full locale
+// switching lands; additional locale bundles + RTL/CJK support are deferred to
+// Phase 2 (see plan.md Global Constraint 5/8).
 export const defaultNS = 'common'
 
 void i18n
@@ -14,12 +16,12 @@ void i18n
   .use(initReactI18next)
   .init({
     resources: {
-      en: { common },
+      en: { common, auth },
     },
     fallbackLng: 'en',
     supportedLngs: ['en'],
     defaultNS,
-    ns: ['common'],
+    ns: ['common', 'auth'],
     interpolation: {
       escapeValue: false,
     },
