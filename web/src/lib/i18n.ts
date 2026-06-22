@@ -4,6 +4,7 @@ import { initReactI18next } from 'react-i18next'
 
 import common from '../locales/en/common.json'
 import auth from '../locales/en/auth.json'
+import decks from '../locales/en/decks.json'
 
 // MVP scope: English only. The backend-reported `locale` (from GetMe, see
 // features/auth/authStore.ts) will drive the active language once full locale
@@ -16,12 +17,12 @@ void i18n
   .use(initReactI18next)
   .init({
     resources: {
-      en: { common, auth },
+      en: { common, auth, decks },
     },
     fallbackLng: 'en',
     supportedLngs: ['en'],
     defaultNS,
-    ns: ['common', 'auth'],
+    ns: ['common', 'auth', 'decks'],
     interpolation: {
       escapeValue: false,
     },
