@@ -41,13 +41,22 @@ export function DecksScreen() {
         <p className="text-slate-600">{t('empty')}</p>
       ) : (
         <ul className="flex flex-col gap-2">
-          {items.map((deck: NonNullable<V1ListDecksResponse['items']>[number]) => (
-            <li key={deck.id}>
-              <Link to={`/study/${deck.id}`}>
-                <DeckRow deckId={deck.id ?? ''} name={deck.name ?? ''} />
-              </Link>
-            </li>
-          ))}
+          {items
+            // `V1Deck.id` is optional in the generated type, but a deck without an id
+            // can't be linked to or queried for counts — skip it rather than risk a
+            // duplicate React key / a broken `/study/undefined` link.
+            .filter(
+              (
+                deck: NonNullable<V1ListDecksResponse['items']>[number],
+              ): deck is { id: string; name?: string } => Boolean(deck.id),
+            )
+            .map((deck) => (
+              <li key={deck.id}>
+                <Link to={`/study/${deck.id}`}>
+                  <DeckRow deckId={deck.id} name={deck.name ?? ''} />
+                </Link>
+              </li>
+            ))}
         </ul>
       )}
     </main>
