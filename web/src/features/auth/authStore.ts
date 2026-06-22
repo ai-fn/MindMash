@@ -94,6 +94,9 @@ export const useAuthStore = create<AuthState>((set) => {
     },
 
     async login(email: string, password: string) {
+      // Intentionally uncaught: a rejected/non-2xx login should propagate to the
+      // caller (LoginScreen) so it can surface the error, rather than being
+      // swallowed here the way bootstrap()/logout() swallow their own failures.
       const data = unwrap(await authServiceLogin({ email, password }))
       setTokens({ accessToken: data.accessToken ?? '', refreshToken: data.refreshToken })
       set({ profileId: data.profileId })
@@ -102,6 +105,10 @@ export const useAuthStore = create<AuthState>((set) => {
 
     async logout() {
       try {
+        // getRefreshToken() can be null if logout() is called with no active session
+        // (e.g. double-invoked, or after the token already expired); the generated
+        // client accepts an undefined refreshToken, so this degrades to a no-op
+        // revoke call rather than throwing — local cleanup below still runs.
         await authServiceLogout({ refreshToken: getRefreshToken() ?? undefined })
       } catch {
         // Best-effort revoke: local cleanup must proceed even if the network call fails.
