@@ -100,6 +100,13 @@ function refreshOnce(): Promise<boolean> {
   return inFlightRefresh
 }
 
+async function failUnauthorized(response: Response): Promise<never> {
+  clearTokens()
+  onUnauthorized()
+  const info = await parseBody<unknown>(response)
+  throw new ApiError(response.status, info)
+}
+
 export async function customFetch<T>(url: string, options: RequestInit): Promise<T> {
   const isRefreshCall = url === REFRESH_PATH
   const requestInit = withAuthHeader(options)
@@ -116,18 +123,12 @@ export async function customFetch<T>(url: string, options: RequestInit): Promise
   // A 401 from the refresh endpoint itself means the refresh token is no longer valid —
   // never attempt to refresh the refresh call.
   if (isRefreshCall) {
-    clearTokens()
-    onUnauthorized()
-    const info = await parseBody<unknown>(response)
-    throw new ApiError(response.status, info)
+    return failUnauthorized(response)
   }
 
   const refreshed = await refreshOnce()
   if (!refreshed) {
-    clearTokens()
-    onUnauthorized()
-    const info = await parseBody<unknown>(response)
-    throw new ApiError(response.status, info)
+    return failUnauthorized(response)
   }
 
   const retryInit = withAuthHeader(options)
