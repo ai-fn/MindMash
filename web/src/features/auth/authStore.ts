@@ -66,9 +66,10 @@ export const useAuthStore = create<AuthState>((set) => {
       profiles: data.profiles,
     })
 
-    // MVP is en-only (Global Constraint 5/8) — only ever switch i18next's active
-    // language when the backend-reported locale is 'en'. Full locale switching
-    // (and the dynamic resource loading it requires) activates in Phase 2.
+    // Deliberately not calling i18n.changeLanguage here: MVP is en-only (Global
+    // Constraint 5/8), and `locale` from GetMe is always 'en' for now. Full locale
+    // switching (dynamically loading other resource bundles + an explicit
+    // changeLanguage call gated on `locale === 'en'` vs other values) is Phase 2 scope.
   }
 
   return {
