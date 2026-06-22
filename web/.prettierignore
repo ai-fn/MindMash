@@ -3,4 +3,9 @@ dist
 coverage
 playwright-report
 test-results
-src/lib/api
+# Generated orval client only (formatted by orval itself via output.formatter:
+# 'prettier' in orval.config.ts) — NOT mutator.ts/authToken.ts, which are hand-written.
+src/lib/api/identity
+src/lib/api/collection
+src/lib/api/scheduler
+src/lib/api/sync

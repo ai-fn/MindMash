@@ -27,6 +27,12 @@ tasks:
       - buf lint
       - buf generate
 
+  gen-web:
+    desc: Generate the web TS API client from OpenAPI (orval)
+    dir: web
+    cmds:
+      - npm run gen
+
   build:
     desc: Build all binaries
     cmds:
