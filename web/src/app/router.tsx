@@ -2,6 +2,7 @@ import { createBrowserRouter, type RouteObject } from 'react-router-dom'
 
 import { LoginScreen } from '../features/auth/LoginScreen'
 import { DecksScreen } from '../features/decks/DecksScreen'
+import { StudyScreen } from '../features/study/StudyScreen'
 import { ProtectedRoute } from './guard'
 
 // Route definitions extracted so tests can build a createMemoryRouter from the same
@@ -15,7 +16,10 @@ export const routes: RouteObject[] = [
   {
     path: '/',
     element: <ProtectedRoute />,
-    children: [{ index: true, element: <DecksScreen /> }],
+    children: [
+      { index: true, element: <DecksScreen /> },
+      { path: 'study/:deckId', element: <StudyScreen /> },
+    ],
   },
 ]
 
