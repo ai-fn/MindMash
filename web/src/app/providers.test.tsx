@@ -15,7 +15,10 @@ vi.mock('../lib/api/identity/auth-service/auth-service', () => ({
 }))
 
 const unsubscribeMock = vi.fn()
-const subscribeSyncChangesMock = vi.fn(() => unsubscribeMock)
+const subscribeSyncChangesMock = vi.fn((onChanged: () => void): (() => void) => {
+  void onChanged
+  return unsubscribeMock
+})
 
 vi.mock('../lib/sync', () => ({
   subscribeSyncChanges: subscribeSyncChangesMock,
