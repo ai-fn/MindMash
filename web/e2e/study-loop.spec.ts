@@ -17,9 +17,19 @@ test('login, create a deck, quick-add a note, study it, and grade to deck-comple
 }) => {
   const email = `e2e-${Date.now()}@example.com`
 
-  const registerResponse = await request.post('/v1/auth/register', {
+  // Playwright's webServer only waits for the Vite dev server to answer `/`; its proxy
+  // middleware to the backend can still be wiring up for a moment after that, so the very
+  // first proxied request right at test start can land in that gap. Retry briefly rather
+  // than failing the whole run on a one-time dev-server cold-start race.
+  let registerResponse = await request.post('/v1/auth/register', {
     data: { email, password: TEST_PASSWORD, locale: 'en' },
   })
+  for (let attempt = 0; !registerResponse.ok() && attempt < 5; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+    registerResponse = await request.post('/v1/auth/register', {
+      data: { email, password: TEST_PASSWORD, locale: 'en' },
+    })
+  }
   expect(
     registerResponse.ok(),
     `POST /v1/auth/register failed with ${registerResponse.status()} — is the identity service running? See web/README.md's "End-to-end tests" section.`,
