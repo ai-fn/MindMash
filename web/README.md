@@ -64,3 +64,25 @@ match _before_ the generic `/v1/cards` → Collection rule.
 | `npm run test:watch`   | Vitest in watch mode                           |
 | `npm run coverage`     | Vitest with coverage report                    |
 | `npm run e2e`          | Playwright end-to-end tests                    |
+
+## End-to-end tests (Playwright)
+
+`web/e2e/study-loop.spec.ts` drives the full golden path — login, create a deck, quick-add a
+Basic note, study it, reveal, grade, and reach the deck-complete state — against a real running
+backend (no mocks).
+
+1. Start all four backend services first, exactly as in the
+   [Local development](#local-development) port table above (Identity, Collection, Scheduler,
+   Sync).
+2. From `web/`, run:
+
+   ```bash
+   npm run e2e
+   ```
+
+   Playwright's `webServer` config starts (or reuses, if one is already running) the Vite dev
+   server for you — there's no separate `npm run dev` step needed.
+
+The spec registers a fresh throwaway user per run directly via the `POST /v1/auth/register` API
+(there's no UI registration screen in this MVP slice), then drives everything else through the
+UI starting at `/login`.
