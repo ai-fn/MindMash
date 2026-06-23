@@ -61,7 +61,7 @@ services:
       - opensearchdata:/usr/share/opensearch/data
 
   clickhouse:
-    image: clickhouse/clickhouse-server:25-alpine
+    image: clickhouse/clickhouse-server:25.8-alpine
     environment:
       CLICKHOUSE_USER: mindmesh
       CLICKHOUSE_PASSWORD: mindmesh
