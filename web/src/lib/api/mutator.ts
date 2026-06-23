@@ -52,6 +52,14 @@ async function parseBody<T>(response: Response): Promise<T> {
   return text as T
 }
 
+// Every orval-generated response type (e.g. authServiceLoginResponse) is a
+// `{status, data, headers}` union, not a bare body — callers across the app (authStore's
+// `unwrap`, every screen's `data?.data` read) rely on that envelope shape.
+async function toEnvelope<T>(response: Response): Promise<T> {
+  const data = await parseBody<unknown>(response)
+  return { status: response.status, data, headers: response.headers } as T
+}
+
 function withAuthHeader(options: RequestInit): RequestInit {
   const accessToken = getAccessToken()
   if (!accessToken) {
@@ -117,7 +125,7 @@ export async function customFetch<T>(url: string, options: RequestInit): Promise
       const info = await parseBody<unknown>(response)
       throw new ApiError(response.status, info)
     }
-    return parseBody<T>(response)
+    return toEnvelope<T>(response)
   }
 
   // A 401 from the refresh endpoint itself means the refresh token is no longer valid —
@@ -141,7 +149,7 @@ export async function customFetch<T>(url: string, options: RequestInit): Promise
     const info = await parseBody<unknown>(retryResponse)
     throw new ApiError(retryResponse.status, info)
   }
-  return parseBody<T>(retryResponse)
+  return toEnvelope<T>(retryResponse)
 }
 
 export default customFetch

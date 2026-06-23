@@ -79,7 +79,7 @@ describe('customFetch', () => {
 
     const result = await customFetch('/v1/decks', { method: 'GET' })
 
-    expect(result).toEqual({ decks: [] })
+    expect(result).toMatchObject({ status: 200, data: { decks: [] } })
     expect(setTokensSpy).toHaveBeenCalledWith({
       accessToken: 'new-access',
       refreshToken: 'new-refresh',
@@ -168,8 +168,8 @@ describe('customFetch', () => {
       customFetch('/v1/cards/123', { method: 'GET' }),
     ])
 
-    expect(resultA).toEqual({ ok: true })
-    expect(resultB).toEqual({ ok: true })
+    expect(resultA).toMatchObject({ status: 200, data: { ok: true } })
+    expect(resultB).toMatchObject({ status: 200, data: { ok: true } })
     expect(refreshCallCount).toBe(1)
   })
 
