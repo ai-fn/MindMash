@@ -14,6 +14,7 @@ import {
   authServiceLogin,
   authServiceLogout,
   authServiceRefresh,
+  authServiceRegister,
 } from '../../lib/api/identity/auth-service/auth-service'
 import type { V1ProfileInfo } from '../../lib/api/identity/identityV1IdentityProto.schemas'
 import { clearTokens, getRefreshToken, setOnUnauthorized, setTokens } from '../../lib/api/authToken'
@@ -44,6 +45,7 @@ interface AuthState extends AuthSessionFields {
   status: AuthStatus
   bootstrap: () => Promise<void>
   login: (email: string, password: string) => Promise<void>
+  register: (email: string, password: string) => Promise<void>
   logout: () => Promise<void>
 }
 
@@ -55,7 +57,7 @@ const UNAUTHENTICATED_FIELDS: AuthSessionFields = {
   profiles: undefined,
 }
 
-export const useAuthStore = create<AuthState>((set) => {
+export const useAuthStore = create<AuthState>((set, get) => {
   async function enrichFromGetMe(): Promise<void> {
     const data = unwrap(await authServiceGetMe())
     set({
@@ -101,6 +103,16 @@ export const useAuthStore = create<AuthState>((set) => {
       setTokens({ accessToken: data.accessToken ?? '', refreshToken: data.refreshToken })
       set({ profileId: data.profileId })
       await enrichFromGetMe()
+    },
+
+    async register(email: string, password: string) {
+      // Intentionally uncaught, same reasoning as login(): a failed registration should
+      // propagate to the caller (RegisterScreen) to surface, not be swallowed here.
+      unwrap(await authServiceRegister({ email, password, locale: 'en' }))
+      // Auto-sign-in: the backend's email verification is a stub and Login doesn't require
+      // EmailVerified, so there's no "check your email" gate to send the user through —
+      // land them straight in the app, same as a returning user.
+      await get().login(email, password)
     },
 
     async logout() {

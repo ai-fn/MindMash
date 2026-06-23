@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Navigate } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 
 import { useAuthStore } from './authStore'
 
@@ -75,6 +75,10 @@ export function LoginScreen() {
         >
           {isSubmitting ? t('login.submitting') : t('login.submit')}
         </button>
+
+        <Link to="/register" className="text-blue-600 underline">
+          {t('login.createAccountLink')}
+        </Link>
       </form>
     </main>
   )

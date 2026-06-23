@@ -64,6 +64,12 @@ describe('router + ProtectedRoute integration', () => {
     vi.unstubAllGlobals()
   })
 
+  it('renders RegisterScreen at /register', async () => {
+    await renderRouterAt('/register')
+
+    expect(await screen.findByRole('heading', { name: 'Create account' })).toBeInTheDocument()
+  })
+
   it('redirects an unauthenticated visitor at / to /login without flashing protected content', async () => {
     const authService = await import('../lib/api/identity/auth-service/auth-service')
     // No refresh token in localStorage -> bootstrap() resolves synchronously to
