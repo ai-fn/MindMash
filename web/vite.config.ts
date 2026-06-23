@@ -41,6 +41,9 @@ export default defineConfig(({ mode }) => {
       globals: true,
       setupFiles: ['./src/test/setup.ts'],
       css: false,
+      // Playwright owns web/e2e/*.spec.ts (its own test() — see playwright.config.ts);
+      // Vitest's default include glob would otherwise also pick up *.spec.ts files there.
+      exclude: ['node_modules/**', 'e2e/**'],
     },
   }
 })
