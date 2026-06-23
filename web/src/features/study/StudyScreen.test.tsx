@@ -12,6 +12,7 @@ vi.mock('../../lib/api/scheduler/study-service/study-service', () => ({
   useStudyServiceGetQueue: vi.fn(),
   useStudyServiceGetPreview: vi.fn(),
   useStudyServiceAnswer: vi.fn(),
+  getStudyServiceGetCountsQueryKey: (deckId: string) => ['study-service', 'getCounts', deckId],
 }))
 vi.mock('../../lib/api/collection/card-service/card-service', () => ({
   useCardServiceGetCard: vi.fn(),

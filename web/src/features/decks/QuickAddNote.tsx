@@ -1,7 +1,9 @@
 import { useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useQueryClient } from '@tanstack/react-query'
 
 import { useNoteServiceCreateNote } from '../../lib/api/collection/note-service/note-service'
+import { getStudyServiceGetCountsQueryKey } from '../../lib/api/scheduler/study-service/study-service'
 import { useBasicNoteType } from './useBasicNoteType'
 
 export type QuickAddNoteProps = {
@@ -14,6 +16,7 @@ export type QuickAddNoteProps = {
 // Transparently ensures the "Basic" note type exists via `useBasicNoteType`.
 export function QuickAddNote({ deckId }: QuickAddNoteProps) {
   const { t } = useTranslation('authoring')
+  const queryClient = useQueryClient()
   const { noteTypeId, isPending: isNoteTypePending } = useBasicNoteType()
   const createNote = useNoteServiceCreateNote()
   const [front, setFront] = useState('')
@@ -32,6 +35,9 @@ export function QuickAddNote({ deckId }: QuickAddNoteProps) {
         onSuccess: () => {
           setFront('')
           setBack('')
+          void queryClient.invalidateQueries({
+            queryKey: getStudyServiceGetCountsQueryKey(deckId),
+          })
         },
         onError: () => {
           setError(t('error'))

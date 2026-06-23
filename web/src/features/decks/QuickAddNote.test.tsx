@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import '../../lib/i18n.ts'
@@ -14,10 +15,18 @@ vi.mock('../../lib/api/collection/note-type-service/note-type-service', () => ({
 vi.mock('../../lib/api/collection/note-service/note-service', () => ({
   useNoteServiceCreateNote: vi.fn(),
 }))
+vi.mock('../../lib/api/scheduler/study-service/study-service', () => ({
+  getStudyServiceGetCountsQueryKey: (deckId: string) => ['study-service', 'getCounts', deckId],
+}))
 
 async function renderQuickAddNote(deckId = 'deck-1') {
   const { QuickAddNote } = await import('./QuickAddNote.tsx')
-  return render(<QuickAddNote deckId={deckId} />)
+  const queryClient = new QueryClient()
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <QuickAddNote deckId={deckId} />
+    </QueryClientProvider>,
+  )
 }
 
 function mockResolvedBasicNoteType() {

@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 
 import { useCardServiceGetCard } from '../../lib/api/collection/card-service/card-service'
 import type { V1GetCardResponse } from '../../lib/api/collection/collectionV1CollectionProto.schemas'
 import {
+  getStudyServiceGetCountsQueryKey,
   useStudyServiceAnswer,
   useStudyServiceGetPreview,
 } from '../../lib/api/scheduler/study-service/study-service'
@@ -76,6 +78,7 @@ function previewLabelFor(preview: V1GetPreviewResponse | undefined, grade: V1Gra
 export function StudyScreen() {
   const { t } = useTranslation('study')
   const { deckId } = useParams<{ deckId: string }>()
+  const queryClient = useQueryClient()
   const { state, currentCard, reveal, advanceAfterGrade } = useStudyQueue(deckId ?? '')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [answerError, setAnswerError] = useState(false)
@@ -112,6 +115,11 @@ export function StudyScreen() {
         onSuccess: () => {
           setIsSubmitting(false)
           advanceAfterGrade()
+          if (deckId) {
+            void queryClient.invalidateQueries({
+              queryKey: getStudyServiceGetCountsQueryKey(deckId),
+            })
+          }
         },
         onError: () => {
           setIsSubmitting(false)
