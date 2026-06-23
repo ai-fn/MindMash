@@ -19,8 +19,12 @@ vi.mock('../lib/api/identity/auth-service/auth-service', () => ({
 // generated hooks; mock them so this integration test never hits the network.
 // An empty deck list keeps post-login assertions on the empty-state message
 // rather than real deck content, which is DecksScreen.test.tsx's job to cover.
+// DecksScreen also renders NewDeck unconditionally now (Task 7), which pulls in
+// useDeckServiceCreateDeck + getDeckServiceListDecksQueryKey.
 vi.mock('../lib/api/collection/deck-service/deck-service', () => ({
   useDeckServiceListDecks: vi.fn(() => ({ data: { data: { items: [] } }, isPending: false })),
+  useDeckServiceCreateDeck: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  getDeckServiceListDecksQueryKey: vi.fn(() => ['/v1/decks']),
 }))
 vi.mock('../lib/api/scheduler/study-service/study-service', () => ({
   useStudyServiceGetCounts: vi.fn(() => ({ data: undefined, isPending: true })),
