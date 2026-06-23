@@ -21,7 +21,7 @@ vi.mock('../../lib/api/collection/card-service/card-service', () => ({
 async function renderScreen(initialPath = '/study/deck-1') {
   const { StudyScreen } = await import('./StudyScreen.tsx')
   const queryClient = new QueryClient()
-  return render(
+  const result = render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[initialPath]}>
         <Routes>
@@ -31,6 +31,7 @@ async function renderScreen(initialPath = '/study/deck-1') {
       </MemoryRouter>
     </QueryClientProvider>,
   )
+  return { ...result, queryClient }
 }
 
 const oneCardQueue = {
@@ -150,7 +151,8 @@ describe('StudyScreen', () => {
     vi.mocked(mocks.useStudyServiceAnswer).mockReturnValue({ mutate } as never)
     const user = userEvent.setup()
 
-    await renderScreen()
+    const { queryClient } = await renderScreen()
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
     await user.click(screen.getByRole('button', { name: 'Show answer' }))
     await user.click(screen.getByRole('button', { name: /Good/ }))
 
@@ -160,6 +162,9 @@ describe('StudyScreen', () => {
     )
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Show answer' })).toBeInTheDocument()
+    })
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['study-service', 'getCounts', 'deck-1'],
     })
   })
 

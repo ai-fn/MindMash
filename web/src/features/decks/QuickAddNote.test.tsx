@@ -22,11 +22,12 @@ vi.mock('../../lib/api/scheduler/study-service/study-service', () => ({
 async function renderQuickAddNote(deckId = 'deck-1') {
   const { QuickAddNote } = await import('./QuickAddNote.tsx')
   const queryClient = new QueryClient()
-  return render(
+  const result = render(
     <QueryClientProvider client={queryClient}>
       <QuickAddNote deckId={deckId} />
     </QueryClientProvider>,
   )
+  return { ...result, queryClient }
 }
 
 function mockResolvedBasicNoteType() {
@@ -101,7 +102,8 @@ describe('QuickAddNote', () => {
     vi.mocked(useNoteServiceCreateNote).mockReturnValue({ mutate, isPending: false } as never)
     const user = userEvent.setup()
 
-    await renderQuickAddNote('deck-42')
+    const { queryClient } = await renderQuickAddNote('deck-42')
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
     const frontInput = screen.getByLabelText('Front')
     const backInput = screen.getByLabelText('Back')
     await user.type(frontInput, 'Hola')
@@ -123,6 +125,9 @@ describe('QuickAddNote', () => {
     )
     expect(frontInput).toHaveValue('')
     expect(backInput).toHaveValue('')
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['study-service', 'getCounts', 'deck-42'],
+    })
   })
 
   it('disables submit while the create-note mutation is in-flight', async () => {
