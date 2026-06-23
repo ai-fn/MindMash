@@ -35,13 +35,11 @@ describe('RegisterScreen', () => {
     // so the whole mock function is cast once here, then calls the passed selector
     // against a stub state object matching what this component actually reads.
     type Selector = (state: { status: string; register: typeof register }) => unknown
-    vi.mocked(useAuthStore).mockImplementation(
-      ((selector: Selector) =>
-        selector({
-          status: 'unauthenticated',
-          register,
-        })) as typeof useAuthStore,
-    )
+    vi.mocked(useAuthStore).mockImplementation(((selector: Selector) =>
+      selector({
+        status: 'unauthenticated',
+        register,
+      })) as typeof useAuthStore)
   })
 
   afterEach(() => {
