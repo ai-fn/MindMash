@@ -29,14 +29,18 @@ describe('RegisterScreen', () => {
     vi.clearAllMocks()
     register = vi.fn()
     const { useAuthStore } = await import('./authStore')
-    // authStore is a Zustand store hook invoked as `useAuthStore((state) => state.x)`;
-    // this mock implementation calls the passed selector against a stub state object,
-    // matching real Zustand selector usage closely enough for this component's needs.
-    vi.mocked(useAuthStore).mockImplementation((selector: never) =>
-      (selector as (state: { status: string; register: typeof register }) => unknown)({
-        status: 'unauthenticated',
-        register,
-      }),
+    // authStore is a Zustand store hook invoked as `useAuthStore((state) => state.x)`.
+    // The real hook's type is a generic overload (`<U>(selector: (state: AuthState) => U) =>
+    // U`), which `mockImplementation` can't be handed a single concrete function for —
+    // so the whole mock function is cast once here, then calls the passed selector
+    // against a stub state object matching what this component actually reads.
+    type Selector = (state: { status: string; register: typeof register }) => unknown
+    vi.mocked(useAuthStore).mockImplementation(
+      ((selector: Selector) =>
+        selector({
+          status: 'unauthenticated',
+          register,
+        })) as typeof useAuthStore,
     )
   })
 
