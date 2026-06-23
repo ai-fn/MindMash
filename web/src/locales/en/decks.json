@@ -1,0 +1,11 @@
+{
+  "title": "Your decks",
+  "logout": "Log out",
+  "loading": "Loading decks…",
+  "empty": "You don't have any decks yet.",
+  "counts": {
+    "new": "New: {{count}}",
+    "learning": "Learning: {{count}}",
+    "review": "Review: {{count}}"
+  }
+}

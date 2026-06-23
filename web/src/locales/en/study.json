@@ -1,0 +1,14 @@
+{
+  "loading": "Loading cards…",
+  "empty": "Nothing due right now.",
+  "deckComplete": "Deck complete — nice work!",
+  "backToDecks": "Back to decks",
+  "showAnswer": "Show answer",
+  "grade": {
+    "again": "Again",
+    "hard": "Hard",
+    "good": "Good",
+    "easy": "Easy"
+  },
+  "answerError": "Couldn't submit that grade. Try again."
+}
