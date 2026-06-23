@@ -1,6 +1,7 @@
 import { createBrowserRouter, type RouteObject } from 'react-router-dom'
 
 import { LoginScreen } from '../features/auth/LoginScreen'
+import { RegisterScreen } from '../features/auth/RegisterScreen'
 import { DecksScreen } from '../features/decks/DecksScreen'
 import { StudyScreen } from '../features/study/StudyScreen'
 import { ProtectedRoute } from './guard'
@@ -12,6 +13,10 @@ export const routes: RouteObject[] = [
   {
     path: '/login',
     element: <LoginScreen />,
+  },
+  {
+    path: '/register',
+    element: <RegisterScreen />,
   },
   {
     path: '/',
