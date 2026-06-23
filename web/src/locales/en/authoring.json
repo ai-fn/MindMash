@@ -1,0 +1,17 @@
+{
+  "newDeck": {
+    "label": "New deck name",
+    "placeholder": "Deck name",
+    "submit": "Create deck"
+  },
+  "addCard": {
+    "toggle": "Add card"
+  },
+  "quickAddNote": {
+    "frontLabel": "Front",
+    "backLabel": "Back",
+    "submit": "Add note",
+    "preparing": "Preparing…"
+  },
+  "error": "Something went wrong. Try again."
+}
