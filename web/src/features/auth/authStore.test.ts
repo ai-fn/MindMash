@@ -8,6 +8,7 @@ vi.mock('../../lib/api/identity/auth-service/auth-service', () => ({
   authServiceRefresh: vi.fn(),
   authServiceLogout: vi.fn(),
   authServiceGetMe: vi.fn(),
+  authServiceRegister: vi.fn(),
 }))
 
 vi.mock('../../lib/api/authToken', () => ({
@@ -160,6 +161,71 @@ describe('authStore', () => {
       )
 
       expect(useAuthStore.getState().status).toBe('unauthenticated')
+    })
+  })
+
+  describe('register', () => {
+    it('on success, registers then auto-logs-in with the same credentials and populates state via GetMe', async () => {
+      const { authToken, authService, useAuthStore } = await loadModules()
+      vi.mocked(authService.authServiceRegister).mockResolvedValue({
+        status: 200,
+        data: { userId: 'user-1', message: 'created' },
+      } as never)
+      vi.mocked(authService.authServiceLogin).mockResolvedValue({
+        status: 200,
+        data: {
+          accessToken: 'access-1',
+          refreshToken: 'refresh-1',
+          userId: 'user-1',
+          profileId: 'profile-1',
+          expiresIn: '900',
+        },
+      } as never)
+      vi.mocked(authService.authServiceGetMe).mockResolvedValue({
+        status: 200,
+        data: {
+          userId: 'user-1',
+          email: 'person@example.com',
+          emailVerified: true,
+          locale: 'en',
+          profiles: [{ id: 'profile-1', name: 'Default', isDefault: true }],
+        },
+      } as never)
+
+      await useAuthStore.getState().register('person@example.com', 'hunter2')
+
+      expect(authService.authServiceRegister).toHaveBeenCalledWith({
+        email: 'person@example.com',
+        password: 'hunter2',
+        locale: 'en',
+      })
+      expect(authService.authServiceLogin).toHaveBeenCalledWith({
+        email: 'person@example.com',
+        password: 'hunter2',
+      })
+      expect(authToken.setTokens).toHaveBeenCalledWith({
+        accessToken: 'access-1',
+        refreshToken: 'refresh-1',
+      })
+      const state = useAuthStore.getState()
+      expect(state.status).toBe('authenticated')
+      expect(state.userId).toBe('user-1')
+      expect(state.profileId).toBe('profile-1')
+      expect(state.email).toBe('person@example.com')
+    })
+
+    it('on registration failure, stays unauthenticated, rethrows, and never attempts auto-login', async () => {
+      const { authService, useAuthStore } = await loadModules()
+      useAuthStore.setState({ status: 'unauthenticated' })
+      const registerError = new Error('email already taken')
+      vi.mocked(authService.authServiceRegister).mockRejectedValue(registerError)
+
+      await expect(
+        useAuthStore.getState().register('person@example.com', 'hunter2'),
+      ).rejects.toThrow('email already taken')
+
+      expect(useAuthStore.getState().status).toBe('unauthenticated')
+      expect(authService.authServiceLogin).not.toHaveBeenCalled()
     })
   })
 
