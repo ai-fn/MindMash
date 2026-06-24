@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package search.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+
+// ─── Search Service ───────────────────────────────────────────────────────────
+
+service SearchService {
+  // Search runs an Anki-like DSL query over the caller's cards. Results are
+  // hard-filtered to the caller's user_id/profile_id (from the gateway-injected
+  // JWT context) and keyset-paginated. The query path is synchronous; the index
+  // is eventually consistent with Collection writes.
+  rpc Search(SearchRequest) returns (SearchResponse) {
+    option (google.api.http) = {
+      get: "/v1/search"
+    };
+  }
+}
+
+// SearchRequest carries the DSL query plus pagination. Tenancy is never supplied
+// by the client — it comes from the trusted gateway context.
+message SearchRequest {
+  string q = 1; // the DSL query string (e.g. `deck:French is:due tag:verb`)
+  // sort is reserved for future explicit sort control; the MVP always sorts by
+  // added_at descending with card_id as a stable tiebreaker.
+  string sort = 2;
+  string cursor = 3; // opaque keyset cursor from a previous response's next_cursor
+  int32 limit = 4; // page size; the server clamps to a sane maximum
+}
+
+message SearchResponse {
+  repeated CardSummary results = 1;
+  string next_cursor = 2; // empty when this is the last page
+  int64 total = 3; // total matching cards (lower bound under very high cardinality)
+}
+
+// CardSummary is the per-hit projection returned to the browser. It omits the
+// tenant and versioning fields the index carries internally.
+message CardSummary {
+  string card_id = 1;
+  string note_id = 2;
+  string deck_id = 3;
+  string deck_path = 4;
+  int32 template_ord = 5;
+  string state = 6; // "new"|"learning"|"review"|"relearning"
+  bool suspended = 7;
+  google.protobuf.Timestamp due = 8;
+  int32 ivl = 9;
+  int32 reps = 10;
+  int32 lapses = 11;
+  int32 flags = 12;
+  repeated string tags = 13;
+  string fields_text = 14;
+  google.protobuf.Timestamp added_at = 15;
+}

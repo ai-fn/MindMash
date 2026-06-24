@@ -1,0 +1,187 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "search/v1/search.proto",
+    "version": "version not set"
+  },
+  "tags": [
+    {
+      "name": "SearchService"
+    }
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v1/search": {
+      "get": {
+        "summary": "Search runs an Anki-like DSL query over the caller's cards. Results are\nhard-filtered to the caller's user_id/profile_id (from the gateway-injected\nJWT context) and keyset-paginated. The query path is synchronous; the index\nis eventually consistent with Collection writes.",
+        "operationId": "SearchService_Search",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1SearchResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "q",
+            "description": "the DSL query string (e.g. `deck:French is:due tag:verb`)",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "sort",
+            "description": "sort is reserved for future explicit sort control; the MVP always sorts by\nadded_at descending with card_id as a stable tiebreaker.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "cursor",
+            "description": "opaque keyset cursor from a previous response's next_cursor",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "limit",
+            "description": "page size; the server clamps to a sane maximum",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          }
+        ],
+        "tags": [
+          "SearchService"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "@type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": {}
+    },
+    "rpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
+    "v1CardSummary": {
+      "type": "object",
+      "properties": {
+        "cardId": {
+          "type": "string"
+        },
+        "noteId": {
+          "type": "string"
+        },
+        "deckId": {
+          "type": "string"
+        },
+        "deckPath": {
+          "type": "string"
+        },
+        "templateOrd": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "state": {
+          "type": "string",
+          "title": "\"new\"|\"learning\"|\"review\"|\"relearning\""
+        },
+        "suspended": {
+          "type": "boolean"
+        },
+        "due": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "ivl": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "reps": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "lapses": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "flags": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "fieldsText": {
+          "type": "string"
+        },
+        "addedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "description": "CardSummary is the per-hit projection returned to the browser. It omits the\ntenant and versioning fields the index carries internally."
+    },
+    "v1SearchResponse": {
+      "type": "object",
+      "properties": {
+        "results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1CardSummary"
+          }
+        },
+        "nextCursor": {
+          "type": "string",
+          "title": "empty when this is the last page"
+        },
+        "total": {
+          "type": "string",
+          "format": "int64",
+          "title": "total matching cards (lower bound under very high cardinality)"
+        }
+      }
+    }
+  }
+}

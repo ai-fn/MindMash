@@ -30,14 +30,18 @@ func BuildQuery(node searchdsl.Node, t Tenant, opts Opts) map[string]any {
 	if opts.Now.IsZero() {
 		opts.Now = time.Now()
 	}
+	// The tenant terms are always present and always first. A nil node means an
+	// unconstrained listing (empty query string), so we add no DSL clause and the
+	// bool matches every document the tenant owns.
+	filter := []any{
+		term("user_id", t.UserID),
+		term("profile_id", t.ProfileID),
+	}
+	if node != nil {
+		filter = append(filter, compile(node, opts))
+	}
 	return map[string]any{
-		"bool": map[string]any{
-			"filter": []any{
-				term("user_id", t.UserID),
-				term("profile_id", t.ProfileID),
-				compile(node, opts),
-			},
-		},
+		"bool": map[string]any{"filter": filter},
 	}
 }
 
