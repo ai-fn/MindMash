@@ -28,7 +28,7 @@ export function DecksScreen() {
   const items = (data?.data as V1ListDecksResponse | undefined)?.items ?? []
 
   return (
-    <main className="flex min-h-screen flex-col gap-6 bg-slate-50 p-6">
+    <div className="flex flex-col gap-6 p-6">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold text-slate-800">{t('title')}</h1>
         <button
@@ -83,6 +83,6 @@ export function DecksScreen() {
             })}
         </ul>
       )}
-    </main>
+    </div>
   )
 }

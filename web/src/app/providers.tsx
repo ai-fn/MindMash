@@ -4,6 +4,7 @@ import { RouterProvider } from 'react-router-dom'
 
 import { useAuthStore } from '../features/auth/authStore'
 import { subscribeSyncChanges } from '../lib/sync'
+import { Toaster } from '../ui'
 import { router } from './router'
 
 // `refetchOnWindowFocus: true` already matches TanStack Query v5's own default, but
@@ -50,6 +51,7 @@ export function Providers() {
   return (
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
+      <Toaster />
     </QueryClientProvider>
   )
 }

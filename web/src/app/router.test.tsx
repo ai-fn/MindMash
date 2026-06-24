@@ -28,6 +28,16 @@ vi.mock('../lib/api/collection/deck-service/deck-service', () => ({
 }))
 vi.mock('../lib/api/scheduler/study-service/study-service', () => ({
   useStudyServiceGetCounts: vi.fn(() => ({ data: undefined, isPending: true })),
+  // StudyScreen (the /study/:deckId route, see router.test.tsx's full-bleed-shell
+  // test) also pulls these in via useStudyQueue/StudyScreen itself; a pending queue
+  // fetch + no preview is enough to render the screen without a real network call.
+  useStudyServiceGetQueue: vi.fn(() => ({ data: undefined, isPending: true })),
+  useStudyServiceGetPreview: vi.fn(() => ({ data: undefined, isPending: true })),
+  useStudyServiceAnswer: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  getStudyServiceGetCountsQueryKey: vi.fn(() => ['/v1/study/counts']),
+}))
+vi.mock('../lib/api/collection/card-service/card-service', () => ({
+  useCardServiceGetCard: vi.fn(() => ({ data: undefined, isPending: true })),
 }))
 
 async function renderRouterAt(initialPath: string) {
@@ -119,6 +129,9 @@ describe('router + ProtectedRoute integration', () => {
 
     expect(await screen.findByText('Your decks')).toBeInTheDocument()
     expect(screen.getByText("You don't have any decks yet.")).toBeInTheDocument()
+    // The Decks route renders inside AppLayout's shell (brand + nav).
+    expect(screen.getByText('MindMesh')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Browse' })).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Log out' }))
 
@@ -126,5 +139,56 @@ describe('router + ProtectedRoute integration', () => {
       expect(screen.getByRole('heading', { name: 'Log in' })).toBeInTheDocument()
     })
     expect(authService.authServiceLogout).toHaveBeenCalledWith({ refreshToken: 'refresh-1' })
+  })
+
+  it('renders /browse, /stats, /settings inside the AppLayout shell with the active link highlighted', async () => {
+    const authService = await import('../lib/api/identity/auth-service/auth-service')
+    vi.mocked(authService.authServiceRefresh).mockResolvedValue({
+      status: 200,
+      data: {
+        accessToken: 'access-1',
+        refreshToken: 'refresh-1',
+        userId: 'user-1',
+        profileId: 'profile-1',
+        expiresIn: '900',
+      },
+    } as never)
+    localStorage.setItem('mindmesh.refreshToken', 'refresh-0')
+
+    await renderRouterAt('/stats')
+
+    expect(await screen.findByText('Coming soon.')).toBeInTheDocument()
+    expect(screen.getByText('MindMesh')).toBeInTheDocument()
+    const statsLink = screen.getByRole('link', { name: 'Stats' })
+    expect(statsLink).toHaveAttribute('aria-current', 'page')
+  })
+
+  it('does not render the AppLayout shell/nav on the full-bleed study route', async () => {
+    const authService = await import('../lib/api/identity/auth-service/auth-service')
+    vi.mocked(authService.authServiceRefresh).mockResolvedValue({
+      status: 200,
+      data: {
+        accessToken: 'access-1',
+        refreshToken: 'refresh-1',
+        userId: 'user-1',
+        profileId: 'profile-1',
+        expiresIn: '900',
+      },
+    } as never)
+    localStorage.setItem('mindmesh.refreshToken', 'refresh-0')
+
+    await renderRouterAt('/study/deck-1')
+
+    await waitFor(() => {
+      expect(screen.queryByText('MindMesh')).not.toBeInTheDocument()
+    })
+    expect(screen.queryByRole('link', { name: 'Browse' })).not.toBeInTheDocument()
+  })
+
+  it('renders the 404 screen for an unmatched path with a link back to /', async () => {
+    await renderRouterAt('/this-route-does-not-exist')
+
+    expect(await screen.findByRole('heading', { name: 'Page not found' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Back to decks' })).toHaveAttribute('href', '/')
   })
 })

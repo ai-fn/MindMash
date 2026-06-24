@@ -4,11 +4,18 @@ import { LoginScreen } from '../features/auth/LoginScreen'
 import { RegisterScreen } from '../features/auth/RegisterScreen'
 import { DecksScreen } from '../features/decks/DecksScreen'
 import { StudyScreen } from '../features/study/StudyScreen'
+import { AppLayout } from './AppLayout'
 import { ProtectedRoute } from './guard'
+import { NotFoundScreen } from './NotFoundScreen'
+import { BrowseScreen, SettingsScreen, StatsScreen } from './PlaceholderScreens'
 
 // Route definitions extracted so tests can build a createMemoryRouter from the same
-// route objects rather than duplicating them (see router.test.tsx). No catch-all/404
-// route yet — out of scope for this task (see task-3-brief.md).
+// route objects rather than duplicating them (see router.test.tsx).
+//
+// Shape: ProtectedRoute gates everything below `/` on auth status (see guard.tsx). Inside
+// it, AppLayout renders the quiet shell (top bar + nav) and wraps Decks/Browse/Stats/
+// Settings via its own <Outlet/> — but NOT study/:deckId, which is a sibling of the
+// AppLayout branch so it stays full-bleed/bare (Constraint 1, see task-3-brief.md).
 export const routes: RouteObject[] = [
   {
     path: '/login',
@@ -22,9 +29,21 @@ export const routes: RouteObject[] = [
     path: '/',
     element: <ProtectedRoute />,
     children: [
-      { index: true, element: <DecksScreen /> },
+      {
+        element: <AppLayout />,
+        children: [
+          { index: true, element: <DecksScreen /> },
+          { path: 'browse', element: <BrowseScreen /> },
+          { path: 'stats', element: <StatsScreen /> },
+          { path: 'settings', element: <SettingsScreen /> },
+        ],
+      },
       { path: 'study/:deckId', element: <StudyScreen /> },
     ],
+  },
+  {
+    path: '*',
+    element: <NotFoundScreen />,
   },
 ]
 
