@@ -369,8 +369,10 @@ func TestGetSearchDocs_ByCardAndNote(t *testing.T) {
 		if d.CardID != card.ID || d.NoteID != note.ID || d.DeckID != deck.ID {
 			t.Errorf("id mismatch: %+v", d)
 		}
-		if d.DeckPath != deck.Path {
-			t.Errorf("DeckPath = %q, want %q", d.DeckPath, deck.Path)
+		// DeckPath is the human-readable name path; a top-level deck's path is
+		// just its name.
+		if d.DeckPath != deck.Name {
+			t.Errorf("DeckPath = %q, want %q", d.DeckPath, deck.Name)
 		}
 		if d.FieldsText != "hello hola" {
 			t.Errorf("FieldsText = %q, want %q", d.FieldsText, "hello hola")
@@ -440,8 +442,9 @@ func TestGetSearchDocs_ByDeckSubtree(t *testing.T) {
 	if docs[0].NoteID != note.ID || docs[0].DeckID != child.ID {
 		t.Errorf("unexpected doc: %+v", docs[0])
 	}
-	if docs[0].DeckPath != child.Path {
-		t.Errorf("DeckPath = %q, want child path %q", docs[0].DeckPath, child.Path)
+	// The name path joins ancestor names root→leaf with "::".
+	if docs[0].DeckPath != "Spanish::Verbs" {
+		t.Errorf("DeckPath = %q, want %q", docs[0].DeckPath, "Spanish::Verbs")
 	}
 }
 
