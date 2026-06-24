@@ -1,0 +1,101 @@
+syntax = "proto3";
+
+package analytics.v1;
+
+import "google/api/annotations.proto";
+
+// ─── Analytics Service ──────────────────────────────────────────────────────
+//
+// Study statistics served from the ClickHouse review_events mirror. Every RPC
+// is hard-filtered to the caller's user_id/profile_id (from the gateway-injected
+// JWT context); tenancy is never supplied by the client. Results are eventually
+// consistent with Scheduler writes (event-driven ingestion).
+service AnalyticsService {
+  // Overview returns headline counts for a time range: total reviews, accuracy,
+  // time spent, and the current daily study streak.
+  rpc GetOverview(GetOverviewRequest) returns (GetOverviewResponse) {
+    option (google.api.http) = {
+      get: "/v1/stats/overview"
+    };
+  }
+
+  // GetHeatmap returns per-day review counts for a calendar year (GitHub-style
+  // activity heatmap).
+  rpc GetHeatmap(GetHeatmapRequest) returns (GetHeatmapResponse) {
+    option (google.api.http) = {
+      get: "/v1/stats/heatmap"
+    };
+  }
+
+  // GetRetention returns measured recall (true retention) over a range,
+  // optionally scoped to a deck, alongside the target retention to compare it
+  // against.
+  rpc GetRetention(GetRetentionRequest) returns (GetRetentionResponse) {
+    option (google.api.http) = {
+      get: "/v1/stats/retention"
+    };
+  }
+
+  // GetBreakdown returns review distributions grouped by deck, card state, or
+  // hour-of-day.
+  rpc GetBreakdown(GetBreakdownRequest) returns (GetBreakdownResponse) {
+    option (google.api.http) = {
+      get: "/v1/stats/breakdown"
+    };
+  }
+}
+
+// range is a relative window like "7d", "30d", "365d", or "all". Empty defaults
+// to "30d". It is shared by the overview, retention, and breakdown RPCs.
+message GetOverviewRequest {
+  string range = 1;
+}
+
+message GetOverviewResponse {
+  int64 reviews = 1; // total reviews in range
+  int64 correct = 2; // reviews graded better than Again
+  double accuracy = 3; // correct / reviews (0 when reviews == 0)
+  int64 time_ms = 4; // total time spent answering, milliseconds
+  int32 streak_days = 5; // consecutive days up to today with >=1 review
+}
+
+message GetHeatmapRequest {
+  int32 year = 1; // calendar year (UTC); 0 defaults to the current year
+}
+
+message GetHeatmapResponse {
+  repeated HeatmapDay days = 1; // only days with at least one review
+}
+
+message HeatmapDay {
+  string date = 1; // YYYY-MM-DD (UTC)
+  int64 reviews = 2;
+}
+
+message GetRetentionRequest {
+  string deck = 1; // optional deck_id filter; empty = all decks
+  string range = 2; // relative window, see GetOverviewRequest.range
+}
+
+message GetRetentionResponse {
+  double measured = 1; // due_correct / due_reviews (0 when no due reviews)
+  double target = 2; // target retention to compare against (FSRS desired_retention)
+  int64 due_reviews = 3; // reviews of cards that were in the review state
+  int64 due_correct = 4; // of those, how many were recalled (grade > Again)
+}
+
+message GetBreakdownRequest {
+  string by = 1; // "deck" | "state" | "hour"
+  string range = 2; // relative window, see GetOverviewRequest.range
+}
+
+message GetBreakdownResponse {
+  repeated BreakdownBucket buckets = 1;
+}
+
+message BreakdownBucket {
+  string key = 1; // deck_id, state name, or hour-of-day ("0".."23")
+  int64 reviews = 2;
+  int64 correct = 3;
+  int64 time_ms = 4;
+}

@@ -1,0 +1,306 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "analytics/v1/analytics.proto",
+    "version": "version not set"
+  },
+  "tags": [
+    {
+      "name": "AnalyticsService"
+    }
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v1/stats/breakdown": {
+      "get": {
+        "summary": "GetBreakdown returns review distributions grouped by deck, card state, or\nhour-of-day.",
+        "operationId": "AnalyticsService_GetBreakdown",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1GetBreakdownResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "by",
+            "description": "\"deck\" | \"state\" | \"hour\"",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "range",
+            "description": "relative window, see GetOverviewRequest.range",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "AnalyticsService"
+        ]
+      }
+    },
+    "/v1/stats/heatmap": {
+      "get": {
+        "summary": "GetHeatmap returns per-day review counts for a calendar year (GitHub-style\nactivity heatmap).",
+        "operationId": "AnalyticsService_GetHeatmap",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1GetHeatmapResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "year",
+            "description": "calendar year (UTC); 0 defaults to the current year",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          }
+        ],
+        "tags": [
+          "AnalyticsService"
+        ]
+      }
+    },
+    "/v1/stats/overview": {
+      "get": {
+        "summary": "Overview returns headline counts for a time range: total reviews, accuracy,\ntime spent, and the current daily study streak.",
+        "operationId": "AnalyticsService_GetOverview",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1GetOverviewResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "range",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "AnalyticsService"
+        ]
+      }
+    },
+    "/v1/stats/retention": {
+      "get": {
+        "summary": "GetRetention returns measured recall (true retention) over a range,\noptionally scoped to a deck, alongside the target retention to compare it\nagainst.",
+        "operationId": "AnalyticsService_GetRetention",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1GetRetentionResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "deck",
+            "description": "optional deck_id filter; empty = all decks",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "range",
+            "description": "relative window, see GetOverviewRequest.range",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "AnalyticsService"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "@type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": {}
+    },
+    "rpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
+    "v1BreakdownBucket": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string",
+          "title": "deck_id, state name, or hour-of-day (\"0\"..\"23\")"
+        },
+        "reviews": {
+          "type": "string",
+          "format": "int64"
+        },
+        "correct": {
+          "type": "string",
+          "format": "int64"
+        },
+        "timeMs": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "v1GetBreakdownResponse": {
+      "type": "object",
+      "properties": {
+        "buckets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1BreakdownBucket"
+          }
+        }
+      }
+    },
+    "v1GetHeatmapResponse": {
+      "type": "object",
+      "properties": {
+        "days": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1HeatmapDay"
+          },
+          "title": "only days with at least one review"
+        }
+      }
+    },
+    "v1GetOverviewResponse": {
+      "type": "object",
+      "properties": {
+        "reviews": {
+          "type": "string",
+          "format": "int64",
+          "title": "total reviews in range"
+        },
+        "correct": {
+          "type": "string",
+          "format": "int64",
+          "title": "reviews graded better than Again"
+        },
+        "accuracy": {
+          "type": "number",
+          "format": "double",
+          "title": "correct / reviews (0 when reviews == 0)"
+        },
+        "timeMs": {
+          "type": "string",
+          "format": "int64",
+          "title": "total time spent answering, milliseconds"
+        },
+        "streakDays": {
+          "type": "integer",
+          "format": "int32",
+          "title": "consecutive days up to today with \u003e=1 review"
+        }
+      }
+    },
+    "v1GetRetentionResponse": {
+      "type": "object",
+      "properties": {
+        "measured": {
+          "type": "number",
+          "format": "double",
+          "title": "due_correct / due_reviews (0 when no due reviews)"
+        },
+        "target": {
+          "type": "number",
+          "format": "double",
+          "title": "target retention to compare against (FSRS desired_retention)"
+        },
+        "dueReviews": {
+          "type": "string",
+          "format": "int64",
+          "title": "reviews of cards that were in the review state"
+        },
+        "dueCorrect": {
+          "type": "string",
+          "format": "int64",
+          "title": "of those, how many were recalled (grade \u003e Again)"
+        }
+      }
+    },
+    "v1HeatmapDay": {
+      "type": "object",
+      "properties": {
+        "date": {
+          "type": "string",
+          "title": "YYYY-MM-DD (UTC)"
+        },
+        "reviews": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    }
+  }
+}
