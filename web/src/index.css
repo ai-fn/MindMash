@@ -1,1 +1,145 @@
 @import 'tailwindcss';
+
+/*
+ * Design tokens — MindMesh design system foundation.
+ *
+ * Palette intent (binding design law, see docs/detailed design constraints):
+ *   - Neutral background + exactly ONE primary accent. ≤3-4 colors total.
+ *   - Semantic colors encode STATE, not decoration: success/"know" = green,
+ *     danger/"don't know" = red, neutral = gray. No other hues are introduced.
+ *   - No bright/saturated colors over large areas — accent and semantic colors
+ *     are reserved for small interactive/status surfaces (buttons, badges,
+ *     focus rings), never page backgrounds.
+ *
+ * Accent choice: a desaturated slate-blue (`#3a6ea5` family). It reads as calm
+ * and trustworthy without being a default-framework blue — deliberately NOT
+ * Tailwind's `blue-500`/`indigo-500`. Neutrals are a warm, slightly-tinted gray
+ * scale (not raw Tailwind `slate`/`gray`) so the UI doesn't look templated.
+ *
+ * Theming mechanism: `[data-theme="light"]` / `[data-theme="dark"]` on <html>
+ * (set by `src/features/theme/themeStore.ts`) selects the value set below.
+ * `:root` mirrors the light values so unstyled/pre-hydration paint still gets
+ * sane colors instead of browser defaults.
+ */
+
+:root,
+[data-theme='light'] {
+  /* Neutral scale (warm gray, light mode) */
+  --color-bg: #faf9f7;
+  --color-surface: #ffffff;
+  --color-fg: #211f1c;
+  --color-muted: #6b6862;
+  --color-border: #e3e0da;
+
+  /* Accent (single primary, desaturated slate-blue) */
+  --color-accent: #3a6ea5;
+  --color-accent-fg: #ffffff;
+  --color-accent-muted: #e8eef5;
+
+  /* Semantic state colors */
+  --color-success: #2f8a4e;
+  --color-success-fg: #ffffff;
+  --color-success-muted: #e6f3ea;
+  --color-danger: #c4392f;
+  --color-danger-fg: #ffffff;
+  --color-danger-muted: #fbeae8;
+}
+
+[data-theme='dark'] {
+  /* Neutral scale (warm gray, dark mode) */
+  --color-bg: #181715;
+  --color-surface: #211f1c;
+  --color-fg: #ede9e3;
+  --color-muted: #a39e94;
+  --color-border: #38352f;
+
+  /* Accent stays the same hue family, lifted for dark-surface contrast */
+  --color-accent: #6c9bcf;
+  --color-accent-fg: #0d1b29;
+  --color-accent-muted: #233141;
+
+  /* Semantic state colors, lifted for dark-surface contrast */
+  --color-success: #4fb574;
+  --color-success-fg: #06200f;
+  --color-success-muted: #1b2e21;
+  --color-danger: #e0685c;
+  --color-danger-fg: #2a0a07;
+  --color-danger-muted: #34201d;
+}
+
+@theme {
+  /* Expose the custom properties above as Tailwind utilities, e.g.
+     bg-bg, text-fg, border-border, bg-accent, text-accent-fg, etc. */
+  --color-bg: var(--color-bg);
+  --color-surface: var(--color-surface);
+  --color-fg: var(--color-fg);
+  --color-muted: var(--color-muted);
+  --color-border: var(--color-border);
+
+  --color-accent: var(--color-accent);
+  --color-accent-fg: var(--color-accent-fg);
+  --color-accent-muted: var(--color-accent-muted);
+
+  --color-success: var(--color-success);
+  --color-success-fg: var(--color-success-fg);
+  --color-success-muted: var(--color-success-muted);
+  --color-danger: var(--color-danger);
+  --color-danger-fg: var(--color-danger-fg);
+  --color-danger-muted: var(--color-danger-muted);
+
+  /* Type scale — restrained, content-first sizing. Namespace is `--text-*` (not
+     `--font-size-*`): that's the theme key Tailwind v4 maps to the `text-*` font-size
+     utilities (see node_modules/tailwindcss/theme.css). */
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.75rem;
+  --text-3xl: 2.25rem;
+
+  /* Spacing rhythm (4px base, matches Tailwind's default scale so existing
+     utilities like p-4/gap-2 keep working; named here for token consumers
+     that want semantic spacing rather than a raw multiplier). */
+  --spacing-xs: 0.25rem;
+  --spacing-sm: 0.5rem;
+  --spacing-md: 1rem;
+  --spacing-lg: 1.5rem;
+  --spacing-xl: 2rem;
+  --spacing-2xl: 3rem;
+
+  /* Radius */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-full: 9999px;
+
+  /* Motion easing — `--ease-*` is a real Tailwind v4 theme namespace (generates the
+     `ease-*` utility, used below). */
+  --ease-default: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/*
+ * Motion durations — fast and quiet, per design law (120ms/180ms). Tailwind v4 has no
+ * `--duration-*` theme namespace (transition-duration utilities are generated from bare
+ * numeric values, e.g. `duration-150`, not named theme tokens), so these are plain custom
+ * properties consumed via `var()` — either directly in component CSS, or via Tailwind's
+ * arbitrary-value syntax `duration-[var(--duration-fast)]`.
+ */
+:root {
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+}
+
+/* Respect user motion preferences globally: neutralize transitions and
+   animations rather than relying on every component to opt in individually. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

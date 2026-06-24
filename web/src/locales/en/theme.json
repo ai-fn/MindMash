@@ -1,0 +1,9 @@
+{
+  "label": "Theme:",
+  "modes": {
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System"
+  },
+  "toggleAriaLabel": "Current theme: {{mode}}. Activate to switch."
+}

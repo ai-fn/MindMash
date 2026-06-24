@@ -7,6 +7,7 @@ import auth from '../locales/en/auth.json'
 import decks from '../locales/en/decks.json'
 import study from '../locales/en/study.json'
 import authoring from '../locales/en/authoring.json'
+import theme from '../locales/en/theme.json'
 
 // MVP scope: English only. The backend-reported `locale` (from GetMe, see
 // features/auth/authStore.ts) will drive the active language once full locale
@@ -19,12 +20,12 @@ void i18n
   .use(initReactI18next)
   .init({
     resources: {
-      en: { common, auth, decks, study, authoring },
+      en: { common, auth, decks, study, authoring, theme },
     },
     fallbackLng: 'en',
     supportedLngs: ['en'],
     defaultNS,
-    ns: ['common', 'auth', 'decks', 'study', 'authoring'],
+    ns: ['common', 'auth', 'decks', 'study', 'authoring', 'theme'],
     interpolation: {
       escapeValue: false,
     },
