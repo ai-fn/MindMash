@@ -191,6 +191,11 @@ service CollectionInternalService {
   rpc GetNote(CollectionInternalServiceGetNoteRequest) returns (CollectionInternalServiceGetNoteResponse);
   rpc RenderCard(RenderCardRequest) returns (RenderCardResponse);
   rpc ListCardIDs(ListCardIDsRequest) returns (ListCardIDsResponse);
+  // GetSearchDocs resolves a set of card/note/deck ids into the denormalized
+  // card documents the Search service indexes. Exactly one of the id lists is
+  // supplied per call; deck_ids expands to the deck subtree so a deck rename
+  // reindexes every descendant card. Resolution is shard-local (single user).
+  rpc GetSearchDocs(GetSearchDocsRequest) returns (GetSearchDocsResponse);
 }
 
 // ─── Shared / Domain Messages ─────────────────────────────────────────────────
@@ -616,4 +621,41 @@ message ListCardIDsRequest {
 message ListCardIDsResponse {
   repeated string ids            = 1;
   string          next_page_token = 2;
+}
+
+// GetSearchDocsRequest carries exactly one non-empty id list. card_ids selects
+// those cards; note_ids selects all cards of those notes; deck_ids selects every
+// card in those decks and their descendant decks (subtree).
+message GetSearchDocsRequest {
+  repeated string card_ids = 1;
+  repeated string note_ids = 2;
+  repeated string deck_ids = 3;
+}
+
+message GetSearchDocsResponse {
+  repeated SearchDoc docs = 1;
+}
+
+// SearchDoc is the denormalized card+note+deck projection consumed by the Search
+// indexer. version = max(card.usn, note.usn, deck.usn) for external_gte
+// idempotency.
+message SearchDoc {
+  string                    card_id      = 1;
+  string                    user_id      = 2;
+  string                    profile_id   = 3;
+  string                    note_id      = 4;
+  string                    deck_id      = 5;
+  string                    deck_path    = 6;
+  int32                     template_ord = 7;
+  CardState                 state        = 8;
+  bool                      suspended    = 9; // card queue < 0
+  google.protobuf.Timestamp due          = 10;
+  int32                     ivl          = 11; // scheduled interval in days
+  int32                     reps         = 12;
+  int32                     lapses       = 13;
+  int32                     flags        = 14; // colour-flag bitmask (from note)
+  repeated string           tags         = 15;
+  string                    fields_text  = 16; // concatenated note field values
+  google.protobuf.Timestamp added_at     = 17; // derived from the card's UUIDv7 id
+  int64                     version      = 18;
 }

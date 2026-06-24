@@ -341,6 +341,110 @@ func TestBulkCards_Move(t *testing.T) {
 
 // ─── Outbox written atomically ────────────────────────────────────────────────
 
+// ─── GetSearchDocs (Search enrichment) ───────────────────────────────────────
+
+func TestGetSearchDocs_ByCardAndNote(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+
+	deck := defaultDeck(t, c)
+	nt := basicNoteType(t, c)
+	note, err := c.svc.CreateNote(ctx, testUserID, testProfileID, nt.ID, deck.ID,
+		map[string]string{"Front": "hola", "Back": "hello"}, []string{"spanish"}, 2)
+	if err != nil {
+		t.Fatalf("CreateNote: %v", err)
+	}
+	cards, _ := c.repo.ListCardsByNote(ctx, testUserID, note.ID)
+	if len(cards) != 1 {
+		t.Fatalf("want 1 card, got %d", len(cards))
+	}
+	card := cards[0]
+
+	want := func(docs []SearchDoc) {
+		t.Helper()
+		if len(docs) != 1 {
+			t.Fatalf("want 1 doc, got %d", len(docs))
+		}
+		d := docs[0]
+		if d.CardID != card.ID || d.NoteID != note.ID || d.DeckID != deck.ID {
+			t.Errorf("id mismatch: %+v", d)
+		}
+		if d.DeckPath != deck.Path {
+			t.Errorf("DeckPath = %q, want %q", d.DeckPath, deck.Path)
+		}
+		if d.FieldsText != "hello hola" {
+			t.Errorf("FieldsText = %q, want %q", d.FieldsText, "hello hola")
+		}
+		if len(d.Tags) != 1 || d.Tags[0] != "spanish" {
+			t.Errorf("Tags = %v, want [spanish]", d.Tags)
+		}
+		if d.Flags != 2 {
+			t.Errorf("Flags = %d, want 2", d.Flags)
+		}
+		if d.Version != card.USN {
+			t.Errorf("Version = %d, want card USN %d", d.Version, card.USN)
+		}
+	}
+
+	byCard, err := c.repo.GetSearchDocs(ctx, testUserID, SearchDocSelector{CardIDs: []string{card.ID}})
+	if err != nil {
+		t.Fatalf("GetSearchDocs by card: %v", err)
+	}
+	want(byCard)
+
+	byNote, err := c.repo.GetSearchDocs(ctx, testUserID, SearchDocSelector{NoteIDs: []string{note.ID}})
+	if err != nil {
+		t.Fatalf("GetSearchDocs by note: %v", err)
+	}
+	want(byNote)
+
+	// Tenant isolation: another user sees nothing for the same card id.
+	const otherUser = "00000000-0000-0000-0000-0000000000ff"
+	other, err := c.repo.GetSearchDocs(ctx, otherUser, SearchDocSelector{CardIDs: []string{card.ID}})
+	if err != nil {
+		t.Fatalf("GetSearchDocs other user: %v", err)
+	}
+	if len(other) != 0 {
+		t.Errorf("cross-tenant leak: got %d docs for other user", len(other))
+	}
+}
+
+func TestGetSearchDocs_ByDeckSubtree(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+
+	nt := basicNoteType(t, c)
+	parent, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, "Spanish", "", "")
+	if err != nil {
+		t.Fatalf("CreateDeck parent: %v", err)
+	}
+	child, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, "Verbs", parent.ID, "")
+	if err != nil {
+		t.Fatalf("CreateDeck child: %v", err)
+	}
+	note, err := c.svc.CreateNote(ctx, testUserID, testProfileID, nt.ID, child.ID,
+		map[string]string{"Front": "comer", "Back": "to eat"}, nil, 0)
+	if err != nil {
+		t.Fatalf("CreateNote: %v", err)
+	}
+
+	// Selecting the parent deck reindexes the whole subtree, so the card in the
+	// child deck must come back.
+	docs, err := c.repo.GetSearchDocs(ctx, testUserID, SearchDocSelector{DeckIDs: []string{parent.ID}})
+	if err != nil {
+		t.Fatalf("GetSearchDocs by deck subtree: %v", err)
+	}
+	if len(docs) != 1 {
+		t.Fatalf("want 1 doc for subtree, got %d", len(docs))
+	}
+	if docs[0].NoteID != note.ID || docs[0].DeckID != child.ID {
+		t.Errorf("unexpected doc: %+v", docs[0])
+	}
+	if docs[0].DeckPath != child.Path {
+		t.Errorf("DeckPath = %q, want child path %q", docs[0].DeckPath, child.Path)
+	}
+}
+
 func TestOutbox_WrittenAtomically(t *testing.T) {
 	c := setupIntegration(t)
 	ctx := context.Background()

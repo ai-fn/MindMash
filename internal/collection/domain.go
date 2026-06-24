@@ -214,6 +214,9 @@ type Repository interface {
 	// selection is owned by the Search service (spec 05) and is not implemented
 	// here; the service rejects non-empty queries with Unimplemented.
 	ListCardIDs(ctx context.Context, userID string, page Page) (ids []string, next string, err error)
+	// GetSearchDocs resolves the selector into denormalized card documents for
+	// the Search indexer (card+note+deck joined, shard-local).
+	GetSearchDocs(ctx context.Context, userID string, sel SearchDocSelector) ([]SearchDoc, error)
 
 	// Deck
 	CreateDeck(ctx context.Context, d *Deck) error

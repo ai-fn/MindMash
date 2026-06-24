@@ -608,3 +608,49 @@ func (h *InternalHandler) ListCardIDs(ctx context.Context, req *collectionv1.Lis
 	}
 	return &collectionv1.ListCardIDsResponse{Ids: cardIDs, NextPageToken: next}, nil
 }
+
+func (h *InternalHandler) GetSearchDocs(ctx context.Context, req *collectionv1.GetSearchDocsRequest) (*collectionv1.GetSearchDocsResponse, error) {
+	id, err := identity(ctx)
+	if err != nil {
+		return nil, err
+	}
+	docs, err := h.svc.GetSearchDocs(ctx, id.UserID, SearchDocSelector{
+		CardIDs: req.GetCardIds(),
+		NoteIDs: req.GetNoteIds(),
+		DeckIDs: req.GetDeckIds(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	resp := &collectionv1.GetSearchDocsResponse{}
+	for i := range docs {
+		resp.Docs = append(resp.Docs, searchDocToProto(&docs[i]))
+	}
+	return resp, nil
+}
+
+func searchDocToProto(d *SearchDoc) *collectionv1.SearchDoc {
+	p := &collectionv1.SearchDoc{
+		CardId:      d.CardID,
+		UserId:      d.UserID,
+		ProfileId:   d.ProfileID,
+		NoteId:      d.NoteID,
+		DeckId:      d.DeckID,
+		DeckPath:    d.DeckPath,
+		TemplateOrd: int32(d.TemplateOrd),
+		State:       cardStateToProto(d.State),
+		Suspended:   d.Suspended,
+		Ivl:         int32(d.Ivl),
+		Reps:        int32(d.Reps),
+		Lapses:      int32(d.Lapses),
+		Flags:       d.Flags,
+		Tags:        d.Tags,
+		FieldsText:  d.FieldsText,
+		AddedAt:     timestamppb.New(d.AddedAt),
+		Version:     d.Version,
+	}
+	if d.Due != nil {
+		p.Due = timestamppb.New(*d.Due)
+	}
+	return p
+}

@@ -439,6 +439,72 @@ func (r *PostgresRepository) ListCardIDs(ctx context.Context, userID string, pag
 	return paginate(ids, limit, func(id string) string { return id })
 }
 
+// GetSearchDocs joins cards to their owning note and deck and assembles the
+// denormalized documents the Search indexer consumes. Exactly one selector list
+// must be non-empty; an empty selector returns no docs. deck_ids expands to the
+// deck subtree (path <@ root.path) so a parent rename reindexes every descendant.
+func (r *PostgresRepository) GetSearchDocs(ctx context.Context, userID string, sel SearchDocSelector) ([]SearchDoc, error) {
+	var pred string
+	var arg any
+	switch {
+	case len(sel.CardIDs) > 0:
+		pred, arg = "c.id = ANY($2)", sel.CardIDs
+	case len(sel.NoteIDs) > 0:
+		pred, arg = "c.note_id = ANY($2)", sel.NoteIDs
+	case len(sel.DeckIDs) > 0:
+		pred, arg = `c.deck_id IN (
+			SELECT s.id FROM decks s
+			JOIN decks root ON root.user_id = s.user_id AND root.id = ANY($2)
+			WHERE s.user_id = $1 AND s.path <@ root.path)`, sel.DeckIDs
+	default:
+		return nil, nil
+	}
+
+	rows, err := r.db.Query(ctx, `
+		SELECT c.id, c.user_id, c.profile_id, c.note_id, c.deck_id, c.template_ord,
+		       c.state, c.queue, c.due, c.reps, c.lapses, c.last_review, c.usn,
+		       n.fields, n.tags, n.flags, n.usn,
+		       d.path::text, d.usn
+		FROM cards c
+		JOIN notes n ON n.user_id = c.user_id AND n.id = c.note_id
+		JOIN decks d ON d.user_id = c.user_id AND d.id = c.deck_id
+		WHERE c.user_id = $1 AND `+pred+`
+		ORDER BY c.id ASC`, userID, arg)
+	if err != nil {
+		return nil, fmt.Errorf("collection: get search docs: %w", err)
+	}
+	defer rows.Close()
+
+	var docs []SearchDoc
+	for rows.Next() {
+		c := Card{}
+		n := Note{}
+		d := Deck{}
+		var ord, state, queue, flags int16
+		var fields []byte
+		if err := rows.Scan(
+			&c.ID, &c.UserID, &c.ProfileID, &c.NoteID, &c.DeckID, &ord,
+			&state, &queue, &c.Due, &c.Reps, &c.Lapses, &c.LastReview, &c.USN,
+			&fields, &n.Tags, &flags, &n.USN,
+			&d.Path, &d.USN,
+		); err != nil {
+			return nil, fmt.Errorf("collection: get search docs scan: %w", err)
+		}
+		c.TemplateOrd = int(ord)
+		c.State = CardState(state)
+		c.Queue = int(queue)
+		if err := json.Unmarshal(fields, &n.Fields); err != nil {
+			return nil, fmt.Errorf("collection: get search docs decode fields: %w", err)
+		}
+		n.Flags = int32(flags)
+		docs = append(docs, newSearchDoc(&c, &n, &d))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("collection: get search docs rows: %w", err)
+	}
+	return docs, nil
+}
+
 // collectCards drains rows into a Card slice; rows is closed before returning.
 func collectCards(rows pgx.Rows, op string) ([]Card, error) {
 	defer rows.Close()

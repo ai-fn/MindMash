@@ -395,6 +395,10 @@ func (s *Service) ListCardIDs(ctx context.Context, userID string, page Page) ([]
 	return s.repo.ListCardIDs(ctx, userID, page)
 }
 
+func (s *Service) GetSearchDocs(ctx context.Context, userID string, sel SearchDocSelector) ([]SearchDoc, error) {
+	return s.repo.GetSearchDocs(ctx, userID, sel)
+}
+
 // ─── Bulk card operations ────────────────────────────────────────────────────
 
 func (s *Service) MoveCards(ctx context.Context, userID string, cardIDs []string, deckID string) (int64, error) {

@@ -1196,6 +1196,7 @@ const (
 	CollectionInternalService_GetNote_FullMethodName       = "/collection.v1.CollectionInternalService/GetNote"
 	CollectionInternalService_RenderCard_FullMethodName    = "/collection.v1.CollectionInternalService/RenderCard"
 	CollectionInternalService_ListCardIDs_FullMethodName   = "/collection.v1.CollectionInternalService/ListCardIDs"
+	CollectionInternalService_GetSearchDocs_FullMethodName = "/collection.v1.CollectionInternalService/GetSearchDocs"
 )
 
 // CollectionInternalServiceClient is the client API for CollectionInternalService service.
@@ -1206,6 +1207,11 @@ type CollectionInternalServiceClient interface {
 	GetNote(ctx context.Context, in *CollectionInternalServiceGetNoteRequest, opts ...grpc.CallOption) (*CollectionInternalServiceGetNoteResponse, error)
 	RenderCard(ctx context.Context, in *RenderCardRequest, opts ...grpc.CallOption) (*RenderCardResponse, error)
 	ListCardIDs(ctx context.Context, in *ListCardIDsRequest, opts ...grpc.CallOption) (*ListCardIDsResponse, error)
+	// GetSearchDocs resolves a set of card/note/deck ids into the denormalized
+	// card documents the Search service indexes. Exactly one of the id lists is
+	// supplied per call; deck_ids expands to the deck subtree so a deck rename
+	// reindexes every descendant card. Resolution is shard-local (single user).
+	GetSearchDocs(ctx context.Context, in *GetSearchDocsRequest, opts ...grpc.CallOption) (*GetSearchDocsResponse, error)
 }
 
 type collectionInternalServiceClient struct {
@@ -1256,6 +1262,16 @@ func (c *collectionInternalServiceClient) ListCardIDs(ctx context.Context, in *L
 	return out, nil
 }
 
+func (c *collectionInternalServiceClient) GetSearchDocs(ctx context.Context, in *GetSearchDocsRequest, opts ...grpc.CallOption) (*GetSearchDocsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetSearchDocsResponse)
+	err := c.cc.Invoke(ctx, CollectionInternalService_GetSearchDocs_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CollectionInternalServiceServer is the server API for CollectionInternalService service.
 // All implementations should embed UnimplementedCollectionInternalServiceServer
 // for forward compatibility
@@ -1264,6 +1280,11 @@ type CollectionInternalServiceServer interface {
 	GetNote(context.Context, *CollectionInternalServiceGetNoteRequest) (*CollectionInternalServiceGetNoteResponse, error)
 	RenderCard(context.Context, *RenderCardRequest) (*RenderCardResponse, error)
 	ListCardIDs(context.Context, *ListCardIDsRequest) (*ListCardIDsResponse, error)
+	// GetSearchDocs resolves a set of card/note/deck ids into the denormalized
+	// card documents the Search service indexes. Exactly one of the id lists is
+	// supplied per call; deck_ids expands to the deck subtree so a deck rename
+	// reindexes every descendant card. Resolution is shard-local (single user).
+	GetSearchDocs(context.Context, *GetSearchDocsRequest) (*GetSearchDocsResponse, error)
 }
 
 // UnimplementedCollectionInternalServiceServer should be embedded to have forward compatible implementations.
@@ -1281,6 +1302,9 @@ func (UnimplementedCollectionInternalServiceServer) RenderCard(context.Context, 
 }
 func (UnimplementedCollectionInternalServiceServer) ListCardIDs(context.Context, *ListCardIDsRequest) (*ListCardIDsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListCardIDs not implemented")
+}
+func (UnimplementedCollectionInternalServiceServer) GetSearchDocs(context.Context, *GetSearchDocsRequest) (*GetSearchDocsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetSearchDocs not implemented")
 }
 
 // UnsafeCollectionInternalServiceServer may be embedded to opt out of forward compatibility for this service.
@@ -1366,6 +1390,24 @@ func _CollectionInternalService_ListCardIDs_Handler(srv interface{}, ctx context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CollectionInternalService_GetSearchDocs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetSearchDocsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CollectionInternalServiceServer).GetSearchDocs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CollectionInternalService_GetSearchDocs_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CollectionInternalServiceServer).GetSearchDocs(ctx, req.(*GetSearchDocsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // CollectionInternalService_ServiceDesc is the grpc.ServiceDesc for CollectionInternalService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1388,6 +1430,10 @@ var CollectionInternalService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListCardIDs",
 			Handler:    _CollectionInternalService_ListCardIDs_Handler,
+		},
+		{
+			MethodName: "GetSearchDocs",
+			Handler:    _CollectionInternalService_GetSearchDocs_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
