@@ -109,8 +109,10 @@ type ReviewLog struct {
 	UserID    string
 	ProfileID string
 	CardID    string
+	DeckID    string
 	Grade     Grade
 	PrevState CardState
+	NewState  CardState
 	PrevIvl   int32
 	NewIvl    int32
 	TimeMs    int32

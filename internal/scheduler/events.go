@@ -19,9 +19,12 @@ type reviewLogPayload struct {
 	UserID    string    `json:"user_id"`
 	ProfileID string    `json:"profile_id"`
 	CardID    string    `json:"card_id"`
+	DeckID    string    `json:"deck_id"`
 	Grade     int8      `json:"grade"`
 	PrevState int16     `json:"prev_state"`
+	NewState  int16     `json:"new_state"`
 	NewIvl    int32     `json:"new_ivl"`
+	TimeMs    int32     `json:"time_ms"`
 	Ts        time.Time `json:"ts"`
 }
 
@@ -52,7 +55,8 @@ func reviewLogEntry(rl *ReviewLog) events.OutboxEntry {
 		EventType:     EventReviewRecorded,
 		Payload: mustMarshal(reviewLogPayload{
 			ID: rl.ID, UserID: rl.UserID, ProfileID: rl.ProfileID, CardID: rl.CardID,
-			Grade: int8(rl.Grade), PrevState: int16(rl.PrevState), NewIvl: rl.NewIvl, Ts: rl.Ts,
+			DeckID: rl.DeckID, Grade: int8(rl.Grade), PrevState: int16(rl.PrevState),
+			NewState: int16(rl.NewState), NewIvl: rl.NewIvl, TimeMs: rl.TimeMs, Ts: rl.Ts,
 		}),
 		CreatedAt: time.Now().UTC(),
 	}
