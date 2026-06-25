@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, Navigate } from 'react-router-dom'
 
+import { Button, Card, Field, TextInput } from '../../ui'
 import { useAuthStore } from './authStore'
 
 // Email/password/confirm-password form. Calls `authStore.register` (not a mutation hook
@@ -57,66 +58,71 @@ export function RegisterScreen() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-50">
-      <form
-        onSubmit={handleSubmit}
-        className="flex w-full max-w-sm flex-col gap-4 rounded-lg bg-white p-8 shadow"
-      >
-        <h1 className="text-2xl font-semibold text-slate-800">{t('register.title')}</h1>
+    <main className="flex min-h-screen items-center justify-center bg-bg p-6">
+      <Card className="flex w-full max-w-sm flex-col gap-4 p-8">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <h1 className="text-2xl font-semibold text-fg">{t('register.title')}</h1>
 
-        <label className="flex flex-col gap-1 text-sm text-slate-700">
-          {t('register.emailLabel')}
-          <input
-            type="email"
-            required
-            autoComplete="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            className="rounded border border-slate-300 px-3 py-2"
-          />
-        </label>
+          <Field label={t('register.emailLabel')}>
+            {(controlProps) => (
+              <TextInput
+                {...controlProps}
+                type="email"
+                required
+                autoComplete="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+              />
+            )}
+          </Field>
 
-        <label className="flex flex-col gap-1 text-sm text-slate-700">
-          {t('register.passwordLabel')}
-          <input
-            type="password"
-            required
-            autoComplete="new-password"
-            value={password}
-            onChange={(event) => handlePasswordChange(event.target.value)}
-            className="rounded border border-slate-300 px-3 py-2"
-          />
-        </label>
+          <Field label={t('register.passwordLabel')}>
+            {(controlProps) => (
+              <TextInput
+                {...controlProps}
+                type="password"
+                required
+                autoComplete="new-password"
+                value={password}
+                onChange={(event) => handlePasswordChange(event.target.value)}
+              />
+            )}
+          </Field>
 
-        <label className="flex flex-col gap-1 text-sm text-slate-700">
-          {t('register.confirmPasswordLabel')}
-          <input
-            type="password"
-            required
-            autoComplete="new-password"
-            value={confirmPassword}
-            onChange={(event) => handleConfirmPasswordChange(event.target.value)}
-            className="rounded border border-slate-300 px-3 py-2"
-          />
-        </label>
+          <Field
+            label={t('register.confirmPasswordLabel')}
+            error={passwordMismatch ? t('register.passwordMismatch') : undefined}
+          >
+            {(controlProps) => (
+              <TextInput
+                {...controlProps}
+                type="password"
+                required
+                autoComplete="new-password"
+                value={confirmPassword}
+                onChange={(event) => handleConfirmPasswordChange(event.target.value)}
+              />
+            )}
+          </Field>
 
-        {passwordMismatch && (
-          <p className="text-sm text-red-600">{t('register.passwordMismatch')}</p>
-        )}
-        {error && <p className="text-sm text-red-600">{error}</p>}
+          {error ? (
+            <p role="alert" className="text-sm text-danger">
+              {error}
+            </p>
+          ) : null}
 
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="rounded bg-slate-800 px-4 py-2 text-white disabled:opacity-50"
+          <Button type="submit" loading={isSubmitting}>
+            {isSubmitting ? t('register.submitting') : t('register.submit')}
+          </Button>
+        </form>
+
+        <Link
+          to="/login"
+          className="text-center text-sm font-medium text-accent underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
         >
-          {isSubmitting ? t('register.submitting') : t('register.submit')}
-        </button>
-
-        <Link to="/login" className="text-blue-600 underline">
           {t('register.loginLink')}
         </Link>
-      </form>
+      </Card>
     </main>
   )
 }

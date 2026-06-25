@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, Navigate } from 'react-router-dom'
 
+import { Button, Card, Field, TextInput } from '../../ui'
 import { useAuthStore } from './authStore'
 
 // Email/password form. Calls `authStore.login` (not a mutation hook directly, per
@@ -35,51 +36,55 @@ export function LoginScreen() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-50">
-      <form
-        onSubmit={handleSubmit}
-        className="flex w-full max-w-sm flex-col gap-4 rounded-lg bg-white p-8 shadow"
-      >
-        <h1 className="text-2xl font-semibold text-slate-800">{t('login.title')}</h1>
+    <main className="flex min-h-screen items-center justify-center bg-bg p-6">
+      <Card className="flex w-full max-w-sm flex-col gap-4 p-8">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <h1 className="text-2xl font-semibold text-fg">{t('login.title')}</h1>
 
-        <label className="flex flex-col gap-1 text-sm text-slate-700">
-          {t('login.emailLabel')}
-          <input
-            type="email"
-            required
-            autoComplete="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            className="rounded border border-slate-300 px-3 py-2"
-          />
-        </label>
+          <Field label={t('login.emailLabel')}>
+            {(controlProps) => (
+              <TextInput
+                {...controlProps}
+                type="email"
+                required
+                autoComplete="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+              />
+            )}
+          </Field>
 
-        <label className="flex flex-col gap-1 text-sm text-slate-700">
-          {t('login.passwordLabel')}
-          <input
-            type="password"
-            required
-            autoComplete="current-password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            className="rounded border border-slate-300 px-3 py-2"
-          />
-        </label>
+          <Field label={t('login.passwordLabel')}>
+            {(controlProps) => (
+              <TextInput
+                {...controlProps}
+                type="password"
+                required
+                autoComplete="current-password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+              />
+            )}
+          </Field>
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
+          {error ? (
+            <p role="alert" className="text-sm text-danger">
+              {error}
+            </p>
+          ) : null}
 
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="rounded bg-slate-800 px-4 py-2 text-white disabled:opacity-50"
+          <Button type="submit" loading={isSubmitting}>
+            {isSubmitting ? t('login.submitting') : t('login.submit')}
+          </Button>
+        </form>
+
+        <Link
+          to="/register"
+          className="text-center text-sm font-medium text-accent underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
         >
-          {isSubmitting ? t('login.submitting') : t('login.submit')}
-        </button>
-
-        <Link to="/register" className="text-blue-600 underline">
           {t('login.createAccountLink')}
         </Link>
-      </form>
+      </Card>
     </main>
   )
 }
