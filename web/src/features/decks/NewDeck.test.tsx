@@ -12,11 +12,11 @@ vi.mock('../../lib/api/collection/deck-service/deck-service', () => ({
   getDeckServiceListDecksQueryKey: vi.fn(() => ['/v1/decks']),
 }))
 
-async function renderNewDeck(queryClient = new QueryClient()) {
+async function renderNewDeck(onClose = vi.fn(), queryClient = new QueryClient()) {
   const { NewDeck } = await import('./NewDeck.tsx')
   return render(
     <QueryClientProvider client={queryClient}>
-      <NewDeck />
+      <NewDeck open onClose={onClose} />
     </QueryClientProvider>,
   )
 }
@@ -28,6 +28,24 @@ describe('NewDeck', () => {
 
   afterEach(() => {
     vi.resetModules()
+  })
+
+  it('renders nothing when closed', async () => {
+    const { useDeckServiceCreateDeck } =
+      await import('../../lib/api/collection/deck-service/deck-service')
+    vi.mocked(useDeckServiceCreateDeck).mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+    } as never)
+    const { NewDeck } = await import('./NewDeck.tsx')
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <NewDeck open={false} onClose={vi.fn()} />
+      </QueryClientProvider>,
+    )
+
+    expect(screen.queryByLabelText('New deck name')).not.toBeInTheDocument()
   })
 
   it('disables submit while the name input is empty', async () => {
@@ -43,7 +61,7 @@ describe('NewDeck', () => {
     expect(screen.getByRole('button', { name: 'Create deck' })).toBeDisabled()
   })
 
-  it('enables submit once a name is entered, calls the mutation, and clears the input on success', async () => {
+  it('enables submit once a name is entered, calls the mutation, clears the input, and closes on success', async () => {
     const { useDeckServiceCreateDeck } =
       await import('../../lib/api/collection/deck-service/deck-service')
     const mutate = vi.fn((_vars, opts: { onSuccess?: () => void }) => {
@@ -51,8 +69,9 @@ describe('NewDeck', () => {
     })
     vi.mocked(useDeckServiceCreateDeck).mockReturnValue({ mutate, isPending: false } as never)
     const user = userEvent.setup()
+    const onClose = vi.fn()
 
-    await renderNewDeck()
+    await renderNewDeck(onClose)
     const input = screen.getByLabelText('New deck name')
     await user.type(input, 'Spanish')
 
@@ -64,7 +83,7 @@ describe('NewDeck', () => {
       { data: { name: 'Spanish' } },
       expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
     )
-    expect(input).toHaveValue('')
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 
   it('disables submit while the mutation is in-flight', async () => {
@@ -82,7 +101,7 @@ describe('NewDeck', () => {
     expect(screen.getByRole('button', { name: 'Create deck' })).toBeDisabled()
   })
 
-  it('shows an inline error on failure', async () => {
+  it('shows an inline error on failure and does not close', async () => {
     const { useDeckServiceCreateDeck } =
       await import('../../lib/api/collection/deck-service/deck-service')
     const mutate = vi.fn((_vars, opts: { onError?: () => void }) => {
@@ -90,11 +109,13 @@ describe('NewDeck', () => {
     })
     vi.mocked(useDeckServiceCreateDeck).mockReturnValue({ mutate, isPending: false } as never)
     const user = userEvent.setup()
+    const onClose = vi.fn()
 
-    await renderNewDeck()
+    await renderNewDeck(onClose)
     await user.type(screen.getByLabelText('New deck name'), 'Spanish')
     await user.click(screen.getByRole('button', { name: 'Create deck' }))
 
     expect(screen.getByText('Something went wrong. Try again.')).toBeInTheDocument()
+    expect(onClose).not.toHaveBeenCalled()
   })
 })

@@ -2,15 +2,18 @@ import { useTranslation } from 'react-i18next'
 
 import { useStudyServiceGetCounts } from '../../lib/api/scheduler/study-service/study-service'
 import type { V1GetCountsResponse } from '../../lib/api/scheduler/schedulerV1SchedulerProto.schemas'
+import { Badge, Skeleton, Surface } from '../../ui'
 
 interface DeckRowProps {
   deckId: string
   name: string
 }
 
-// Presentational row: deck name + its study counts. Counts are fetched per-row
-// (N+1 — there is no bulk-counts endpoint, see task-4-brief.md) so a slow/failed
-// counts call for one deck never blocks the rest of the list from rendering.
+// Presentational row: deck name + its study counts as quiet badges (Constraint 3 —
+// counts are informational, not decorative). Counts are fetched per-row (N+1 — there
+// is no bulk-counts endpoint, see task-4-brief.md) so a slow/failed counts call for
+// one deck never blocks the rest of the list from rendering (React Query isolates
+// each hook instance's request/error state per component).
 export function DeckRow({ deckId, name }: DeckRowProps) {
   const { t } = useTranslation('decks')
   const { data, isPending } = useStudyServiceGetCounts(deckId)
@@ -20,15 +23,17 @@ export function DeckRow({ deckId, name }: DeckRowProps) {
   const counts = data?.data as V1GetCountsResponse | undefined
 
   return (
-    <div className="flex items-center justify-between rounded border border-slate-200 bg-white px-4 py-3">
-      <span className="font-medium text-slate-800">{name}</span>
-      {!isPending && (
-        <span className="flex gap-3 text-sm text-slate-600">
-          <span>{t('counts.new', { count: counts?.newCount ?? 0 })}</span>
-          <span>{t('counts.learning', { count: counts?.learningCount ?? 0 })}</span>
-          <span>{t('counts.review', { count: counts?.reviewCount ?? 0 })}</span>
+    <Surface className="flex items-center justify-between gap-3 px-4 py-3">
+      <span className="font-medium text-fg">{name}</span>
+      {isPending ? (
+        <Skeleton className="h-5 w-32" />
+      ) : (
+        <span className="flex items-center gap-1.5">
+          <Badge tone="accent">{t('counts.new', { count: counts?.newCount ?? 0 })}</Badge>
+          <Badge tone="neutral">{t('counts.learning', { count: counts?.learningCount ?? 0 })}</Badge>
+          <Badge tone="neutral">{t('counts.review', { count: counts?.reviewCount ?? 0 })}</Badge>
         </span>
       )}
-    </div>
+    </Surface>
   )
 }

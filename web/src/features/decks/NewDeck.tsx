@@ -6,16 +6,33 @@ import {
   getDeckServiceListDecksQueryKey,
   useDeckServiceCreateDeck,
 } from '../../lib/api/collection/deck-service/deck-service'
+import { Button, Dialog, Field, TextInput } from '../../ui'
 
-// Minimal inline create-deck form (Task 7, see task-7-brief.md). Finally satisfies
-// the create-deck CTA Task 4 deferred — DecksScreen.tsx's empty-state branch used to
-// note "Task 7 will add a create-deck action here".
-export function NewDeck() {
+export interface NewDeckProps {
+  open: boolean
+  onClose: () => void
+}
+
+// Create-deck flow (Task 7, see task-7-brief.md), restyled (Task 5) as a Dialog
+// rather than an always-visible inline form. Judgment call: the deck list is the
+// primary "home" view (Constraint 2 — minimal cognitive load), and create-deck is an
+// occasional action, not something that needs permanent on-screen real estate. A
+// Dialog keeps that view quiet and treats "create a deck" as its own single-purpose
+// screen (Constraint 1) triggered from one consistent place (the header's "New deck"
+// button, Constraint 11), while the empty state's action button opens the same
+// Dialog instead of duplicating the form inline.
+export function NewDeck({ open, onClose }: NewDeckProps) {
   const { t } = useTranslation('authoring')
   const queryClient = useQueryClient()
   const createDeck = useDeckServiceCreateDeck()
   const [name, setName] = useState('')
   const [error, setError] = useState<string | null>(null)
+
+  function handleClose() {
+    setName('')
+    setError(null)
+    onClose()
+  }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -26,6 +43,7 @@ export function NewDeck() {
         onSuccess: () => {
           setName('')
           void queryClient.invalidateQueries({ queryKey: getDeckServiceListDecksQueryKey() })
+          onClose()
         },
         onError: () => {
           setError(t('error'))
@@ -37,25 +55,30 @@ export function NewDeck() {
   const isDisabled = name.trim().length === 0 || createDeck.isPending
 
   return (
-    <form onSubmit={handleSubmit} className="flex items-end gap-2">
-      <label className="flex flex-1 flex-col gap-1 text-sm text-slate-700">
-        {t('newDeck.label')}
-        <input
-          type="text"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          placeholder={t('newDeck.placeholder')}
-          className="rounded border border-slate-300 px-3 py-2"
-        />
-      </label>
-      <button
-        type="submit"
-        disabled={isDisabled}
-        className="rounded bg-slate-800 px-4 py-2 text-white disabled:opacity-50"
-      >
-        {t('newDeck.submit')}
-      </button>
-      {error && <p className="text-sm text-red-600">{error}</p>}
-    </form>
+    <Dialog open={open} onClose={handleClose} title={t('newDeck.dialogTitle')}>
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <Field label={t('newDeck.label')}>
+          {(controlProps) => (
+            <TextInput
+              {...controlProps}
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder={t('newDeck.placeholder')}
+              autoFocus
+            />
+          )}
+        </Field>
+
+        {error ? (
+          <p role="alert" className="text-sm text-danger">
+            {error}
+          </p>
+        ) : null}
+
+        <Button type="submit" disabled={isDisabled} loading={createDeck.isPending}>
+          {t('newDeck.submit')}
+        </Button>
+      </form>
+    </Dialog>
   )
 }

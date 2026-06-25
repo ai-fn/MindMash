@@ -1,5 +1,6 @@
 {
   "newDeck": {
+    "dialogTitle": "Create a new deck",
     "label": "New deck name",
     "placeholder": "Deck name",
     "submit": "Create deck"

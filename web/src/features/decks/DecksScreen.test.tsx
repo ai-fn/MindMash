@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
@@ -9,8 +9,9 @@ import { useAuthStore } from '../auth/authStore'
 
 // Mock the generated hook modules DecksScreen/DeckRow/NewDeck/QuickAddNote consume,
 // so this test never hits the network and can drive each hook's return shape
-// directly. NewDeck (Task 7) is rendered unconditionally now, and QuickAddNote
-// (also Task 7, behind the per-row "Add card" toggle) pulls in useBasicNoteType's
+// directly. NewDeck (Task 7, redesigned as a Dialog in Task 5) is opened via the
+// header's "Create deck" button. QuickAddNote (also Task 7) lives behind each deck
+// row's overflow menu's "Add card" item, and pulls in useBasicNoteType's
 // note-type-service hooks + the note-service create mutation.
 vi.mock('../../lib/api/collection/deck-service/deck-service', () => ({
   useDeckServiceListDecks: vi.fn(),
@@ -19,6 +20,7 @@ vi.mock('../../lib/api/collection/deck-service/deck-service', () => ({
 }))
 vi.mock('../../lib/api/scheduler/study-service/study-service', () => ({
   useStudyServiceGetCounts: vi.fn(),
+  getStudyServiceGetCountsQueryKey: (deckId: string) => ['study-service', 'getCounts', deckId],
 }))
 vi.mock('../../lib/api/collection/note-type-service/note-type-service', () => ({
   useNoteTypeServiceListNoteTypes: vi.fn(),
@@ -38,6 +40,11 @@ async function renderScreen() {
       </MemoryRouter>
     </QueryClientProvider>,
   )
+}
+
+/** Opens the kebab/overflow menu for a deck row identified by its accessible name. */
+async function openDeckMenu(user: ReturnType<typeof userEvent.setup>, deckName: string) {
+  await user.click(screen.getByRole('button', { name: `More actions for ${deckName}` }))
 }
 
 describe('DecksScreen', () => {
@@ -173,7 +180,7 @@ describe('DecksScreen', () => {
     expect(logoutSpy).toHaveBeenCalledTimes(1)
   })
 
-  it('shows a loading message while decks are pending', async () => {
+  it('shows a loading indicator while decks are pending', async () => {
     const { useDeckServiceListDecks } =
       await import('../../lib/api/collection/deck-service/deck-service')
     const { useStudyServiceGetCounts } =
@@ -189,10 +196,10 @@ describe('DecksScreen', () => {
 
     await renderScreen()
 
-    expect(screen.getByText('Loading decks…')).toBeInTheDocument()
+    expect(screen.getByRole('status', { name: 'Loading decks…' })).toBeInTheDocument()
   })
 
-  it('renders the NewDeck form even when the deck list is empty', async () => {
+  it('opens the create-deck dialog from the header button when the deck list is empty', async () => {
     const { useDeckServiceListDecks } =
       await import('../../lib/api/collection/deck-service/deck-service')
     const { useStudyServiceGetCounts } =
@@ -205,14 +212,24 @@ describe('DecksScreen', () => {
       data: undefined,
       isPending: true,
     } as never)
+    const user = userEvent.setup()
 
     await renderScreen()
 
-    expect(screen.getByLabelText('New deck name')).toBeInTheDocument()
+    expect(screen.queryByLabelText('New deck name')).not.toBeInTheDocument()
     expect(screen.getByText("You don't have any decks yet.")).toBeInTheDocument()
+
+    // The header's "Create deck" button is the canonical place to open NewDeck;
+    // there are two such buttons when the list is empty (header + empty-state
+    // action) — both must open the same dialog (Constraint 11: same action, same
+    // outcome from every entry point).
+    await user.click(screen.getAllByRole('button', { name: 'Create deck' })[0])
+
+    expect(screen.getByLabelText('New deck name')).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Create a new deck' })).toBeInTheDocument()
   })
 
-  it('reveals QuickAddNote for a deck row when its "Add card" toggle is clicked, without nesting it inside the deck Link', async () => {
+  it('reveals QuickAddNote for a deck row from its overflow menu, without nesting it inside the deck Link', async () => {
     const { useDeckServiceListDecks } =
       await import('../../lib/api/collection/deck-service/deck-service')
     const { useStudyServiceGetCounts } =
@@ -231,17 +248,18 @@ describe('DecksScreen', () => {
 
     expect(screen.queryByLabelText('Front')).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Add card' }))
+    await openDeckMenu(user, 'Spanish')
+    await user.click(screen.getByRole('menuitem', { name: 'Add card' }))
 
     const frontInput = screen.getByLabelText('Front')
     expect(frontInput).toBeInTheDocument()
-    // The "Add card" button and QuickAddNote's Front input must not be inside the
-    // deck-row Link (see task-7-brief.md) — a single link should still resolve to
-    // the deck-row link, not wrap the new affordances.
+    // QuickAddNote's Front input and the overflow-menu trigger must not be inside
+    // the deck-row Link (see task-7-brief.md/task-5-brief.md) — a single link should
+    // still resolve to the deck-row link, not wrap the new affordances.
     const link = screen.getByRole('link')
     expect(link).toHaveAttribute('href', '/study/deck-1')
     expect(link).not.toContainElement(frontInput)
-    expect(link).not.toContainElement(screen.getByRole('button', { name: 'Add card' }))
+    expect(link).not.toContainElement(screen.getByRole('button', { name: 'More actions for Spanish' }))
   })
 
   it('end-to-end: a fresh user can create a deck then quick-add a note via that deck row, calling create-deck then create-note (transparently creating the "Basic" note type) with the right payloads', async () => {
@@ -288,8 +306,10 @@ describe('DecksScreen', () => {
 
     const { rerender } = await renderScreen()
 
-    await user.type(screen.getByLabelText('New deck name'), 'Spanish')
-    await user.click(screen.getByRole('button', { name: 'Create deck' }))
+    await user.click(screen.getAllByRole('button', { name: 'Create deck' })[0])
+    const dialog = screen.getByRole('dialog', { name: 'Create a new deck' })
+    await user.type(within(dialog).getByLabelText('New deck name'), 'Spanish')
+    await user.click(within(dialog).getByRole('button', { name: 'Create deck' }))
 
     expect(createDeckMutate).toHaveBeenCalledWith(
       { data: { name: 'Spanish' } },
@@ -316,10 +336,11 @@ describe('DecksScreen', () => {
       </QueryClientProvider>,
     )
 
-    // Step 3: open "Add card" for the new deck — this mounts QuickAddNote, which
-    // transparently triggers useBasicNoteType's create call since no "Basic" note
-    // type exists yet.
-    await user.click(screen.getByRole('button', { name: 'Add card' }))
+    // Step 3: open the new deck's overflow menu and click "Add card" — this mounts
+    // QuickAddNote, which transparently triggers useBasicNoteType's create call
+    // since no "Basic" note type exists yet.
+    await openDeckMenu(user, 'Spanish')
+    await user.click(screen.getByRole('menuitem', { name: 'Add card' }))
 
     expect(createNoteTypeMutate).toHaveBeenCalledTimes(1)
     expect(createNoteTypeMutate).toHaveBeenCalledWith({
@@ -347,8 +368,8 @@ describe('DecksScreen', () => {
         </MemoryRouter>
       </QueryClientProvider>,
     )
-    // The "Add card" toggle is already open from Step 3 (component state persists
-    // across this in-place rerender) — no need to click it again.
+    // The "Add card" panel is already open from Step 3 (component state persists
+    // across this in-place rerender) — no need to reopen the menu.
     await user.type(screen.getByLabelText('Front'), 'Hola')
     await user.type(screen.getByLabelText('Back'), 'Hello')
     await user.click(screen.getByRole('button', { name: 'Add note' }))

@@ -53,3 +53,21 @@ export function AlertIcon(props: IconProps) {
     </svg>
   )
 }
+
+export function MoreIcon(props: IconProps) {
+  return (
+    <svg {...baseProps(props)} fill="currentColor" stroke="none">
+      <circle cx="10" cy="4.5" r="1.4" />
+      <circle cx="10" cy="10" r="1.4" />
+      <circle cx="10" cy="15.5" r="1.4" />
+    </svg>
+  )
+}
+
+export function PlusIcon(props: IconProps) {
+  return (
+    <svg {...baseProps(props)}>
+      <path d="M10 4.5v11M4.5 10h11" />
+    </svg>
+  )
+}

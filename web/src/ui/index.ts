@@ -39,7 +39,7 @@ export type { EmptyStateProps } from './EmptyState'
 export { Badge } from './Badge'
 export type { BadgeProps, BadgeTone } from './Badge'
 
-export { CloseIcon, CheckIcon, ChevronDownIcon, AlertIcon } from './icons'
+export { CloseIcon, CheckIcon, ChevronDownIcon, AlertIcon, MoreIcon, PlusIcon } from './icons'
 export type { IconProps } from './icons'
 
 export { cn } from './cn'
