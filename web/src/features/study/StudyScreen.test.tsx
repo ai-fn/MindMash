@@ -5,8 +5,9 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import '../../lib/i18n.ts'
+import { useStudyPrefsStore } from './studyPrefsStore.ts'
 
-// Mock the four generated hooks StudyScreen/useStudyQueue consume, following the same
+// Mock the generated hooks StudyScreen/useStudyQueue consume, following the same
 // per-module vi.mock pattern DecksScreen.test.tsx uses for generated hooks.
 vi.mock('../../lib/api/scheduler/study-service/study-service', () => ({
   useStudyServiceGetQueue: vi.fn(),
@@ -17,9 +18,19 @@ vi.mock('../../lib/api/scheduler/study-service/study-service', () => ({
 vi.mock('../../lib/api/collection/card-service/card-service', () => ({
   useCardServiceGetCard: vi.fn(),
 }))
+vi.mock('../../lib/api/collection/deck-service/deck-service', () => ({
+  useDeckServiceGetDeck: vi.fn(),
+}))
 
 async function renderScreen(initialPath = '/study/deck-1') {
   const { StudyScreen } = await import('./StudyScreen.tsx')
+  // Dynamically imported from the same (post vi.resetModules()) module registry as
+  // StudyScreen.tsx, so they share the same toastStore singleton — a statically
+  // imported Toaster at this file's top would instead resolve against the module
+  // graph from this test file's *first* load, which after `vi.resetModules()` in
+  // `afterEach` is a different toastStore instance than the one StudyScreen.tsx's
+  // fresh dynamic import gets, so its toast() calls would never reach it.
+  const { Toaster } = await import('../../ui')
   const queryClient = new QueryClient()
   const result = render(
     <QueryClientProvider client={queryClient}>
@@ -29,6 +40,7 @@ async function renderScreen(initialPath = '/study/deck-1') {
           <Route path="/" element={<p>Your decks</p>} />
         </Routes>
       </MemoryRouter>
+      <Toaster />
     </QueryClientProvider>,
   )
   return { ...result, queryClient }
@@ -57,17 +69,23 @@ describe('StudyScreen', () => {
     useStudyServiceGetPreview: typeof vi.fn
     useStudyServiceAnswer: typeof vi.fn
     useCardServiceGetCard: typeof vi.fn
+    useDeckServiceGetDeck: typeof vi.fn
   }
 
   beforeEach(async () => {
     vi.clearAllMocks()
+    window.localStorage.clear()
+    useStudyPrefsStore.getState().setAdvancedGrading(false)
+
     const studyService = await import('../../lib/api/scheduler/study-service/study-service')
     const cardService = await import('../../lib/api/collection/card-service/card-service')
+    const deckService = await import('../../lib/api/collection/deck-service/deck-service')
     mocks = {
       useStudyServiceGetQueue: studyService.useStudyServiceGetQueue,
       useStudyServiceGetPreview: studyService.useStudyServiceGetPreview,
       useStudyServiceAnswer: studyService.useStudyServiceAnswer,
       useCardServiceGetCard: cardService.useCardServiceGetCard,
+      useDeckServiceGetDeck: deckService.useDeckServiceGetDeck,
     } as never
 
     vi.mocked(mocks.useCardServiceGetCard).mockReturnValue({
@@ -78,6 +96,10 @@ describe('StudyScreen', () => {
       data: {
         data: { preview: { againSec: '60', hardSec: '600', goodSec: '86400', easySec: '518400' } },
       },
+      isPending: false,
+    } as never)
+    vi.mocked(mocks.useDeckServiceGetDeck).mockReturnValue({
+      data: { data: { deck: { id: 'deck-1', name: 'Spanish Verbs' } } },
       isPending: false,
     } as never)
   })
@@ -109,16 +131,60 @@ describe('StudyScreen', () => {
     expect(screen.getByRole('link', { name: 'Back to decks' })).toHaveAttribute('href', '/')
   })
 
+  it('shows the deck name and progress in the header', async () => {
+    vi.mocked(mocks.useStudyServiceGetQueue).mockReturnValue(twoCardQueue as never)
+
+    await renderScreen()
+
+    expect(screen.getByText('Spanish Verbs')).toBeInTheDocument()
+    expect(screen.getByText('1 / 2')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Exit study session' })).toBeInTheDocument()
+  })
+
+  it('navigates to / when the exit button is clicked', async () => {
+    vi.mocked(mocks.useStudyServiceGetQueue).mockReturnValue(oneCardQueue as never)
+    const user = userEvent.setup()
+
+    await renderScreen()
+    await user.click(screen.getByRole('button', { name: 'Exit study session' }))
+
+    expect(screen.getByText('Your decks')).toBeInTheDocument()
+  })
+
+  it('navigates to / on Escape', async () => {
+    vi.mocked(mocks.useStudyServiceGetQueue).mockReturnValue(oneCardQueue as never)
+
+    await renderScreen()
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    expect(screen.getByText('Your decks')).toBeInTheDocument()
+  })
+
   it('shows the front card and a Show answer button, hiding grade buttons', async () => {
     vi.mocked(mocks.useStudyServiceGetQueue).mockReturnValue(oneCardQueue as never)
 
     await renderScreen()
 
     expect(screen.getByRole('button', { name: 'Show answer' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Again' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: "Don't Know" })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Know' })).not.toBeInTheDocument()
   })
 
-  it('reveals the back of the card and shows grade buttons with preview sub-labels when the Show answer button is clicked', async () => {
+  it("reveals the back of the card and shows the 2 default grade buttons (Don't Know / Know)", async () => {
+    vi.mocked(mocks.useStudyServiceGetQueue).mockReturnValue(oneCardQueue as never)
+    const user = userEvent.setup()
+
+    await renderScreen()
+    await user.click(screen.getByRole('button', { name: 'Show answer' }))
+
+    expect(screen.getByRole('button', { name: "Don't Know" })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Know' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Again/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Easy/ })).not.toBeInTheDocument()
+  })
+
+  it('shows all 4 grade buttons with preview labels when advancedGrading is enabled', async () => {
+    useStudyPrefsStore.getState().setAdvancedGrading(true)
     vi.mocked(mocks.useStudyServiceGetQueue).mockReturnValue(oneCardQueue as never)
     const user = userEvent.setup()
 
@@ -139,11 +205,11 @@ describe('StudyScreen', () => {
     fireEvent.keyDown(window, { code: 'Space', key: ' ' })
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Again/ })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Know' })).toBeInTheDocument()
     })
   })
 
-  it('grades via clicking a grade button, calls the answer mutation, and advances to the next card on success', async () => {
+  it('grades via clicking Know, calls the answer mutation with GRADE_GOOD, and advances to the next card on success', async () => {
     vi.mocked(mocks.useStudyServiceGetQueue).mockReturnValue(twoCardQueue as never)
     const mutate = vi.fn((_vars, opts: { onSuccess?: () => void }) => {
       opts.onSuccess?.()
@@ -154,7 +220,7 @@ describe('StudyScreen', () => {
     const { queryClient } = await renderScreen()
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
     await user.click(screen.getByRole('button', { name: 'Show answer' }))
-    await user.click(screen.getByRole('button', { name: /Good/ }))
+    await user.click(screen.getByRole('button', { name: 'Know' }))
 
     expect(mutate).toHaveBeenCalledWith(
       { cardId: 'card-1', data: { grade: 'GRADE_GOOD' } },
@@ -168,7 +234,44 @@ describe('StudyScreen', () => {
     })
   })
 
-  it('grades via the 1-4 keyboard shortcuts while showingBack', async () => {
+  it("grades via clicking Don't Know, calls the answer mutation with GRADE_AGAIN", async () => {
+    vi.mocked(mocks.useStudyServiceGetQueue).mockReturnValue(oneCardQueue as never)
+    const mutate = vi.fn((_vars, opts: { onSuccess?: () => void }) => {
+      opts.onSuccess?.()
+    })
+    vi.mocked(mocks.useStudyServiceAnswer).mockReturnValue({ mutate } as never)
+    const user = userEvent.setup()
+
+    await renderScreen()
+    await user.click(screen.getByRole('button', { name: 'Show answer' }))
+    await user.click(screen.getByRole('button', { name: "Don't Know" }))
+
+    expect(mutate).toHaveBeenCalledWith(
+      { cardId: 'card-1', data: { grade: 'GRADE_AGAIN' } },
+      expect.anything(),
+    )
+  })
+
+  it('grades via the 1/2 keyboard shortcuts while showingBack in default mode', async () => {
+    vi.mocked(mocks.useStudyServiceGetQueue).mockReturnValue(oneCardQueue as never)
+    const mutate = vi.fn((_vars, opts: { onSuccess?: () => void }) => {
+      opts.onSuccess?.()
+    })
+    vi.mocked(mocks.useStudyServiceAnswer).mockReturnValue({ mutate } as never)
+    const user = userEvent.setup()
+
+    await renderScreen()
+    await user.click(screen.getByRole('button', { name: 'Show answer' }))
+    fireEvent.keyDown(window, { key: '2' })
+
+    expect(mutate).toHaveBeenCalledWith(
+      { cardId: 'card-1', data: { grade: 'GRADE_GOOD' } },
+      expect.anything(),
+    )
+  })
+
+  it('grades via the 1-4 keyboard shortcuts while showingBack in advanced mode', async () => {
+    useStudyPrefsStore.getState().setAdvancedGrading(true)
     vi.mocked(mocks.useStudyServiceGetQueue).mockReturnValue(oneCardQueue as never)
     const mutate = vi.fn((_vars, opts: { onSuccess?: () => void }) => {
       opts.onSuccess?.()
@@ -196,7 +299,7 @@ describe('StudyScreen', () => {
 
     await renderScreen()
     await user.click(screen.getByRole('button', { name: 'Show answer' }))
-    await user.click(screen.getByRole('button', { name: /Good/ }))
+    await user.click(screen.getByRole('button', { name: 'Know' }))
 
     expect(screen.getByText('Deck complete — nice work!')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Back to decks' })).toHaveAttribute('href', '/')
@@ -210,10 +313,10 @@ describe('StudyScreen', () => {
 
     await renderScreen()
     await user.click(screen.getByRole('button', { name: 'Show answer' }))
-    await user.click(screen.getByRole('button', { name: /Good/ }))
+    await user.click(screen.getByRole('button', { name: 'Know' }))
 
     expect(mutate).toHaveBeenCalledTimes(1)
-    expect(screen.getByRole('button', { name: /Good/ })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Know' })).toBeDisabled()
 
     fireEvent.keyDown(window, { key: '1' })
 
@@ -230,9 +333,36 @@ describe('StudyScreen', () => {
 
     await renderScreen()
     await user.click(screen.getByRole('button', { name: 'Show answer' }))
-    await user.click(screen.getByRole('button', { name: /Good/ }))
+    await user.click(screen.getByRole('button', { name: 'Know' }))
 
     expect(screen.getByText("Couldn't submit that grade. Try again.")).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Good/ })).not.toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Know' })).not.toBeDisabled()
+  })
+
+  it('shows an Undo toast after a successful grade, and undo rewinds to the just-graded card', async () => {
+    vi.mocked(mocks.useStudyServiceGetQueue).mockReturnValue(twoCardQueue as never)
+    const mutate = vi.fn((_vars, opts: { onSuccess?: () => void }) => {
+      opts.onSuccess?.()
+    })
+    vi.mocked(mocks.useStudyServiceAnswer).mockReturnValue({ mutate } as never)
+    const user = userEvent.setup()
+
+    await renderScreen()
+    await user.click(screen.getByRole('button', { name: 'Show answer' }))
+    await user.click(screen.getByRole('button', { name: 'Know' }))
+
+    // Now on card 2's front.
+    await waitFor(() => {
+      expect(screen.getByText('2 / 2')).toBeInTheDocument()
+    })
+
+    const undoButton = await screen.findByRole('button', { name: 'Undo' })
+    await user.click(undoButton)
+
+    // Rewound to card 1's back (showingBack), so its grade buttons are visible again.
+    await waitFor(() => {
+      expect(screen.getByText('1 / 2')).toBeInTheDocument()
+    })
+    expect(screen.getByRole('button', { name: 'Know' })).toBeInTheDocument()
   })
 })

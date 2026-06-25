@@ -259,7 +259,9 @@ describe('DecksScreen', () => {
     const link = screen.getByRole('link')
     expect(link).toHaveAttribute('href', '/study/deck-1')
     expect(link).not.toContainElement(frontInput)
-    expect(link).not.toContainElement(screen.getByRole('button', { name: 'More actions for Spanish' }))
+    expect(link).not.toContainElement(
+      screen.getByRole('button', { name: 'More actions for Spanish' }),
+    )
   })
 
   it('end-to-end: a fresh user can create a deck then quick-add a note via that deck row, calling create-deck then create-note (transparently creating the "Basic" note type) with the right payloads', async () => {

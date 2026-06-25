@@ -71,3 +71,11 @@ export function PlusIcon(props: IconProps) {
     </svg>
   )
 }
+
+export function ArrowLeftIcon(props: IconProps) {
+  return (
+    <svg {...baseProps(props)}>
+      <path d="M12.5 4.5L6 10l6.5 5.5" />
+    </svg>
+  )
+}

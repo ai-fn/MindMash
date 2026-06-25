@@ -146,6 +146,39 @@ describe('useStudyQueue', () => {
     expect(result.current.currentCard).toBeNull()
   })
 
+  it('undoLastGrade() rewinds from showingFront back to the previous card showingBack', async () => {
+    const { useStudyServiceGetQueue } =
+      await import('../../lib/api/scheduler/study-service/study-service')
+    vi.mocked(useStudyServiceGetQueue).mockReturnValue({
+      data: {
+        data: {
+          cards: [
+            { cardId: 'card-1', deckId: 'deck-1', frontHtml: '<p>1</p>' },
+            { cardId: 'card-2', deckId: 'deck-1', frontHtml: '<p>2</p>' },
+          ],
+        },
+      },
+      isPending: false,
+    } as never)
+
+    const { result } = await renderUseStudyQueue('deck-1')
+
+    act(() => {
+      result.current.reveal()
+    })
+    act(() => {
+      result.current.advanceAfterGrade()
+    })
+    expect(result.current.currentCard?.cardId).toBe('card-2')
+
+    act(() => {
+      result.current.undoLastGrade()
+    })
+
+    expect(result.current.state.status).toBe('showingBack')
+    expect(result.current.currentCard?.cardId).toBe('card-1')
+  })
+
   it('does not re-initialize the machine on an unrelated re-render with the same deckId', async () => {
     const { useStudyServiceGetQueue } =
       await import('../../lib/api/scheduler/study-service/study-service')

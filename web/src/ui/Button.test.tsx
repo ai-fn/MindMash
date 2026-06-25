@@ -10,6 +10,7 @@ describe('Button', () => {
     ['secondary', 'bg-surface'],
     ['ghost', 'bg-transparent'],
     ['danger', 'bg-danger'],
+    ['success', 'bg-success'],
   ] as const)('renders the %s variant with its expected class', (variant, expectedClass) => {
     render(<Button variant={variant}>Click me</Button>)
     expect(screen.getByRole('button', { name: 'Click me' }).className).toContain(expectedClass)

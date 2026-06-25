@@ -32,7 +32,9 @@ export function DecksScreen() {
   // the success shape (same invariant authStore.ts's `unwrap` documents).
   const items = (data?.data as V1ListDecksResponse | undefined)?.items ?? []
   const decks = items.filter(
-    (deck: NonNullable<V1ListDecksResponse['items']>[number]): deck is { id: string; name?: string } =>
+    (
+      deck: NonNullable<V1ListDecksResponse['items']>[number],
+    ): deck is { id: string; name?: string } =>
       // `V1Deck.id` is optional in the generated type, but a deck without an id can't
       // be linked to or queried for counts — skip it rather than risk a duplicate
       // React key / a broken `/study/undefined` link.
@@ -65,7 +67,9 @@ export function DecksScreen() {
         <EmptyState
           title={t('empty')}
           description={t('emptyDescription')}
-          action={<Button onClick={() => setIsNewDeckOpen(true)}>{tAuthoring('newDeck.submit')}</Button>}
+          action={
+            <Button onClick={() => setIsNewDeckOpen(true)}>{tAuthoring('newDeck.submit')}</Button>
+          }
         />
       ) : (
         <ul className="flex flex-col gap-2">
@@ -78,7 +82,10 @@ export function DecksScreen() {
               // would fire unwanted navigation on click.
               <li key={deck.id} className="flex flex-col gap-2">
                 <div className="flex items-center gap-2">
-                  <Link to={`/study/${deck.id}`} className="flex-1 rounded-[var(--radius-md)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg">
+                  <Link
+                    to={`/study/${deck.id}`}
+                    className="flex-1 rounded-[var(--radius-md)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+                  >
                     <DeckRow deckId={deck.id} name={deck.name ?? ''} />
                   </Link>
                   <DeckMenu

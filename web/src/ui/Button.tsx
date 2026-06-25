@@ -8,7 +8,7 @@ import type { ButtonHTMLAttributes, ReactNode } from 'react'
 import { cn } from './cn'
 import { Spinner } from './Spinner'
 
-export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger'
+export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'success'
 export type ButtonSize = 'sm' | 'md'
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -32,10 +32,12 @@ const sizes: Record<ButtonSize, string> = {
 }
 
 const variants: Record<ButtonVariant, string> = {
-  primary: 'bg-accent text-accent-fg hover:bg-accent disabled:hover:bg-accent brightness-100 hover:brightness-110',
+  primary:
+    'bg-accent text-accent-fg hover:bg-accent disabled:hover:bg-accent brightness-100 hover:brightness-110',
   secondary: 'bg-surface text-fg border border-border hover:bg-accent-muted',
   ghost: 'bg-transparent text-fg hover:bg-accent-muted',
   danger: 'bg-danger text-danger-fg hover:brightness-110',
+  success: 'bg-success text-success-fg hover:brightness-110',
 }
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(

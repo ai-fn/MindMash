@@ -58,17 +58,27 @@ export function QuickAddNote({ deckId }: QuickAddNoteProps) {
   return (
     <Card bordered className="flex flex-col gap-3 bg-bg">
       <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-        {isNoteTypePending ? <p className="text-sm text-muted">{t('quickAddNote.preparing')}</p> : null}
+        {isNoteTypePending ? (
+          <p className="text-sm text-muted">{t('quickAddNote.preparing')}</p>
+        ) : null}
 
         <Field label={t('quickAddNote.frontLabel')}>
           {(controlProps) => (
-            <TextInput {...controlProps} value={front} onChange={(event) => setFront(event.target.value)} />
+            <TextInput
+              {...controlProps}
+              value={front}
+              onChange={(event) => setFront(event.target.value)}
+            />
           )}
         </Field>
 
         <Field label={t('quickAddNote.backLabel')}>
           {(controlProps) => (
-            <TextInput {...controlProps} value={back} onChange={(event) => setBack(event.target.value)} />
+            <TextInput
+              {...controlProps}
+              value={back}
+              onChange={(event) => setBack(event.target.value)}
+            />
           )}
         </Field>
 
@@ -78,7 +88,13 @@ export function QuickAddNote({ deckId }: QuickAddNoteProps) {
           </p>
         ) : null}
 
-        <Button type="submit" size="sm" disabled={isDisabled} loading={createNote.isPending} className="self-start">
+        <Button
+          type="submit"
+          size="sm"
+          disabled={isDisabled}
+          loading={createNote.isPending}
+          className="self-start"
+        >
           {t('quickAddNote.submit')}
         </Button>
       </form>

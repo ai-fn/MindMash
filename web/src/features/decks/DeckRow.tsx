@@ -30,7 +30,9 @@ export function DeckRow({ deckId, name }: DeckRowProps) {
       ) : (
         <span className="flex items-center gap-1.5">
           <Badge tone="accent">{t('counts.new', { count: counts?.newCount ?? 0 })}</Badge>
-          <Badge tone="neutral">{t('counts.learning', { count: counts?.learningCount ?? 0 })}</Badge>
+          <Badge tone="neutral">
+            {t('counts.learning', { count: counts?.learningCount ?? 0 })}
+          </Badge>
           <Badge tone="neutral">{t('counts.review', { count: counts?.reviewCount ?? 0 })}</Badge>
         </span>
       )}

@@ -64,3 +64,23 @@ export function advance(state: StudyMachineState): StudyMachineState {
   }
   return { status: 'done' }
 }
+
+/**
+ * Rewinds to the previous card's `showingBack` state, undoing the most recent
+ * `advance()`. Valid only from `showingFront` at cursor > 0 — the case right after a
+ * grade was just submitted and `advance()` moved to the next card's front, and the
+ * user wants the just-graded card back. Called from any other status (including
+ * `showingFront`/`showingBack` at cursor 0, where there is no previous card, and
+ * `done`, which carries no queue/cursor to rewind from — see studyMachine.test.ts /
+ * StudyScreen.tsx's judgment-call note on why undo is intentionally unavailable after
+ * the very last card of a session), returns `state` unchanged — same
+ * no-op-on-invalid-call discipline as `reveal`/`advance`. Nothing needs to be
+ * re-inserted into `queue`: cards are never removed from it, only `cursor` moves, so
+ * "undo" is purely a cursor rewind plus a forced `showingBack` status.
+ */
+export function rewindToShowingBack(state: StudyMachineState): StudyMachineState {
+  if (state.status === 'showingFront' && state.cursor > 0) {
+    return { status: 'showingBack', queue: state.queue, cursor: state.cursor - 1 }
+  }
+  return state
+}

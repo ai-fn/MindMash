@@ -3,12 +3,20 @@
   "empty": "Nothing due right now.",
   "deckComplete": "Deck complete — nice work!",
   "backToDecks": "Back to decks",
+  "exit": "Exit study session",
   "showAnswer": "Show answer",
+  "progress": "{{current}} / {{total}}",
   "grade": {
     "again": "Again",
     "hard": "Hard",
     "good": "Good",
-    "easy": "Easy"
+    "easy": "Easy",
+    "dontKnow": "Don't Know",
+    "know": "Know"
   },
-  "answerError": "Couldn't submit that grade. Try again."
+  "answerError": "Couldn't submit that grade. Try again.",
+  "undo": {
+    "title": "Grade submitted",
+    "action": "Undo"
+  }
 }

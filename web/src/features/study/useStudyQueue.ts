@@ -10,6 +10,7 @@ import {
   advance,
   initMachine,
   reveal,
+  rewindToShowingBack,
   type StudyCard,
   type StudyMachineState,
 } from './studyMachine.ts'
@@ -38,6 +39,7 @@ export type UseStudyQueueResult = {
   currentCard: StudyCard | null
   reveal: () => void
   advanceAfterGrade: () => void
+  undoLastGrade: () => void
 }
 
 /**
@@ -87,5 +89,6 @@ export function useStudyQueue(deckId: string): UseStudyQueueResult {
     currentCard,
     reveal: () => setState((current) => reveal(current)),
     advanceAfterGrade: () => setState((current) => advance(current)),
+    undoLastGrade: () => setState((current) => rewindToShowingBack(current)),
   }
 }

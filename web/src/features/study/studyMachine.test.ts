@@ -5,6 +5,7 @@ import {
   advance,
   initMachine,
   reveal,
+  rewindToShowingBack,
   type StudyCard,
   type StudyMachineState,
 } from './studyMachine.ts'
@@ -63,6 +64,34 @@ describe('advance', () => {
     ['showingFront', { status: 'showingFront', queue: [card('a')], cursor: 0 }],
   ])('is a no-op from %s', (_label, state) => {
     expect(advance(state)).toEqual(state)
+  })
+})
+
+describe('rewindToShowingBack', () => {
+  it('transitions showingFront at cursor > 0 back to the previous card showingBack', () => {
+    const queue = [card('a'), card('b'), card('c')]
+    const state: StudyMachineState = { status: 'showingFront', queue, cursor: 2 }
+    expect(rewindToShowingBack(state)).toEqual({ status: 'showingBack', queue, cursor: 1 })
+  })
+
+  it('undoes exactly what advance() just did (round-trip)', () => {
+    const queue = [card('a'), card('b')]
+    const graded: StudyMachineState = { status: 'showingBack', queue, cursor: 0 }
+    const afterAdvance = advance(graded)
+    expect(rewindToShowingBack(afterAdvance)).toEqual(graded)
+  })
+
+  it.each<[string, StudyMachineState]>([
+    ['loading', LOADING],
+    ['empty', { status: 'empty' }],
+    ['done', { status: 'done' }],
+    ['showingBack', { status: 'showingBack', queue: [card('a')], cursor: 0 }],
+    [
+      'showingFront at cursor 0 (no previous card)',
+      { status: 'showingFront', queue: [card('a')], cursor: 0 },
+    ],
+  ])('is a no-op from %s', (_label, state) => {
+    expect(rewindToShowingBack(state)).toEqual(state)
   })
 })
 
