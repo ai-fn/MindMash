@@ -1,0 +1,31 @@
+{
+  "title": "Browse cards",
+  "search": {
+    "label": "Search",
+    "placeholder": "deck:French is:due tag:verb",
+    "help": "Use deck:, is:due, tag: to filter. Leave blank to see your most recent cards."
+  },
+  "state": {
+    "new": "New",
+    "learning": "Learning",
+    "review": "Review",
+    "suspended": "Suspended"
+  },
+  "preview": {
+    "noText": "No preview available."
+  },
+  "stats": {
+    "interval": "Interval: {{count}} day",
+    "interval_other": "Interval: {{count}} days",
+    "reps": "Reps: {{count}}"
+  },
+  "loadMore": "Load more",
+  "loadingMore": "Loading more…",
+  "loading": "Loading cards…",
+  "empty": "No cards match.",
+  "emptyDescription": "Try a different query, or clear the search to see your most recent cards.",
+  "error": "Couldn't load cards.",
+  "errorDescription": "Something went wrong while searching. Check your connection and try again.",
+  "retry": "Retry",
+  "resultLabel": "Card result"
+}
