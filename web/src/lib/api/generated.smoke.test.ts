@@ -11,6 +11,13 @@ import {
   useStudyServiceGetCounts,
   useStudyServiceGetQueue,
 } from './scheduler/study-service/study-service'
+import {
+  useAnalyticsServiceGetBreakdown,
+  useAnalyticsServiceGetHeatmap,
+  useAnalyticsServiceGetOverview,
+  useAnalyticsServiceGetRetention,
+} from './analytics/analytics-service/analytics-service'
+import { useSearchServiceSearch } from './search/search-service/search-service'
 
 // Smoke test that the orval-generated client is wired correctly: every hook the
 // app needs exists and is the expected shape, and a query-key factory returns the
@@ -23,6 +30,11 @@ describe('generated API client', () => {
     expect(typeof useStudyServiceGetQueue).toBe('function')
     expect(typeof useStudyServiceGetCounts).toBe('function')
     expect(typeof useStudyServiceAnswer).toBe('function')
+    expect(typeof useAnalyticsServiceGetOverview).toBe('function')
+    expect(typeof useAnalyticsServiceGetHeatmap).toBe('function')
+    expect(typeof useAnalyticsServiceGetRetention).toBe('function')
+    expect(typeof useAnalyticsServiceGetBreakdown).toBe('function')
+    expect(typeof useSearchServiceSearch).toBe('function')
   })
 
   it('generates a stable query key for listDecks', () => {

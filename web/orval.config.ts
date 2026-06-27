@@ -9,7 +9,7 @@ import { defineConfig } from 'orval'
 // NOTE: the installed orval version (8.18.0) names the output-formatting option
 // `output.formatter: 'prettier'`, not `output.prettier: true` as in early drafts of the
 // brief; using `formatter` here so `npm run format:check` stays green on generated code.
-const services = ['identity', 'collection', 'scheduler', 'sync'] as const
+const services = ['identity', 'collection', 'scheduler', 'sync', 'analytics', 'search'] as const
 
 export default defineConfig(
   Object.fromEntries(
