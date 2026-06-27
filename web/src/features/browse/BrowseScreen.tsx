@@ -8,6 +8,7 @@ import type {
 } from '../../lib/api/search/searchV1SearchProto.schemas'
 import { Badge, Button, EmptyState, Field, Skeleton, Spinner, TextInput } from '../../ui'
 import type { BadgeTone } from '../../ui'
+import { CardDetail } from './CardDetail.tsx'
 
 // Search / card browser (Task 9, see task-9-brief.md). Wires the Task 7 generated search
 // client (DSL query over the caller's cards, keyset-paginated) into a single-screen browse
@@ -62,17 +63,24 @@ function truncatePreview(text: string): string {
 
 export interface BrowseScreenProps {
   /**
-   * Called when a result row is activated. Task 10 will wire this to open the real card
-   * detail dialog; there is no detail ROUTE today, so rows are buttons (not links) per the
-   * task-9 brief's judgment call. With no prop passed in (current router wiring), this is a
-   * safe no-op — the row is still a real, focusable, labeled interactive element ready for
-   * Task 10 to plug into.
+   * Called when a result row is activated. Defaults (when not passed in, e.g. from the
+   * router) to opening this screen's own internal CardDetail dialog — see the Task 10
+   * judgment call below. An explicit prop is still accepted so a future different call
+   * site can override the behavior, but the router wiring no longer needs to do anything
+   * special: BrowseScreen is self-contained.
    */
   onSelectCard?: (cardId: string) => void
 }
 
 export function BrowseScreen({ onSelectCard }: BrowseScreenProps = {}) {
   const { t } = useTranslation('browse')
+  // Task 10 judgment call (wiring approach (a) from the brief): rather than having the
+  // router wrap BrowseScreen in a stateful parent just to hold `selectedCardId`, the
+  // screen owns that state itself and renders CardDetail inline. This keeps the change
+  // localized to this file and the router untouched, and CardDetail remains independently
+  // reusable from any other future call site since it only needs a `cardId` + `onClose`.
+  const [selectedCardId, setSelectedCardId] = useState<string | null>(null)
+  const handleSelectCard = onSelectCard ?? setSelectedCardId
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
   // Stack of cursors consumed so far; `undefined` means "first page". Accumulated results are
@@ -185,7 +193,7 @@ export function BrowseScreen({ onSelectCard }: BrowseScreenProps = {}) {
               <li key={card.cardId}>
                 <button
                   type="button"
-                  onClick={() => card.cardId && onSelectCard?.(card.cardId)}
+                  onClick={() => card.cardId && handleSelectCard(card.cardId)}
                   aria-label={t('resultLabel')}
                   className="flex w-full flex-col gap-1.5 rounded-[var(--radius-md)] border border-border bg-surface p-3 text-left transition-colors duration-[var(--duration-fast)] ease-default hover:bg-accent-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
                 >
@@ -229,6 +237,14 @@ export function BrowseScreen({ onSelectCard }: BrowseScreenProps = {}) {
             </div>
           ) : null}
         </div>
+      )}
+
+      {/* Only this screen's own internal selection state drives its own dialog — when a
+          caller passes `onSelectCard`, they've taken ownership of "what happens on
+          select" and are presumably rendering their own CardDetail (or something else)
+          elsewhere, so this screen shouldn't also pop one up itself. */}
+      {onSelectCard ? null : (
+        <CardDetail cardId={selectedCardId} onClose={() => setSelectedCardId(null)} />
       )}
     </div>
   )

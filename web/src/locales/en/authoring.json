@@ -14,5 +14,15 @@
     "submit": "Add note",
     "preparing": "Preparing…"
   },
+  "cardDetail": {
+    "dialogTitle": "Card detail",
+    "save": "Save changes",
+    "saveSuccess": "Card saved.",
+    "delete": "Delete card",
+    "deleteConfirm": "Delete this card? This removes the note and all its cards. This can't be undone.",
+    "deleteCancel": "Cancel",
+    "deleteConfirmAction": "Delete card",
+    "deleteSuccess": "Card deleted."
+  },
   "error": "Something went wrong. Try again."
 }

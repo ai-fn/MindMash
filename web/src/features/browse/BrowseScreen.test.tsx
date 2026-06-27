@@ -12,6 +12,22 @@ vi.mock('../../lib/api/search/search-service/search-service', () => ({
   useSearchServiceSearch: vi.fn(),
 }))
 
+// Task 10 wiring: BrowseScreen mounts its own CardDetail internally when no external
+// onSelectCard override is passed (see CardDetail.tsx's judgment call). Stubbed here so
+// these tests only assert on the wiring (which cardId gets passed through), not on
+// CardDetail's own load/edit/delete behavior — that's covered by CardDetail.test.tsx.
+vi.mock('./CardDetail.tsx', () => ({
+  CardDetail: ({ cardId, onClose }: { cardId: string | null; onClose: () => void }) =>
+    cardId ? (
+      <div data-testid="card-detail-stub">
+        <span>{cardId}</span>
+        <button type="button" onClick={onClose}>
+          close stub
+        </button>
+      </div>
+    ) : null,
+}))
+
 async function renderScreen(onSelectCard?: (cardId: string) => void) {
   const { BrowseScreen } = await import('./BrowseScreen.tsx')
   const queryClient = new QueryClient()
@@ -338,5 +354,48 @@ describe('BrowseScreen', () => {
       expect(screen.getByText('French::Verbs')).toBeInTheDocument()
       expect(screen.getByText('Spanish::Nouns')).toBeInTheDocument()
     })
+  })
+
+  it("opens its own internal CardDetail with the clicked row's cardId when no onSelectCard override is passed", async () => {
+    const { useSearchServiceSearch } =
+      await import('../../lib/api/search/search-service/search-service')
+    vi.mocked(useSearchServiceSearch).mockReturnValue({
+      data: { data: { results: [makeCard({ cardId: 'card-42' })], nextCursor: undefined } },
+      isPending: false,
+      isFetching: false,
+      isError: false,
+      refetch: vi.fn(),
+    } as never)
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+    await renderScreen()
+
+    expect(screen.queryByTestId('card-detail-stub')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Card result' }))
+
+    expect(screen.getByTestId('card-detail-stub')).toBeInTheDocument()
+    expect(screen.getByText('card-42')).toBeInTheDocument()
+  })
+
+  it('does not mount its own CardDetail when an external onSelectCard override is passed', async () => {
+    const { useSearchServiceSearch } =
+      await import('../../lib/api/search/search-service/search-service')
+    vi.mocked(useSearchServiceSearch).mockReturnValue({
+      data: { data: { results: [makeCard({ cardId: 'card-42' })], nextCursor: undefined } },
+      isPending: false,
+      isFetching: false,
+      isError: false,
+      refetch: vi.fn(),
+    } as never)
+    const onSelectCard = vi.fn()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+    await renderScreen(onSelectCard)
+
+    await user.click(screen.getByRole('button', { name: 'Card result' }))
+
+    expect(onSelectCard).toHaveBeenCalledWith('card-42')
+    expect(screen.queryByTestId('card-detail-stub')).not.toBeInTheDocument()
   })
 })
