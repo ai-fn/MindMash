@@ -160,6 +160,7 @@ describe('StatsScreen', () => {
     const { container } = await renderScreen()
 
     expect(container.querySelector('[aria-busy="true"]')).toBeInTheDocument()
+    expect(screen.getByRole('status', { name: 'Loading stats…' })).toBeInTheDocument()
   })
 
   it('renders overview KPI cards mapped from GetOverview (reviews, accuracy %, streak days, formatted duration)', async () => {
@@ -196,8 +197,27 @@ describe('StatsScreen', () => {
 
     await renderScreen()
 
-    expect(screen.getByLabelText('2026-01-01: 3 reviews')).toBeInTheDocument()
-    expect(screen.getByLabelText('2026-01-02: 0 reviews')).toBeInTheDocument()
+    const dayCellOne = screen.getByLabelText('2026-01-01: 3 reviews')
+    const dayCellTwo = screen.getByLabelText('2026-01-02: 0 reviews')
+    expect(dayCellOne).toBeInTheDocument()
+    expect(dayCellTwo).toBeInTheDocument()
+
+    // Regression guard for the ARIA finding: a `role="img"` ancestor would flatten the
+    // accessibility tree and make these per-day labels unreachable by real assistive tech,
+    // even though getByLabelText (a direct DOM query) would still "pass". Assert there is no
+    // role="img" ancestor between each day cell and the document root.
+    for (const cell of [dayCellOne, dayCellTwo]) {
+      let node: HTMLElement | null = cell
+      while (node) {
+        expect(node.getAttribute('role')).not.toBe('img')
+        node = node.parentElement
+      }
+    }
+
+    // Every day of the year gets its own accessible label (most defaulting to "0 reviews"
+    // for days absent from GetHeatmap.days) — confirms labels are per-cell, distinct,
+    // reachable nodes rather than being swallowed by a single aggregate container label.
+    expect(screen.getAllByLabelText(/review/i).length).toBeGreaterThan(300)
   })
 
   it('renders retention measured vs target percentages and due-reviews context', async () => {

@@ -15,7 +15,7 @@ import type {
   V1GetRetentionResponse,
   V1HeatmapDay,
 } from '../../lib/api/analytics/analyticsV1AnalyticsProto.schemas'
-import { Card, EmptyState, Field, Select, Skeleton } from '../../ui'
+import { Card, EmptyState, Field, Select, Skeleton, Spinner } from '../../ui'
 
 // Analytics dashboard (Task 8, see task-8-brief.md). Wires the Task 7 generated analytics
 // client (overview/heatmap/retention/breakdown) into a single-screen stats view. Range/year/
@@ -116,8 +116,11 @@ function buildHeatmapWeeks(
 
 export function StatsScreen() {
   const { t } = useTranslation('stats')
+  // Computed once per mount rather than calling `new Date().getFullYear()` separately for
+  // the initial `year` state and the `yearOptions` list below, so both stay in sync.
+  const currentYear = useMemo(() => new Date().getFullYear(), [])
   const [range, setRange] = useState<RangeValue>('30')
-  const [year, setYear] = useState<number>(new Date().getFullYear())
+  const [year, setYear] = useState<number>(currentYear)
   const [breakdownBy, setBreakdownBy] = useState<BreakdownBy>('deck')
 
   const overviewQuery = useAnalyticsServiceGetOverview({ range })
@@ -154,12 +157,16 @@ export function StatsScreen() {
   const buckets = (breakdown?.buckets ?? []) as V1BreakdownBucket[]
   const maxBucketReviews = Math.max(1, ...buckets.map((b) => Number(b.reviews ?? '0')))
 
-  const yearOptions = Array.from({ length: YEARS_BACK + 1 }, (_, i) => new Date().getFullYear() - i)
+  const yearOptions = useMemo(
+    () => Array.from({ length: YEARS_BACK + 1 }, (_, i) => currentYear - i),
+    [currentYear],
+  )
 
   if (isOverviewLoading) {
     return (
       <div className="flex flex-col gap-6 p-6" aria-busy="true">
         <h1 className="text-xl font-semibold text-fg">{t('title')}</h1>
+        <Spinner label={t('loading')} />
         <Skeleton className="h-10 w-48" />
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Skeleton className="h-24 w-full" />
@@ -253,31 +260,52 @@ export function StatsScreen() {
         {heatmapQuery.isPending ? (
           <Skeleton className="h-32 w-full" />
         ) : (
-          <div
-            className="flex gap-[3px] overflow-x-auto"
-            role="img"
-            aria-label={t('heatmap.title')}
-          >
-            {weeks.map((week, weekIndex) => (
-              <div key={weekIndex} className="flex flex-col gap-[3px]">
-                {week.map((cell, dayIndex) =>
-                  cell.reviews === -1 ? (
-                    <div key={dayIndex} className="h-3 w-3" aria-hidden="true" />
-                  ) : (
-                    <div
-                      key={cell.date}
-                      role="presentation"
-                      aria-label={t('heatmap.dayLabel', { date: cell.date, count: cell.reviews })}
-                      title={t('heatmap.dayLabel', { date: cell.date, count: cell.reviews })}
-                      className="h-3 w-3 rounded-[2px] bg-accent"
-                      style={{
-                        opacity: Math.max(0.08, HEATMAP_LEVEL_OPACITY[heatmapLevel(cell.reviews)]),
-                      }}
-                    />
-                  ),
-                )}
+          <div className="flex flex-col gap-2">
+            {/* No overriding role on the container or the day cells: each day cell's
+                aria-label must remain individually reachable by assistive tech. A
+                role="img" on the container would flatten the accessibility tree and
+                make per-day labels unreachable (see task-8 review finding). */}
+            <div className="flex gap-[3px] overflow-x-auto">
+              {weeks.map((week, weekIndex) => (
+                <div key={weekIndex} className="flex flex-col gap-[3px]">
+                  {week.map((cell, dayIndex) =>
+                    cell.reviews === -1 ? (
+                      <div key={dayIndex} className="h-3 w-3" aria-hidden="true" />
+                    ) : (
+                      <div
+                        key={cell.date}
+                        aria-label={t('heatmap.dayLabel', {
+                          date: cell.date,
+                          count: cell.reviews,
+                        })}
+                        title={t('heatmap.dayLabel', { date: cell.date, count: cell.reviews })}
+                        className="h-3 w-3 rounded-[2px] bg-accent"
+                        style={{
+                          opacity: Math.max(
+                            0.08,
+                            HEATMAP_LEVEL_OPACITY[heatmapLevel(cell.reviews)],
+                          ),
+                        }}
+                      />
+                    ),
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center gap-2 text-xs text-muted">
+              <span>{t('heatmap.legendLess')}</span>
+              <div className="flex gap-[3px]">
+                {([0, 1, 2, 3, 4] as const).map((level) => (
+                  <div
+                    key={level}
+                    aria-hidden="true"
+                    className="h-3 w-3 rounded-[2px] bg-accent"
+                    style={{ opacity: Math.max(0.08, HEATMAP_LEVEL_OPACITY[level]) }}
+                  />
+                ))}
               </div>
-            ))}
+              <span>{t('heatmap.legendMore')}</span>
+            </div>
           </div>
         )}
       </Card>
