@@ -3,11 +3,12 @@ import { createBrowserRouter, type RouteObject } from 'react-router-dom'
 import { LoginScreen } from '../features/auth/LoginScreen'
 import { RegisterScreen } from '../features/auth/RegisterScreen'
 import { DecksScreen } from '../features/decks/DecksScreen'
+import { StatsScreen } from '../features/stats/StatsScreen'
 import { StudyScreen } from '../features/study/StudyScreen'
 import { AppLayout } from './AppLayout'
 import { ProtectedRoute } from './guard'
 import { NotFoundScreen } from './NotFoundScreen'
-import { BrowseScreen, SettingsScreen, StatsScreen } from './PlaceholderScreens'
+import { BrowseScreen, SettingsScreen } from './PlaceholderScreens'
 
 // Route definitions extracted so tests can build a createMemoryRouter from the same
 // route objects rather than duplicating them (see router.test.tsx).

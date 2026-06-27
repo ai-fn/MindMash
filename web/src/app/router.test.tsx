@@ -39,6 +39,15 @@ vi.mock('../lib/api/scheduler/study-service/study-service', () => ({
 vi.mock('../lib/api/collection/card-service/card-service', () => ({
   useCardServiceGetCard: vi.fn(() => ({ data: undefined, isPending: true })),
 }))
+// StatsScreen (the /stats route, Task 8) pulls in the analytics-service hooks; a
+// pending overview fetch is enough to render the screen's loading skeleton without a
+// real network call, mirroring the other generated-hook mocks above.
+vi.mock('../lib/api/analytics/analytics-service/analytics-service', () => ({
+  useAnalyticsServiceGetOverview: vi.fn(() => ({ data: undefined, isPending: true })),
+  useAnalyticsServiceGetHeatmap: vi.fn(() => ({ data: undefined, isPending: true })),
+  useAnalyticsServiceGetRetention: vi.fn(() => ({ data: undefined, isPending: true })),
+  useAnalyticsServiceGetBreakdown: vi.fn(() => ({ data: undefined, isPending: true })),
+}))
 
 async function renderRouterAt(initialPath: string) {
   // Imported dynamically (after vi.resetModules + mocks are set up) so each test gets
@@ -141,7 +150,29 @@ describe('router + ProtectedRoute integration', () => {
     expect(authService.authServiceLogout).toHaveBeenCalledWith({ refreshToken: 'refresh-1' })
   })
 
-  it('renders /browse, /stats, /settings inside the AppLayout shell with the active link highlighted', async () => {
+  it('renders /browse, /settings inside the AppLayout shell with the active link highlighted', async () => {
+    const authService = await import('../lib/api/identity/auth-service/auth-service')
+    vi.mocked(authService.authServiceRefresh).mockResolvedValue({
+      status: 200,
+      data: {
+        accessToken: 'access-1',
+        refreshToken: 'refresh-1',
+        userId: 'user-1',
+        profileId: 'profile-1',
+        expiresIn: '900',
+      },
+    } as never)
+    localStorage.setItem('mindmesh.refreshToken', 'refresh-0')
+
+    await renderRouterAt('/browse')
+
+    expect(await screen.findByText('Coming soon.')).toBeInTheDocument()
+    expect(screen.getByText('MindMesh')).toBeInTheDocument()
+    const browseLink = screen.getByRole('link', { name: 'Browse' })
+    expect(browseLink).toHaveAttribute('aria-current', 'page')
+  })
+
+  it('renders /stats inside the AppLayout shell with the real StatsScreen and the active link highlighted', async () => {
     const authService = await import('../lib/api/identity/auth-service/auth-service')
     vi.mocked(authService.authServiceRefresh).mockResolvedValue({
       status: 200,
@@ -157,7 +188,7 @@ describe('router + ProtectedRoute integration', () => {
 
     await renderRouterAt('/stats')
 
-    expect(await screen.findByText('Coming soon.')).toBeInTheDocument()
+    expect(await screen.findByText('Your stats')).toBeInTheDocument()
     expect(screen.getByText('MindMesh')).toBeInTheDocument()
     const statsLink = screen.getByRole('link', { name: 'Stats' })
     expect(statsLink).toHaveAttribute('aria-current', 'page')

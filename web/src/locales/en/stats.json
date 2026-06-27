@@ -1,0 +1,47 @@
+{
+  "title": "Your stats",
+  "range": {
+    "label": "Range",
+    "7": "Last 7 days",
+    "30": "Last 30 days",
+    "90": "Last 90 days",
+    "365": "Last year",
+    "all": "All time"
+  },
+  "loading": "Loading stats…",
+  "empty": "No stats yet",
+  "emptyDescription": "Study a few cards to see your stats.",
+  "overview": {
+    "reviews": "Reviews",
+    "accuracy": "Accuracy",
+    "streak": "Current streak",
+    "streakValue_one": "{{count}} day",
+    "streakValue_other": "{{count}} days",
+    "timeStudied": "Time studied"
+  },
+  "heatmap": {
+    "title": "Activity",
+    "year": "Year",
+    "dayLabel_one": "{{date}}: {{count}} review",
+    "dayLabel_other": "{{date}}: {{count}} reviews",
+    "legendLess": "Less",
+    "legendMore": "More"
+  },
+  "retention": {
+    "title": "Retention",
+    "measured": "Measured",
+    "target": "Target",
+    "dueContext": "{{correct}} of {{reviews}} due reviews correct"
+  },
+  "breakdown": {
+    "title": "Breakdown",
+    "by": "Group by",
+    "deck": "Deck",
+    "state": "State",
+    "hour": "Hour",
+    "accuracy": "{{percent}}% correct",
+    "reviewsCount": "{{count}} review",
+    "reviewsCount_other": "{{count}} reviews",
+    "empty": "No data for this range."
+  }
+}
