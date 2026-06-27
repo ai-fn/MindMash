@@ -16,7 +16,12 @@ import { useAuthStore } from '../auth/authStore'
 vi.mock('../../lib/api/collection/deck-service/deck-service', () => ({
   useDeckServiceListDecks: vi.fn(),
   useDeckServiceCreateDeck: vi.fn(),
+  useDeckServiceUpdateDeck: vi.fn(),
+  useDeckServiceDeleteDeck: vi.fn(),
+  useDeckServiceGetDeckConfig: vi.fn(),
+  useDeckServiceUpdateDeckConfig: vi.fn(),
   getDeckServiceListDecksQueryKey: vi.fn(() => ['/v1/decks']),
+  getDeckServiceGetDeckConfigQueryKey: vi.fn((id: string) => [`/v1/deck-configs/${id}`]),
 }))
 vi.mock('../../lib/api/scheduler/study-service/study-service', () => ({
   useStudyServiceGetCounts: vi.fn(),
@@ -50,9 +55,34 @@ async function openDeckMenu(user: ReturnType<typeof userEvent.setup>, deckName: 
 describe('DecksScreen', () => {
   beforeEach(async () => {
     vi.clearAllMocks()
-    const { useDeckServiceCreateDeck } =
-      await import('../../lib/api/collection/deck-service/deck-service')
+    const {
+      useDeckServiceCreateDeck,
+      useDeckServiceUpdateDeck,
+      useDeckServiceDeleteDeck,
+      useDeckServiceGetDeckConfig,
+      useDeckServiceUpdateDeckConfig,
+    } = await import('../../lib/api/collection/deck-service/deck-service')
     vi.mocked(useDeckServiceCreateDeck).mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+    } as never)
+    // RenameDeck/DeleteDeckDialog/DeckConfigDialog are always mounted (closed) as
+    // DecksScreen siblings (Task 11a) — they call these hooks unconditionally even
+    // while closed, so every test needs a safe default return value.
+    vi.mocked(useDeckServiceUpdateDeck).mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+    } as never)
+    vi.mocked(useDeckServiceDeleteDeck).mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+    } as never)
+    vi.mocked(useDeckServiceGetDeckConfig).mockReturnValue({
+      data: undefined,
+      isPending: false,
+      isError: false,
+    } as never)
+    vi.mocked(useDeckServiceUpdateDeckConfig).mockReturnValue({
       mutate: vi.fn(),
       isPending: false,
     } as never)

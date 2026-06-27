@@ -20,11 +20,19 @@ vi.mock('../lib/api/identity/auth-service/auth-service', () => ({
 // An empty deck list keeps post-login assertions on the empty-state message
 // rather than real deck content, which is DecksScreen.test.tsx's job to cover.
 // DecksScreen also renders NewDeck unconditionally now (Task 7), which pulls in
-// useDeckServiceCreateDeck + getDeckServiceListDecksQueryKey.
+// useDeckServiceCreateDeck + getDeckServiceListDecksQueryKey, and (Task 11a)
+// RenameDeck/DeleteDeckDialog/DeckConfigDialog, which pull in the rename/delete/
+// config hooks below — all are mounted (closed) unconditionally as DecksScreen
+// siblings, so they need safe default mocks even though no deck row is open.
 vi.mock('../lib/api/collection/deck-service/deck-service', () => ({
   useDeckServiceListDecks: vi.fn(() => ({ data: { data: { items: [] } }, isPending: false })),
   useDeckServiceCreateDeck: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  useDeckServiceUpdateDeck: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  useDeckServiceDeleteDeck: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  useDeckServiceGetDeckConfig: vi.fn(() => ({ data: undefined, isPending: false, isError: false })),
+  useDeckServiceUpdateDeckConfig: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   getDeckServiceListDecksQueryKey: vi.fn(() => ['/v1/decks']),
+  getDeckServiceGetDeckConfigQueryKey: vi.fn((id: string) => [`/v1/deck-configs/${id}`]),
 }))
 vi.mock('../lib/api/scheduler/study-service/study-service', () => ({
   useStudyServiceGetCounts: vi.fn(() => ({ data: undefined, isPending: true })),

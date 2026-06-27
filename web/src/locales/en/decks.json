@@ -12,7 +12,34 @@
   "menu": {
     "label": "More actions for {{deckName}}",
     "addCard": "Add card",
-    "rename": "Rename (coming soon)",
-    "delete": "Delete (coming soon)"
-  }
+    "createSubdeck": "Create subdeck",
+    "editConfig": "Deck settings",
+    "rename": "Rename",
+    "delete": "Delete"
+  },
+  "rename": {
+    "dialogTitle": "Rename deck",
+    "label": "Deck name",
+    "submit": "Save name",
+    "success": "Deck renamed."
+  },
+  "delete": {
+    "dialogTitle": "Delete deck",
+    "confirm": "Delete \"{{deckName}}\"? This can't be undone.",
+    "cancel": "Cancel",
+    "confirmAction": "Delete deck",
+    "success": "Deck deleted."
+  },
+  "config": {
+    "dialogTitle": "Deck settings",
+    "loading": "Loading settings…",
+    "desiredRetentionLabel": "Desired retention (%)",
+    "newPerDayLabel": "New cards per day",
+    "revPerDayLabel": "Reviews per day",
+    "submit": "Save settings",
+    "success": "Deck settings saved.",
+    "unavailable": "Settings unavailable for this deck.",
+    "unavailableDescription": "This deck has no scheduling config to edit."
+  },
+  "error": "Something went wrong. Try again."
 }

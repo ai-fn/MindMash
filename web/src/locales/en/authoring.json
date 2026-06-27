@@ -5,6 +5,12 @@
     "placeholder": "Deck name",
     "submit": "Create deck"
   },
+  "createSubdeck": {
+    "dialogTitle": "Create a subdeck of \"{{parentDeckName}}\"",
+    "label": "New subdeck name",
+    "submit": "Create subdeck",
+    "success": "Subdeck created."
+  },
   "addCard": {
     "toggle": "Add card"
   },

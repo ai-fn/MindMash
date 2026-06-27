@@ -4,12 +4,19 @@ import { Link } from 'react-router-dom'
 
 import { useAuthStore } from '../auth/authStore'
 import { useDeckServiceListDecks } from '../../lib/api/collection/deck-service/deck-service'
-import type { V1ListDecksResponse } from '../../lib/api/collection/collectionV1CollectionProto.schemas'
+import type {
+  V1Deck,
+  V1ListDecksResponse,
+} from '../../lib/api/collection/collectionV1CollectionProto.schemas'
 import { Button, EmptyState, Skeleton, Spinner } from '../../ui'
+import { CreateSubdeck } from './CreateSubdeck'
+import { DeckConfigDialog } from './DeckConfigDialog'
 import { DeckMenu } from './DeckMenu'
 import { DeckRow } from './DeckRow'
+import { DeleteDeckDialog } from './DeleteDeckDialog'
 import { NewDeck } from './NewDeck'
 import { QuickAddNote } from './QuickAddNote'
+import { RenameDeck } from './RenameDeck'
 
 // Home / deck-picker (Task 4, see task-4-brief.md; redesigned onto the design system
 // in Task 5, see task-5-brief.md). Replaces the Task 3 placeholder HomeScreen: lists
@@ -25,20 +32,26 @@ export function DecksScreen() {
   // Controls the create-deck Dialog (see NewDeck.tsx for the inline-vs-dialog
   // judgment call). Opened from the header button or the empty-state action.
   const [isNewDeckOpen, setIsNewDeckOpen] = useState(false)
+  // Task 11a: per-deck dialogs (rename/delete/create-subdeck/config), each tracking
+  // "which deck is this open for" rather than a plain boolean — these dialogs live
+  // here (not inside DeckMenu) because DeckMenu is a transient popup that closes on
+  // outside-click/Escape, and a confirm-delete or multi-field config form needs to
+  // survive that (see DeckMenu.tsx's comment for the full rationale).
+  const [renamingDeck, setRenamingDeck] = useState<V1Deck | null>(null)
+  const [deletingDeck, setDeletingDeck] = useState<V1Deck | null>(null)
+  const [subdeckParent, setSubdeckParent] = useState<V1Deck | null>(null)
+  const [configDeck, setConfigDeck] = useState<V1Deck | null>(null)
 
   // The generated response type is a `{status: 200, data: T} | {status: <error>,
   // data: RpcStatus}` union, but `customFetch` already throws on any non-2xx
   // response (see mutator.ts) — by the time `data` is defined here it is always
   // the success shape (same invariant authStore.ts's `unwrap` documents).
   const items = (data?.data as V1ListDecksResponse | undefined)?.items ?? []
-  const decks = items.filter(
-    (
-      deck: NonNullable<V1ListDecksResponse['items']>[number],
-    ): deck is { id: string; name?: string } =>
-      // `V1Deck.id` is optional in the generated type, but a deck without an id can't
-      // be linked to or queried for counts — skip it rather than risk a duplicate
-      // React key / a broken `/study/undefined` link.
-      Boolean(deck.id),
+  const decks = items.filter((deck: V1Deck): deck is V1Deck & { id: string } =>
+    // `V1Deck.id` is optional in the generated type, but a deck without an id can't
+    // be linked to or queried for counts — skip it rather than risk a duplicate
+    // React key / a broken `/study/undefined` link.
+    Boolean(deck.id),
   )
 
   return (
@@ -56,6 +69,14 @@ export function DecksScreen() {
       </div>
 
       <NewDeck open={isNewDeckOpen} onClose={() => setIsNewDeckOpen(false)} />
+      <RenameDeck deck={renamingDeck} onClose={() => setRenamingDeck(null)} />
+      <DeleteDeckDialog deck={deletingDeck} onClose={() => setDeletingDeck(null)} />
+      <CreateSubdeck
+        parentDeckId={subdeckParent?.id ?? null}
+        parentDeckName={subdeckParent?.name ?? ''}
+        onClose={() => setSubdeckParent(null)}
+      />
+      <DeckConfigDialog deck={configDeck} onClose={() => setConfigDeck(null)} />
 
       {isPending ? (
         <div className="flex flex-col gap-2" aria-busy="true">
@@ -91,6 +112,10 @@ export function DecksScreen() {
                   <DeckMenu
                     deckName={deck.name ?? ''}
                     onAddCard={() => setOpenDeckId(isOpen ? null : deck.id)}
+                    onRename={() => setRenamingDeck(deck)}
+                    onDelete={() => setDeletingDeck(deck)}
+                    onCreateSubdeck={() => setSubdeckParent(deck)}
+                    onEditConfig={() => setConfigDeck(deck)}
                   />
                 </div>
                 {isOpen && <QuickAddNote deckId={deck.id} />}
