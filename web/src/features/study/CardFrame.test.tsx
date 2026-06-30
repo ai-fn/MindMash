@@ -25,6 +25,14 @@ describe('CardFrame', () => {
     expect(iframe.srcdoc).toContain('<p>front</p>')
   })
 
+  it('fills its container width and has a sensible min-height instead of falling back to the tiny UA default iframe box (Task 13 responsive fix)', () => {
+    const { container } = render(<CardFrame html="<p>front</p>" />)
+    const iframe = getIframe(container)
+
+    expect(iframe.className).toContain('w-full')
+    expect(iframe.className).toContain('min-h-40')
+  })
+
   it('never sets allow-same-origin under any circumstance', () => {
     const { container } = render(<CardFrame html="<p>front</p>" />)
     const iframe = getIframe(container)

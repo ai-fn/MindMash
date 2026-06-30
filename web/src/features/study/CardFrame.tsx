@@ -123,5 +123,27 @@ export function CardFrame({ html, onReveal, onGrade, onPlayAudio, onHint }: Card
   // NOTE for reviewers: this component must never call `iframeRef.current
   // ?.contentWindow?.postMessage(...)` anywhere — the bridge is receive-only
   // (frame -> host). Host -> frame messaging is intentionally out of scope.
-  return <iframe ref={iframeRef} sandbox="allow-scripts" srcDoc={srcDoc} />
+  //
+  // A bare <iframe> with no explicit sizing falls back to the UA default box (roughly
+  // 300x150px) and ignores its flex/max-w container entirely — found during the Task 13
+  // responsive sweep: both StudyScreen and CardDetail render this inside a fluid,
+  // auto-height container, so the card content was being clipped into a tiny fixed-size
+  // box instead of filling the available width and growing to fit its content height.
+  // `w-full` fills the container's width; `min-h-40` gives short cards (e.g. a one-line
+  // front) a reasonable minimum height without needing JS-driven auto-resize, which is
+  // out of scope for this MVP component (the frame is receive-only by design — see the
+  // class doc above). Note `h-full` is deliberately NOT used here: neither current
+  // consumer's wrapper sets an explicit height, so `height: 100%` would resolve against
+  // an auto-height ancestor and have no effect — `min-h-40` is what actually establishes
+  // a usable height. `border-0` strips the UA default inset iframe border, which isn't
+  // part of this design system's token-driven border styling and would otherwise show
+  // an unstyled 2px groove regardless of light/dark theme.
+  return (
+    <iframe
+      ref={iframeRef}
+      sandbox="allow-scripts"
+      srcDoc={srcDoc}
+      className="min-h-40 w-full border-0"
+    />
+  )
 }
