@@ -14,7 +14,9 @@ import { DeckConfigDialog } from './DeckConfigDialog'
 import { DeckMenu } from './DeckMenu'
 import { DeckRow } from './DeckRow'
 import { DeleteDeckDialog } from './DeleteDeckDialog'
+import { FilteredDecksDialog } from './FilteredDecksDialog'
 import { NewDeck } from './NewDeck'
+import { NoteTypesDialog } from './NoteTypesDialog'
 import { QuickAddNote } from './QuickAddNote'
 import { RenameDeck } from './RenameDeck'
 
@@ -41,6 +43,11 @@ export function DecksScreen() {
   const [deletingDeck, setDeletingDeck] = useState<V1Deck | null>(null)
   const [subdeckParent, setSubdeckParent] = useState<V1Deck | null>(null)
   const [configDeck, setConfigDeck] = useState<V1Deck | null>(null)
+  // Task 11b: note-types and filtered-decks dialogs are not per-deck — plain booleans
+  // are enough (unlike the V1Deck-keyed trackers above), opened from their own header
+  // buttons rather than DeckMenu.
+  const [isNoteTypesOpen, setIsNoteTypesOpen] = useState(false)
+  const [isFilteredDecksOpen, setIsFilteredDecksOpen] = useState(false)
 
   // The generated response type is a `{status: 200, data: T} | {status: <error>,
   // data: RpcStatus}` union, but `customFetch` already throws on any non-2xx
@@ -59,6 +66,12 @@ export function DecksScreen() {
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-xl font-semibold text-fg">{t('title')}</h1>
         <div className="flex items-center gap-2">
+          <Button variant="secondary" size="sm" onClick={() => setIsNoteTypesOpen(true)}>
+            {t('noteTypes.openButton')}
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => setIsFilteredDecksOpen(true)}>
+            {t('filteredDecks.openButton')}
+          </Button>
           <Button size="sm" onClick={() => setIsNewDeckOpen(true)}>
             {tAuthoring('newDeck.submit')}
           </Button>
@@ -77,6 +90,11 @@ export function DecksScreen() {
         onClose={() => setSubdeckParent(null)}
       />
       <DeckConfigDialog deck={configDeck} onClose={() => setConfigDeck(null)} />
+      <NoteTypesDialog open={isNoteTypesOpen} onClose={() => setIsNoteTypesOpen(false)} />
+      <FilteredDecksDialog
+        open={isFilteredDecksOpen}
+        onClose={() => setIsFilteredDecksOpen(false)}
+      />
 
       {isPending ? (
         <div className="flex flex-col gap-2" aria-busy="true">

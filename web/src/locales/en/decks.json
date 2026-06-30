@@ -41,5 +41,32 @@
     "unavailable": "Settings unavailable for this deck.",
     "unavailableDescription": "This deck has no scheduling config to edit."
   },
+  "noteTypes": {
+    "openButton": "Note types",
+    "dialogTitle": "Note types",
+    "loading": "Loading note types…",
+    "empty": "No note types yet.",
+    "emptyDescription": "Note types are created when you add your first card.",
+    "fieldCount": "Fields: {{count}}",
+    "templateCount": "Card templates: {{count}}"
+  },
+  "filteredDecks": {
+    "openButton": "Filtered decks",
+    "dialogTitle": "Filtered decks",
+    "loading": "Loading filtered decks…",
+    "empty": "No filtered decks yet.",
+    "emptyDescription": "Create a filtered deck to save a card query for later.",
+    "nameLabel": "Name",
+    "namePlaceholder": "Filtered deck name",
+    "queryLabel": "Query",
+    "queryPlaceholder": "e.g. deck:Spanish is:due",
+    "create": "Create filtered deck",
+    "createSuccess": "Filtered deck created.",
+    "delete": "Delete",
+    "deleteConfirm": "Delete \"{{name}}\"? This can't be undone.",
+    "deleteCancel": "Cancel",
+    "deleteConfirmAction": "Delete filtered deck",
+    "deleteSuccess": "Filtered deck deleted."
+  },
   "error": "Something went wrong. Try again."
 }

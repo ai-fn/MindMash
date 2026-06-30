@@ -34,6 +34,15 @@ vi.mock('../../lib/api/collection/note-type-service/note-type-service', () => ({
 vi.mock('../../lib/api/collection/note-service/note-service', () => ({
   useNoteServiceCreateNote: vi.fn(),
 }))
+// Task 11b: NoteTypesDialog/FilteredDecksDialog are always mounted (closed) as
+// DecksScreen siblings, same pattern as the Task 11a dialogs above — they call these
+// hooks unconditionally even while closed.
+vi.mock('../../lib/api/collection/filtered-deck-service/filtered-deck-service', () => ({
+  useFilteredDeckServiceListFilteredDecks: vi.fn(),
+  useFilteredDeckServiceCreateFilteredDeck: vi.fn(),
+  useFilteredDeckServiceDeleteFilteredDeck: vi.fn(),
+  getFilteredDeckServiceListFilteredDecksQueryKey: vi.fn(() => ['/v1/filtered-decks']),
+}))
 
 async function renderScreen() {
   const { DecksScreen } = await import('./DecksScreen.tsx')
@@ -99,6 +108,24 @@ describe('DecksScreen', () => {
     const { useNoteServiceCreateNote } =
       await import('../../lib/api/collection/note-service/note-service')
     vi.mocked(useNoteServiceCreateNote).mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+    } as never)
+    const {
+      useFilteredDeckServiceListFilteredDecks,
+      useFilteredDeckServiceCreateFilteredDeck,
+      useFilteredDeckServiceDeleteFilteredDeck,
+    } = await import('../../lib/api/collection/filtered-deck-service/filtered-deck-service')
+    vi.mocked(useFilteredDeckServiceListFilteredDecks).mockReturnValue({
+      data: { data: { items: [] } },
+      isPending: false,
+      isError: false,
+    } as never)
+    vi.mocked(useFilteredDeckServiceCreateFilteredDeck).mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+    } as never)
+    vi.mocked(useFilteredDeckServiceDeleteFilteredDeck).mockReturnValue({
       mutate: vi.fn(),
       isPending: false,
     } as never)
