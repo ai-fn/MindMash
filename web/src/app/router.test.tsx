@@ -162,7 +162,9 @@ describe('router + ProtectedRoute integration', () => {
     expect(screen.getByText('MindMesh')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Browse' })).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Log out' }))
+    // Logout lives on the Settings screen (Task 12), not the Decks header.
+    await user.click(screen.getByRole('link', { name: 'Settings' }))
+    await user.click(await screen.findByRole('button', { name: 'Log out' }))
 
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: 'Log in' })).toBeInTheDocument()
@@ -208,7 +210,7 @@ describe('router + ProtectedRoute integration', () => {
 
     await renderRouterAt('/settings')
 
-    expect(await screen.findByText('Coming soon.')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument()
     expect(screen.getByText('MindMesh')).toBeInTheDocument()
     const settingsLink = screen.getByRole('link', { name: 'Settings' })
     expect(settingsLink).toHaveAttribute('aria-current', 'page')

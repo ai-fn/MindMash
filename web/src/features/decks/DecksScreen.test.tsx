@@ -214,29 +214,6 @@ describe('DecksScreen', () => {
     expect(screen.getByRole('link')).toHaveAttribute('href', '/study/deck-42')
   })
 
-  it('calls logout when the Logout button is clicked', async () => {
-    const { useDeckServiceListDecks } =
-      await import('../../lib/api/collection/deck-service/deck-service')
-    const { useStudyServiceGetCounts } =
-      await import('../../lib/api/scheduler/study-service/study-service')
-    vi.mocked(useDeckServiceListDecks).mockReturnValue({
-      data: { data: { items: [] } },
-      isPending: false,
-    } as never)
-    vi.mocked(useStudyServiceGetCounts).mockReturnValue({
-      data: undefined,
-      isPending: true,
-    } as never)
-    const logoutSpy = vi.fn().mockResolvedValue(undefined)
-    useAuthStore.setState({ logout: logoutSpy })
-
-    const user = userEvent.setup()
-    await renderScreen()
-    await user.click(screen.getByRole('button', { name: 'Log out' }))
-
-    expect(logoutSpy).toHaveBeenCalledTimes(1)
-  })
-
   it('shows a loading indicator while decks are pending', async () => {
     const { useDeckServiceListDecks } =
       await import('../../lib/api/collection/deck-service/deck-service')

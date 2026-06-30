@@ -1,0 +1,19 @@
+{
+  "title": "Settings",
+  "profile": {
+    "title": "Profile",
+    "email": "Email",
+    "userId": "User ID",
+    "locale": "Language",
+    "logout": "Log out"
+  },
+  "appearance": {
+    "title": "Appearance"
+  },
+  "study": {
+    "title": "Study",
+    "advancedGrading": "Advanced grading",
+    "advancedGradingDescription": "Show all 4 grade buttons (Again/Hard/Good/Easy) during study instead of the simplified Don't know / Know.",
+    "otherPrefsNote": "No other per-user study preferences are available yet — settings beyond this are not wired to a backend endpoint and aren't shown here."
+  }
+}

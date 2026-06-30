@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 
-import { useAuthStore } from '../auth/authStore'
 import { useDeckServiceListDecks } from '../../lib/api/collection/deck-service/deck-service'
 import type {
   V1Deck,
@@ -26,7 +25,6 @@ import { RenameDeck } from './RenameDeck'
 export function DecksScreen() {
   const { t } = useTranslation('decks')
   const { t: tAuthoring } = useTranslation('authoring')
-  const logout = useAuthStore((state) => state.logout)
   const { data, isPending } = useDeckServiceListDecks()
   // Tracks which deck (if any) currently has its QuickAddNote form open. Only one
   // deck's "Add card" affordance is expanded at a time.
@@ -74,9 +72,6 @@ export function DecksScreen() {
           </Button>
           <Button size="sm" onClick={() => setIsNewDeckOpen(true)}>
             {tAuthoring('newDeck.submit')}
-          </Button>
-          <Button variant="secondary" size="sm" onClick={() => void logout()}>
-            {t('logout')}
           </Button>
         </div>
       </div>
