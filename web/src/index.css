@@ -36,8 +36,11 @@
   --color-accent-fg: #ffffff;
   --color-accent-muted: #e8eef5;
 
-  /* Semantic state colors */
-  --color-success: #2f8a4e;
+  /* Semantic state colors. `success` is darkened from #2f8a4e so white-on-green clears
+     WCAG AA (4.5:1) — it backs Button variant="success" (the study "Know" button) at 16px,
+     which is not large-text-exempt. #2c7d47 gives ~5.08:1 white-on-green and ~4.83:1
+     green-on-bg. Dark mode's success already passes and is unchanged. */
+  --color-success: #2c7d47;
   --color-success-fg: #ffffff;
   --color-success-muted: #e6f3ea;
   --color-danger: #c4392f;
