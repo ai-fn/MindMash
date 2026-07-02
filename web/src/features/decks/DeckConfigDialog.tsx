@@ -101,6 +101,9 @@ export function DeckConfigDialog({ deck, onClose }: DeckConfigDialogProps) {
       return
     }
     setError(null)
+    // config.usn is `string | undefined` on the wire type but always populated for a
+    // persisted config, same as `id`; see the invariant note above CardDetail.tsx's
+    // handleSave().
     updateConfig.mutate(
       {
         id: configId,

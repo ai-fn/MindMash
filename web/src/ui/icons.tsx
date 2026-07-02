@@ -1,6 +1,6 @@
 // Minimal inline-SVG icon set — only the icons actually consumed by primitives in this
-// directory (Dialog/Toast close buttons, Select's chevron, Badge/Toast status marks). Not a
-// general-purpose icon system: add icons here only when a primitive needs one.
+// directory (Dialog/Toast close buttons, Select's chevron). Not a general-purpose icon
+// system: add icons here only when a primitive needs one.
 import type { SVGProps } from 'react'
 
 export type IconProps = SVGProps<SVGSVGElement>
@@ -29,27 +29,10 @@ export function CloseIcon(props: IconProps) {
   )
 }
 
-export function CheckIcon(props: IconProps) {
-  return (
-    <svg {...baseProps(props)}>
-      <path d="M4 10.5l4 4 8-9" />
-    </svg>
-  )
-}
-
 export function ChevronDownIcon(props: IconProps) {
   return (
     <svg {...baseProps(props)}>
       <path d="M5 7.5l5 5 5-5" />
-    </svg>
-  )
-}
-
-export function AlertIcon(props: IconProps) {
-  return (
-    <svg {...baseProps(props)}>
-      <path d="M10 4v7" />
-      <path d="M10 14.2v.1" />
     </svg>
   )
 }
@@ -60,14 +43,6 @@ export function MoreIcon(props: IconProps) {
       <circle cx="10" cy="4.5" r="1.4" />
       <circle cx="10" cy="10" r="1.4" />
       <circle cx="10" cy="15.5" r="1.4" />
-    </svg>
-  )
-}
-
-export function PlusIcon(props: IconProps) {
-  return (
-    <svg {...baseProps(props)}>
-      <path d="M10 4.5v11M4.5 10h11" />
     </svg>
   )
 }

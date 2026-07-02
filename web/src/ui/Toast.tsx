@@ -6,7 +6,7 @@ import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 
-import { cn } from './cn'
+import { cn, focusRing } from './cn'
 import { IconButton } from './IconButton'
 import { CloseIcon } from './icons'
 import type { ToastItem, ToastTone } from './toastStore'
@@ -40,14 +40,16 @@ export function Toast({ toast, onDismiss }: ToastProps) {
     >
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium text-fg">{toast.title}</p>
-        {toast.description ? <p className="mt-0.5 text-sm text-muted">{toast.description}</p> : null}
+        {toast.description ? (
+          <p className="mt-0.5 text-sm text-muted">{toast.description}</p>
+        ) : null}
         {toast.action ? (
           <button
             type="button"
             onClick={toast.action.onClick}
             className={cn(
               'mt-2 text-sm font-medium text-accent underline-offset-2 hover:underline',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:rounded-sm',
+              `${focusRing} focus-visible:rounded-sm`,
             )}
           >
             {toast.action.label}

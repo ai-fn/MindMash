@@ -17,3 +17,9 @@ export const fieldControlClass = cn(
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:border-accent',
   'disabled:cursor-not-allowed disabled:opacity-60',
 )
+
+// Shared focus-visible ring base (outline reset + accent ring) reused by every focusable
+// primitive. Callers append their own suffix (ring-offset for boxed controls, rounded-sm for
+// inline text links, etc.) since that part varies by context — only the common prefix lives
+// here.
+export const focusRing = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent'

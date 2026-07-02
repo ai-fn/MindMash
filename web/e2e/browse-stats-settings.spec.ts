@@ -30,7 +30,9 @@ test('stats and browse screens reach their backends and render', async ({ page, 
   ).toBeVisible({ timeout: 15_000 })
 
   // --- Browse ---
-  const searchResponse = page.waitForResponse((response) => response.url().includes('/v1/search'))
+  const searchResponse = page.waitForResponse(
+    (response) => response.url().includes('/v1/search') && response.request().method() === 'GET',
+  )
   await page.getByRole('link', { name: 'Browse' }).click()
   await page.waitForURL('**/browse')
   expect((await searchResponse).ok()).toBe(true)

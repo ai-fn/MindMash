@@ -55,6 +55,9 @@ export function RenameDeck({ deck, onClose }: RenameDeckProps) {
       return
     }
     setError(null)
+    // deck.usn is `string | undefined` on the wire type but always populated for a
+    // persisted deck, same as `id` — not additionally guarded; see the invariant note
+    // above CardDetail.tsx's handleSave().
     updateDeck.mutate(
       {
         id: deck.id,

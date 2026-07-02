@@ -5,7 +5,7 @@
 import { forwardRef } from 'react'
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
 
-import { cn } from './cn'
+import { cn, focusRing } from './cn'
 import { Spinner } from './Spinner'
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'success'
@@ -23,7 +23,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 const base =
   'inline-flex items-center justify-center gap-2 rounded-[var(--radius-md)] font-medium ' +
   'transition-colors duration-[var(--duration-fast)] ease-default ' +
-  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg ' +
+  `${focusRing} focus-visible:ring-offset-2 focus-visible:ring-offset-bg ` +
   'disabled:cursor-not-allowed disabled:opacity-60'
 
 const sizes: Record<ButtonSize, string> = {
@@ -32,8 +32,7 @@ const sizes: Record<ButtonSize, string> = {
 }
 
 const variants: Record<ButtonVariant, string> = {
-  primary:
-    'bg-accent text-accent-fg hover:bg-accent disabled:hover:bg-accent brightness-100 hover:brightness-110',
+  primary: 'bg-accent text-accent-fg hover:brightness-110',
   secondary: 'bg-surface text-fg border border-border hover:bg-accent-muted',
   ghost: 'bg-transparent text-fg hover:bg-accent-muted',
   danger: 'bg-danger text-danger-fg hover:brightness-110',

@@ -42,6 +42,8 @@ export function DeleteDeckDialog({ deck, onClose }: DeleteDeckDialogProps) {
       return
     }
     setError(null)
+    // deck.usn: always populated for a persisted deck; see the invariant note above
+    // CardDetail.tsx's handleSave().
     deleteDeck.mutate(
       { id: deck.id, params: { expectedUsn: deck.usn } },
       {

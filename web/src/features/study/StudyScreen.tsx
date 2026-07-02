@@ -151,6 +151,13 @@ export function StudyScreen() {
       {
         onSuccess: () => {
           setIsSubmitting(false)
+          // Whether this grade was the last card in the queue, computed from the
+          // pre-advance state/cursor (same predicate studyMachine's own advance() uses
+          // internally) — needed below to decide whether to offer an Undo action, since
+          // advanceAfterGrade() below is async (setState) and state.status won't reflect
+          // 'done' until the next render.
+          const wasLastCard =
+            state.status === 'showingBack' && state.cursor + 1 >= state.queue.length
           advanceAfterGrade()
           if (deckId) {
             void queryClient.invalidateQueries({
@@ -165,19 +172,27 @@ export function StudyScreen() {
           // this grade. If the user re-grades the "undone" card differently, the
           // backend ends up with two recorded answers for it, not one corrected one.
           // Accepted MVP limitation per the brief's own instruction to document it.
+          //
+          // On the LAST card, advanceAfterGrade() above moves the machine to `done`
+          // (see studyMachine.ts's rewindToShowingBack doc comment: undo is a no-op
+          // from `done`, there being no queue/cursor left to rewind into) — so offering
+          // an Undo action there would be a button that visibly does nothing. Omit the
+          // action in that case; the confirmation toast itself still shows.
           toast({
             title: t('undo.title'),
             tone: grade === Grade.GRADE_AGAIN ? 'danger' : 'success',
-            action: {
-              label: t('undo.action'),
-              onClick: () => {
-                undoLastGrade()
-                // Deliberately NOT re-invalidating GetCounts here: the backend's
-                // counts already reflect the original (un-undone) grade, so a
-                // re-fetch would return the same numbers — invalidating would just be
-                // a wasted network round-trip with no visible effect on screen.
-              },
-            },
+            action: wasLastCard
+              ? undefined
+              : {
+                  label: t('undo.action'),
+                  onClick: () => {
+                    undoLastGrade()
+                    // Deliberately NOT re-invalidating GetCounts here: the backend's
+                    // counts already reflect the original (un-undone) grade, so a
+                    // re-fetch would return the same numbers — invalidating would just
+                    // be a wasted network round-trip with no visible effect on screen.
+                  },
+                },
           })
         },
         onError: () => {

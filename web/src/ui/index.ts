@@ -19,6 +19,9 @@ export type { TextareaProps } from './Textarea'
 export { Select } from './Select'
 export type { SelectProps } from './Select'
 
+export { Switch } from './Switch'
+export type { SwitchProps } from './Switch'
+
 export { Dialog } from './Dialog'
 export type { DialogProps } from './Dialog'
 
@@ -39,15 +42,7 @@ export type { EmptyStateProps } from './EmptyState'
 export { Badge } from './Badge'
 export type { BadgeProps, BadgeTone } from './Badge'
 
-export {
-  CloseIcon,
-  CheckIcon,
-  ChevronDownIcon,
-  AlertIcon,
-  MoreIcon,
-  PlusIcon,
-  ArrowLeftIcon,
-} from './icons'
+export { CloseIcon, ChevronDownIcon, MoreIcon, ArrowLeftIcon } from './icons'
 export type { IconProps } from './icons'
 
 export { cn } from './cn'

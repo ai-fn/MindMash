@@ -11,9 +11,6 @@
     "submit": "Create subdeck",
     "success": "Subdeck created."
   },
-  "addCard": {
-    "toggle": "Add card"
-  },
   "quickAddNote": {
     "frontLabel": "Front",
     "backLabel": "Back",

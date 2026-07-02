@@ -305,6 +305,22 @@ describe('StudyScreen', () => {
     expect(screen.getByRole('link', { name: 'Back to decks' })).toHaveAttribute('href', '/')
   })
 
+  it('shows the "Grade submitted" toast but omits the Undo action after grading the LAST card (there is nothing left to rewind to)', async () => {
+    vi.mocked(mocks.useStudyServiceGetQueue).mockReturnValue(oneCardQueue as never)
+    const mutate = vi.fn((_vars, opts: { onSuccess?: () => void }) => {
+      opts.onSuccess?.()
+    })
+    vi.mocked(mocks.useStudyServiceAnswer).mockReturnValue({ mutate } as never)
+    const user = userEvent.setup()
+
+    await renderScreen()
+    await user.click(screen.getByRole('button', { name: 'Show answer' }))
+    await user.click(screen.getByRole('button', { name: 'Know' }))
+
+    expect(await screen.findByText('Grade submitted')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument()
+  })
+
   it('disables grade buttons while the answer mutation is in-flight and ignores a racing keyboard grade (no double-submit)', async () => {
     vi.mocked(mocks.useStudyServiceGetQueue).mockReturnValue(oneCardQueue as never)
     const mutate = vi.fn() // never resolves -> stays "in flight"
@@ -339,15 +355,23 @@ describe('StudyScreen', () => {
     expect(screen.getByRole('button', { name: 'Know' })).not.toBeDisabled()
   })
 
-  it('shows an Undo toast after a successful grade, and undo rewinds to the just-graded card', async () => {
+  it("shows an Undo toast after a successful grade, and undo rewinds to the just-graded card with that card's own content (not the next card's or stale content)", async () => {
     vi.mocked(mocks.useStudyServiceGetQueue).mockReturnValue(twoCardQueue as never)
+    // cardId-aware, unlike the shared beforeEach mock: card-1 and card-2 return
+    // distinct, identifiable backHtml so a regression that leaves card-2's (or no)
+    // content on screen after undo is caught, instead of passing vacuously against a
+    // single static mock value both cards would share.
+    vi.mocked(mocks.useCardServiceGetCard).mockImplementation(((cardId: string) => ({
+      data: { data: { backHtml: `<p>back-${cardId}</p>` } },
+      isPending: false,
+    })) as never)
     const mutate = vi.fn((_vars, opts: { onSuccess?: () => void }) => {
       opts.onSuccess?.()
     })
     vi.mocked(mocks.useStudyServiceAnswer).mockReturnValue({ mutate } as never)
     const user = userEvent.setup()
 
-    await renderScreen()
+    const { container } = await renderScreen()
     await user.click(screen.getByRole('button', { name: 'Show answer' }))
     await user.click(screen.getByRole('button', { name: 'Know' }))
 
@@ -355,14 +379,22 @@ describe('StudyScreen', () => {
     await waitFor(() => {
       expect(screen.getByText('2 / 2')).toBeInTheDocument()
     })
+    expect(container.querySelector('iframe')?.srcdoc).toContain('front-2')
 
     const undoButton = await screen.findByRole('button', { name: 'Undo' })
     await user.click(undoButton)
 
-    // Rewound to card 1's back (showingBack), so its grade buttons are visible again.
+    // Rewound to card 1's back (showingBack), so its grade buttons are visible again
+    // and the rendered card content is card 1's front+back — not card 2's, and not
+    // empty/stale content left over from before the rewind.
     await waitFor(() => {
       expect(screen.getByText('1 / 2')).toBeInTheDocument()
     })
     expect(screen.getByRole('button', { name: 'Know' })).toBeInTheDocument()
+    const srcdoc = container.querySelector('iframe')?.srcdoc
+    expect(srcdoc).toContain('front-1')
+    expect(srcdoc).toContain('back-card-1')
+    expect(srcdoc).not.toContain('front-2')
+    expect(srcdoc).not.toContain('back-card-2')
   })
 })

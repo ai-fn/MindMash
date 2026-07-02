@@ -99,6 +99,16 @@ export function CardDetail({ cardId, onClose }: CardDetailProps) {
     setFields((prev) => ({ ...(prev ?? {}), [name]: value }))
   }
 
+  // `note.usn` is typed `string | undefined` (every scalar field on the generated wire
+  // types is optional — see V1Note in collectionV1CollectionProto.schemas.ts, same as
+  // `id`), but is populated by the backend for every persisted resource exactly like
+  // `id` is — there is no code path that returns a real note with an id but no usn.
+  // Not additionally guarded here (and at the equivalent expectedUsn call sites in
+  // RenameDeck.tsx/DeleteDeckDialog.tsx/DeckConfigDialog.tsx/FilteredDecksDialog.tsx):
+  // an `undefined` expectedUsn would already surface as a mutation onError (the
+  // backend's optimistic-concurrency check has nothing to compare against), which these
+  // components already handle — a client-side guard would only replace that visible
+  // error with a confusing silent no-op for a case that cannot occur in practice.
   function handleSave() {
     if (!note?.id || !fields) {
       return
@@ -131,6 +141,7 @@ export function CardDetail({ cardId, onClose }: CardDetailProps) {
       return
     }
     setError(null)
+    // note.usn: see the invariant note above handleSave().
     deleteNote.mutate(
       { id: note.id, params: { expectedUsn: note.usn } },
       {

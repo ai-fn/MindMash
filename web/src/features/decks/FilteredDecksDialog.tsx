@@ -89,6 +89,8 @@ export function FilteredDecksDialog({ open, onClose }: FilteredDecksDialogProps)
     if (!current?.id) {
       return
     }
+    // current.usn: always populated for a persisted filtered deck; see the invariant
+    // note above CardDetail.tsx's handleSave().
     deleteFilteredDeck.mutate(
       { id: current.id, params: { expectedUsn: current.usn } },
       {

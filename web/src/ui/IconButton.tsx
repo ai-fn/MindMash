@@ -4,12 +4,15 @@
 import { forwardRef } from 'react'
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
 
-import { cn } from './cn'
+import { cn, focusRing } from './cn'
 
 export type IconButtonVariant = 'ghost' | 'secondary'
 export type IconButtonSize = 'sm' | 'md'
 
-export interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'aria-label'> {
+export interface IconButtonProps extends Omit<
+  ButtonHTMLAttributes<HTMLButtonElement>,
+  'aria-label'
+> {
   /** Required accessible name — this control has no visible text. */
   label: string
   icon: ReactNode
@@ -20,7 +23,7 @@ export interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonEle
 const base =
   'inline-flex items-center justify-center rounded-[var(--radius-md)] ' +
   'transition-colors duration-[var(--duration-fast)] ease-default ' +
-  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg ' +
+  `${focusRing} focus-visible:ring-offset-2 focus-visible:ring-offset-bg ` +
   'disabled:cursor-not-allowed disabled:opacity-60'
 
 const sizes: Record<IconButtonSize, string> = {

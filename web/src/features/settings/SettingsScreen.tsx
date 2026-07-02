@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '../auth/authStore'
 import { ThemeToggle } from '../theme/ThemeToggle'
 import { useStudyPrefsStore } from '../study/studyPrefsStore'
-import { Button, Card } from '../../ui'
+import { Button, Card, Switch } from '../../ui'
 
 // Profile & settings (Task 12, see task-12-brief.md). Three sections — Profile, Appearance,
 // Study — each a `Card` block, matching DecksScreen.tsx/StatsScreen.tsx's established
@@ -57,30 +57,12 @@ export function SettingsScreen() {
 
       <Card className="flex flex-col gap-4">
         <h2 className="text-base font-semibold text-fg">{t('study.title')}</h2>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={advancedGrading}
-          onClick={toggleAdvancedGrading}
-          className="flex items-center justify-between gap-4 rounded-[var(--radius-md)] border border-border bg-surface px-3 py-2 text-left transition-colors duration-[var(--duration-fast)] ease-default hover:bg-accent-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
-        >
-          <span className="flex flex-col gap-0.5">
-            <span className="text-sm font-medium text-fg">{t('study.advancedGrading')}</span>
-            <span className="text-sm text-muted">{t('study.advancedGradingDescription')}</span>
-          </span>
-          <span
-            aria-hidden="true"
-            className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-[var(--duration-fast)] ease-default ${
-              advancedGrading ? 'bg-accent' : 'bg-border'
-            }`}
-          >
-            <span
-              className={`inline-block h-5 w-5 transform rounded-full bg-surface transition-transform duration-[var(--duration-fast)] ease-default ${
-                advancedGrading ? 'translate-x-5' : 'translate-x-0.5'
-              }`}
-            />
-          </span>
-        </button>
+        <Switch
+          checked={advancedGrading}
+          onChange={toggleAdvancedGrading}
+          label={t('study.advancedGrading')}
+          description={t('study.advancedGradingDescription')}
+        />
         <p className="text-sm text-muted">{t('study.otherPrefsNote')}</p>
       </Card>
     </div>
