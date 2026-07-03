@@ -1,0 +1,33 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: mindmesh
+  namespace: argocd
+spec:
+  description: MindMesh platform — all environments (dev/staging/prod)
+
+  sourceRepos:
+    - https://github.com/mindmesh/mindmesh.git
+
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: mindmesh-dev
+    - server: https://kubernetes.default.svc
+      namespace: mindmesh-staging
+    - server: https://kubernetes.default.svc
+      namespace: mindmesh-prod
+
+  # Only Namespace is needed cluster-scoped (CreateNamespace=true on the Applications).
+  # ExternalSecret/HPA/PDB/Ingress etc. are all namespaced, covered by the wildcard below.
+  # ClusterSecretStore and any PriorityClass objects are assumed pre-installed by cluster
+  # operators, not created by this project — see ../README.md.
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
+
+  orphanedResources:
+    warn: true

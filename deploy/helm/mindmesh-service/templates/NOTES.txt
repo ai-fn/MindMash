@@ -1,0 +1,18 @@
+{{ include "mindmesh-service.fullname" . }} deployed (release {{ .Release.Name }}, ns {{ .Release.Namespace }}).
+
+Image:      {{ include "mindmesh-service.image" . }}
+Replicas:   {{ if .Values.autoscaling.enabled }}HPA {{ .Values.autoscaling.minReplicas }}–{{ .Values.autoscaling.maxReplicas }} (target CPU {{ .Values.autoscaling.targetCPUUtilizationPercentage }}%){{ else }}{{ .Values.replicaCount }} (fixed){{ end }}
+Ports:      http {{ .Values.ports.http }} (REST + /healthz + /readyz + /metrics), grpc {{ .Values.ports.grpc }}
+{{- if .Values.migrations.enabled }}
+Migrations: pre-install/upgrade Job ran golang-migrate for store "{{ .Values.migrations.store }}".
+{{- end }}
+{{- if .Values.externalSecrets.enabled }}
+Secrets:    ExternalSecret -> {{ include "mindmesh-service.secretName" . }} (via {{ .Values.externalSecrets.secretStoreRef.name }}).
+{{- else if and .Values.secret.create .Values.secret.data }}
+Secrets:    in-chart Secret {{ include "mindmesh-service.secretName" . }} (dev only — do not use for prod).
+{{- end }}
+
+Check health:
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "mindmesh-service.fullname" . }}
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "mindmesh-service.fullname" . }} {{ .Values.ports.http }}:{{ .Values.ports.http }} &
+  curl -fsS localhost:{{ .Values.ports.http }}/healthz && curl -fsS localhost:{{ .Values.ports.http }}/readyz

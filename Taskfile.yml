@@ -124,3 +124,25 @@ tasks:
     dir: web
     cmds:
       - npm run build
+
+  # ── Full-stack local dev on kind + Tilt (see deploy/README.md) ──────────────
+  dev-up:
+    desc: Bootstrap the local kind cluster (cluster + JWT secret + dev stores)
+    cmds:
+      - ./scripts/cluster-up.sh
+
+  dev:
+    desc: Start the app on kind with Tilt (build, deploy, port-forward, SPA HMR)
+    deps: [dev-up]
+    cmds:
+      - tilt up
+
+  dev-down:
+    desc: Delete the local kind cluster (stops Tilt first)
+    cmds:
+      - ./scripts/cluster-down.sh
+
+  dev-redeploy:
+    desc: 'Rebuild+reload one service into kind (usage: task dev-redeploy -- identity)'
+    cmds:
+      - ./scripts/redeploy.sh {{.CLI_ARGS}}

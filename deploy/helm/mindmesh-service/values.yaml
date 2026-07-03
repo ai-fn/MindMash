@@ -1,0 +1,209 @@
+# Default values for the generic mindmesh-service chart.
+# One release of this chart == one Go microservice (identity, collection, ...).
+# The umbrella `mindmesh` chart overrides these per service under its alias key.
+
+# -- Overrides for the generated resource names. The umbrella sets
+# fullnameOverride per alias so Services get clean DNS names (e.g. `identity`,
+# `collection`) that match the app's inter-service env (COLLECTION_GRPC_ADDR, JWKS_URL).
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  # Full ref becomes {registry}/{repository}:{tag}. Empty registry => local/docker-daemon.
+  registry: ghcr.io/mindmesh
+  repository: identity            # == cmd/<repository>; overridden per service
+  tag: ""                         # defaults to .Chart.AppVersion when empty
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# Stateless service: default to 3 for AZ spread (overridden by autoscaling.minReplicas
+# when autoscaling is enabled — the HPA then owns the replica count).
+replicaCount: 3
+
+# Zero-downtime rolling update: a new pod must pass its readiness probe before an
+# old one is removed (maxUnavailable:0), with maxSurge headroom for the extra pod.
+# The pre-upgrade migration Job (when enabled) runs before any pod rolls. Every
+# tier — Go services and the web/nginx SPA — uses this same default.
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 0
+    maxSurge: 25%
+
+# Every MindMesh Go service serves REST+health+metrics on http and gRPC internally.
+# Set grpc to null (see the web tier in the umbrella) for an HTTP-only workload —
+# the Deployment and Service then expose no gRPC port.
+ports:
+  http: 8080
+  grpc: 50051
+
+service:
+  type: ClusterIP
+  annotations: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# distroless "nonroot" runs as uid/gid 65532.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+
+# Probes target the shared HTTP mux (:8080). Liveness = process up; readiness =
+# dependencies (DB/Redis/...) reachable; startup gives slow first boots headroom.
+probes:
+  liveness:
+    path: /healthz
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+  readiness:
+    path: /readyz
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+  startup:
+    path: /healthz
+    periodSeconds: 5
+    failureThreshold: 30           # ~150s budget before liveness takes over
+
+# Must be >= the app's SHUTDOWN_TIMEOUT_SECONDS (default 15s) so SIGTERM drains cleanly.
+terminationGracePeriodSeconds: 30
+
+# Spread pods across zones then nodes for AZ-failure tolerance. The template fills
+# in labelSelector from the pod selector, so leave it empty here.
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Study-path services should outrank batch workers under node pressure.
+priorityClassName: ""
+
+pdb:
+  enabled: true
+  minAvailable: 2                  # single-replica installs (e.g. values-dev.yaml) must set
+                                    # pdb.enabled=false themselves — this budget isn't auto-relaxed
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 20
+  targetCPUUtilizationPercentage: 70
+  # targetMemoryUtilizationPercentage: 80   # optional
+
+# Non-secret configuration -> ConfigMap -> env. Merged over global.env (global is the
+# base, these per-service values win) by the ConfigMap template. Keep only constant /
+# service-specific keys here; env-varying keys (ENV, LOG_LEVEL, endpoints) belong in the
+# umbrella's global.env so overlays can retune them without being shadowed.
+env:
+  GRPC_ADDR: ":50051"
+  HTTP_ADDR: ":8080"
+
+# Extra raw env entries (list of core/v1 EnvVar) for anything ConfigMap env can't express.
+extraEnv: []
+
+# Secret material. dev/local: chart creates a Secret from `secret.data` and injects
+# all its keys as env (envFrom). prod: set externalSecrets.enabled=true, secret.create=false.
+secret:
+  create: false
+  annotations: {}
+  data: {}                         # key: value  (NEVER commit real prod secrets)
+
+externalSecrets:
+  enabled: false
+  secretStoreRef:
+    name: aws-secretsmanager
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  # Map of env-var name -> { key: <remote secret>, property: <field> }.
+  remoteRefs: {}
+
+# Existing Secrets mounted as files (e.g. identity's Ed25519 keys). The Secret is
+# created out-of-band (kubectl / ESO), not templated here, so no key material lands in git.
+fileSecrets: []
+# - name: mindmesh-jwt-keys
+#   mountPath: /etc/mindmesh/keys
+#   readOnly: true
+#   items:
+#     - { key: ed25519.pem, path: ed25519.pem }
+#     - { key: ed25519.pub.pem, path: ed25519.pub.pem }
+
+extraVolumes: []
+extraVolumeMounts: []
+
+# golang-migrate pre-install/pre-upgrade Job. Enabled only for services that own a store.
+migrations:
+  enabled: false
+  store: ""                        # subdir under /migrations baked into the migrate image
+  image:
+    registry: ghcr.io/mindmesh
+    repository: migrate
+    tag: ""                        # defaults to .Chart.AppVersion when empty
+    pullPolicy: IfNotPresent
+  # Env var name the Job passes to golang-migrate's -database flag.
+  databaseUrlEnv: MIGRATE_DATABASE_URL
+  # Full migrate URL incl. ?...&x-migrations-table=schema_migrations_<store>. Rendered
+  # into a short-lived hook Secret. dev: set here; prod: inject from a secret manager
+  # at deploy time (never commit real prod DSNs).
+  databaseUrl: ""
+  backoffLimit: 3
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+# Edge Ingress: path-based routes to this service's HTTP port. Wired by the umbrella.
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts: []                        # [{ host: api.mindmesh.dev, paths: [{path: /v1/auth, pathType: Prefix}] }]
+  tls: []                          # [{ secretName: mindmesh-tls, hosts: [api.mindmesh.dev] }]
+
+# KEDA ScaledObject for Kafka-consumer autoscaling. SCAFFOLD — off by default;
+# requires the KEDA operator. When enabled it replaces the HPA above.
+keda:
+  enabled: false
+  pollingInterval: 30
+  cooldownPeriod: 300
+  minReplicaCount: 3
+  maxReplicaCount: 30
+  triggers: []                     # native KEDA triggers, e.g. kafka lag on a topic/group
+
+# Prometheus Operator ServiceMonitor. SCAFFOLD — off by default; requires the operator CRDs.
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 10s
+  path: /metrics
+
+podAnnotations: {}
+podLabels: {}

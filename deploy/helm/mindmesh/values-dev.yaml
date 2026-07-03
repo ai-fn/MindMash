@@ -1,0 +1,108 @@
+# Local / kind overlay.
+#
+#   helm dependency build deploy/helm/mindmesh
+#   helm template mindmesh deploy/helm/mindmesh -f deploy/helm/mindmesh/values-dev.yaml
+#   helm install mindmesh deploy/helm/mindmesh -f deploy/helm/mindmesh/values-dev.yaml
+#
+# Assumes Postgres/Redis/Redpanda/OpenSearch/ClickHouse/Jaeger already exist in-namespace
+# as plain Services named to match global.env / the per-service *_ADDR values inherited
+# from values.yaml (postgres, redis, redpanda, opensearch, clickhouse, jaeger-collector).
+#
+# Differences from the (production-shaped) base values.yaml:
+#   - single replica, no HPA, no PDB (a PDB with minAvailable:2 can't be satisfied by 1 pod)
+#   - migrations still run via the pre-install Job (RUN_MIGRATIONS=false, migrations.enabled=true
+#     — both inherited from values.yaml, not overridden here). Earlier iterations of this
+#     overlay tried self-migration at boot (RUN_MIGRATIONS=true) for docker-compose-style dev
+#     parity, but that only works when the binary runs with the repo checked out on disk (`go
+#     run` / compose bind mount); the built service image never bakes in migrations/ (only the
+#     dedicated migrate image does — see ../../../Dockerfile vs Dockerfile.migrate), so the
+#     service crash-loops on "open migration source: no such file or directory" the moment it's
+#     containerized. Confirmed via the live kind smoke test — the Job path is what's exercised
+#     in every environment now.
+#   - migrations.image points at a locally built+`kind load`-ed tag instead of ghcr.io
+#   - smaller resource requests/limits for laptop/CI runners
+#   - image tag `dev` (build locally: `docker build --build-arg SERVICE=<svc> -t
+#     mindmesh/<svc>:dev .` and `docker build -f Dockerfile.migrate -t mindmesh/migrate:dev .`,
+#     then `kind load docker-image` each); registry left as the per-service repository name only
+#   - debug logging
+#
+# Ingress and Secret shape are left inherited from values.yaml — the templated dev Secret
+# (docker-compose placeholder creds) is fine for a throwaway local cluster.
+
+global:
+  env:
+    ENV: dev
+    LOG_LEVEL: debug
+
+identity:
+  image: { registry: mindmesh, tag: dev }
+  replicaCount: 1
+  autoscaling: { enabled: false }
+  pdb: { enabled: false }
+  migrations:
+    image: { registry: mindmesh, repository: migrate, tag: dev }
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+collection:
+  image: { registry: mindmesh, tag: dev }
+  replicaCount: 1
+  autoscaling: { enabled: false }
+  pdb: { enabled: false }
+  migrations:
+    image: { registry: mindmesh, repository: migrate, tag: dev }
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+scheduler:
+  image: { registry: mindmesh, tag: dev }
+  replicaCount: 1
+  autoscaling: { enabled: false }
+  pdb: { enabled: false }
+  migrations:
+    image: { registry: mindmesh, repository: migrate, tag: dev }
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+sync:
+  image: { registry: mindmesh, tag: dev }
+  replicaCount: 1
+  autoscaling: { enabled: false }
+  pdb: { enabled: false }
+  migrations:
+    image: { registry: mindmesh, repository: migrate, tag: dev }
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+search:
+  image: { registry: mindmesh, tag: dev }
+  replicaCount: 1
+  autoscaling: { enabled: false }
+  pdb: { enabled: false }
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+analytics:
+  image: { registry: mindmesh, tag: dev }
+  replicaCount: 1
+  autoscaling: { enabled: false }
+  pdb: { enabled: false }
+  migrations:
+    image: { registry: mindmesh, repository: migrate, tag: dev }
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+# Frontend SPA. The in-cluster image exists for parity, but day-to-day the app is
+# served via the Vite dev server (Tilt local_resource, HMR). No ingress controller
+# in kind, so reach it by port-forward.
+web:
+  image: { registry: mindmesh, tag: dev }
+  replicaCount: 1
+  autoscaling: { enabled: false }
+  pdb: { enabled: false }

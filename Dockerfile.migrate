@@ -1,0 +1,14 @@
+# Migration runner image: the golang-migrate CLI with every store's SQL baked in
+# under /migrations/<store>. Used by the Helm pre-install/pre-upgrade Job.
+#
+#   docker build -f Dockerfile.migrate -t mindmesh/migrate:dev .
+#
+# The Job runs, e.g.:
+#   migrate -path /migrations/identity -database "$MIGRATE_DATABASE_URL" up
+#
+# The upstream image bundles the postgres and clickhouse drivers we need and is
+# alpine-based (has /bin/sh), so it doubles as a debugging shell if required.
+FROM migrate/migrate:v4.18.1
+
+# Baked SQL — one subdirectory per store, matching migrations/<store> in the repo.
+COPY migrations/ /migrations/

@@ -1,0 +1,47 @@
+apiVersion: v2
+name: mindmesh
+description: >-
+  Umbrella chart deploying all MindMesh microservices. Each service is one
+  aliased instance of the generic `mindmesh-service` chart, configured per
+  service under its alias key in values.yaml. Environment overlays live in
+  values-{dev,staging,prod}.yaml.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/mindmesh/mindmesh
+sources:
+  - https://github.com/mindmesh/mindmesh
+
+# One dependency per service, all pointing at the single generic chart via a
+# local file:// path. `helm dependency build` vendors it into charts/.
+dependencies:
+  - name: mindmesh-service
+    version: "0.1.0"
+    repository: "file://../mindmesh-service"
+    alias: identity
+  - name: mindmesh-service
+    version: "0.1.0"
+    repository: "file://../mindmesh-service"
+    alias: collection
+  - name: mindmesh-service
+    version: "0.1.0"
+    repository: "file://../mindmesh-service"
+    alias: scheduler
+  - name: mindmesh-service
+    version: "0.1.0"
+    repository: "file://../mindmesh-service"
+    alias: sync
+  - name: mindmesh-service
+    version: "0.1.0"
+    repository: "file://../mindmesh-service"
+    alias: search
+  - name: mindmesh-service
+    version: "0.1.0"
+    repository: "file://../mindmesh-service"
+    alias: analytics
+  # The frontend SPA reuses the same generic chart in HTTP-only mode (no gRPC
+  # port, no migrations, nginx health path) — see the `web` block in values.yaml.
+  - name: mindmesh-service
+    version: "0.1.0"
+    repository: "file://../mindmesh-service"
+    alias: web

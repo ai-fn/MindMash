@@ -1,0 +1,24 @@
+dependencies:
+- name: mindmesh-service
+  repository: file://../mindmesh-service
+  version: 0.1.0
+- name: mindmesh-service
+  repository: file://../mindmesh-service
+  version: 0.1.0
+- name: mindmesh-service
+  repository: file://../mindmesh-service
+  version: 0.1.0
+- name: mindmesh-service
+  repository: file://../mindmesh-service
+  version: 0.1.0
+- name: mindmesh-service
+  repository: file://../mindmesh-service
+  version: 0.1.0
+- name: mindmesh-service
+  repository: file://../mindmesh-service
+  version: 0.1.0
+- name: mindmesh-service
+  repository: file://../mindmesh-service
+  version: 0.1.0
+digest: sha256:87012c9c48f8243d61ce8605e697252afbbfe59c635a0a7154a26bfa009dd1c5
+generated: "2026-07-03T10:24:38.480597027+03:00"

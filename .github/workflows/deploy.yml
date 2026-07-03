@@ -1,0 +1,121 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main, feat/**]
+  pull_request:
+
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [identity, collection, scheduler, sync, search, analytics]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        if: github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build ${{ matrix.service }} (push only on main)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          build-args: SERVICE=${{ matrix.service }}
+          push: ${{ github.ref == 'refs/heads/main' }}
+          tags: |
+            ghcr.io/mindmesh/${{ matrix.service }}:${{ github.sha }}
+            ghcr.io/mindmesh/${{ matrix.service }}:main
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  migrate-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        if: github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build migrate image (push only on main)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.migrate
+          push: ${{ github.ref == 'refs/heads/main' }}
+          tags: |
+            ghcr.io/mindmesh/migrate:${{ github.sha }}
+            ghcr.io/mindmesh/migrate:main
+          cache-from: type=gha,scope=migrate
+          cache-to: type=gha,mode=max,scope=migrate
+
+  # The frontend SPA image builds from web/ with its own Dockerfile (no SERVICE
+  # build-arg), so it's a separate job rather than a row in the service matrix.
+  web-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        if: github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build web image (push only on main)
+        uses: docker/build-push-action@v6
+        with:
+          context: web
+          file: web/Dockerfile
+          push: ${{ github.ref == 'refs/heads/main' }}
+          tags: |
+            ghcr.io/mindmesh/web:${{ github.sha }}
+            ghcr.io/mindmesh/web:main
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+
+  charts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+      - name: Install kubeconform + yq
+        run: |
+          go install github.com/yannh/kubeconform/cmd/kubeconform@latest
+          go install github.com/mikefarah/yq/v4@latest
+      - name: helm dependency build
+        run: helm dependency build deploy/helm/mindmesh
+      - name: Lint + template + kubeconform + policy check
+        run: |
+          set -euo pipefail
+          for env in dev staging prod; do
+            echo "::group::values-${env}.yaml"
+            helm lint deploy/helm/mindmesh -f deploy/helm/mindmesh/values-$env.yaml
+
+            rendered="$(helm template mindmesh deploy/helm/mindmesh -f deploy/helm/mindmesh/values-$env.yaml)"
+
+            # ExternalSecret/ScaledObject/ServiceMonitor are third-party CRDs kubeconform
+            # has no bundled schema for; they only render when their own *.enabled flag
+            # is set (off in dev; ExternalSecrets on in staging/prod).
+            echo "$rendered" | kubeconform -strict -summary -ignore-missing-schemas
+
+            # values-dev.yaml deliberately runs single-replica with no PDB.
+            if [ "$env" = "dev" ]; then
+              echo "$rendered" | SKIP_PDB_CHECK=1 deploy/scripts/policy-check.sh
+            else
+              echo "$rendered" | deploy/scripts/policy-check.sh
+            fi
+            echo "::endgroup::"
+          done

@@ -1,0 +1,206 @@
+# Deploying MindMesh
+
+Kubernetes/Helm/ArgoCD deployment for the 6 MindMesh backend services (identity, collection,
+scheduler, sync, search, analytics) **plus the React SPA frontend** (`web`), implementing
+[`docs/detailed/14-kubernetes-deployment.md`](../../MindMesh-docs/docs/detailed/14-kubernetes-deployment.md)
+at **pragmatic-foundation** depth: the core topology, scaling, health, rolling updates, secrets,
+edge routing, and GitOps patterns are real and exercised; the advanced items (mesh, canary, live
+KEDA/ESO, multi-region, OPA) are scaffolded off-by-default or documented as future work — see
+[Out of scope](#out-of-scope).
+
+## Running it — two ways
+
+| | Local dev | Production |
+|---|---|---|
+| **How** | kind + [Tilt](https://tilt.dev): `scripts/cluster-up.sh` then `tilt up` | GitOps: ArgoCD syncs `values-prod.yaml` on push to `main` (see `argocd/README.md`) |
+| **Stores** | in-cluster dev stand-ins (`deploy/dev/stores.yaml.tmpl`) | **external managed** services, wired via ExternalSecrets |
+| **Frontend** | Vite dev server (HMR) at `localhost:5173` | `web` nginx image behind the edge Ingress at `/` |
+| **Config** | `.env` (see [Configuration](#configuration-env)) | ExternalSecrets + `--set` image tags from CI |
+| **Stop** | `tilt down` (app) · `scripts/cluster-down.sh` (whole cluster) | ArgoCD app disable / `helm uninstall` |
+
+Both are detailed below ([Local dev](#local-dev-kind--tilt), [Production](#production-argocd-gitops)).
+
+## Layout
+
+```
+Dockerfile               # ARG SERVICE, multi-stage → gcr.io/distroless/static:nonroot
+Dockerfile.migrate       # FROM migrate/migrate + COPY migrations/
+web/Dockerfile           # SPA build (node) → nginx serving static dist/ on :8080
+Tiltfile                 # local dev loop: build → deploy → port-forward → Vite HMR
+.env.example             # all local-dev config knobs (copy to .env)
+scripts/
+  cluster-up.sh          # kind + node DNS fix + JWT secret + dev stores (idempotent)
+  cluster-down.sh        # tilt down + delete the kind cluster
+  redeploy.sh <svc>      # rebuild+reload one image (non-Tilt escape hatch)
+deploy/
+  dev/stores.yaml.tmpl   # dev-only in-cluster stores (envsubst from .env) — NOT prod
+  helm/
+    mindmesh-service/    # the ONE generic chart — one release == one service (incl. web)
+    mindmesh/            # umbrella: the generic chart x7 (alias per service + web) + overlays
+      values.yaml            # per-service wiring (images, env, secrets, ingress); prod-shaped
+      values-dev.yaml        # local/kind: 1 replica, no HPA/PDB, Job-based migrations
+      values-staging.yaml    # ExternalSecrets, capped autoscaling, staging.mindmesh.dev
+      values-prod.yaml       # ExternalSecrets, TLS, values.yaml's scale as-is
+  argocd/                 # AppProject + ApplicationSet (dev/staging/prod) — see argocd/README.md
+.github/workflows/deploy.yml  # image build (services + migrate + web) + chart validation (CI)
+```
+
+Why an umbrella + one generic subchart instead of 7 charts: every workload shares 100% of the
+same template logic (Deployment/Service/HPA/PDB/Ingress/migration Job/...); only *values* differ.
+`deploy/helm/mindmesh/Chart.yaml` declares `mindmesh-service` 7 times via `dependencies[].alias`,
+and each alias gets its own block in `values.yaml`. The `web` alias reuses the same chart in
+HTTP-only mode (`ports.grpc: 0` → no gRPC port, no migration Job, nginx `/healthz` probe).
+
+## Prerequisites
+
+| Tool | Needed for |
+|---|---|
+| `docker` | building service + migrate images |
+| `helm` (v3+) | rendering/installing charts |
+| `kubeconform` | static schema validation in CI (`go install github.com/yannh/kubeconform/cmd/kubeconform@latest`) |
+| `yq` (mikefarah, v4) | `deploy/scripts/policy-check.sh` (`go install github.com/mikefarah/yq/v4@latest`) |
+| `kind` + `kubectl` | local smoke-testing a real rollout |
+| ArgoCD + ApplicationSet controller | GitOps delivery (see `argocd/README.md`) |
+| External Secrets Operator + a `ClusterSecretStore` | staging/prod secrets (`externalSecrets.enabled: true`) |
+
+## Building images
+
+```bash
+docker build --build-arg SERVICE=identity -t mindmesh/identity:dev .
+docker build -f Dockerfile.migrate -t mindmesh/migrate:dev .
+```
+
+Repeat `SERVICE=` for `collection`, `scheduler`, `sync`, `search`, `analytics`. CI
+(`.github/workflows/deploy.yml`) does this for all 6 + migrate in a matrix and pushes to GHCR on
+`main`.
+
+## Static validation (also runs in CI)
+
+```bash
+cd deploy/helm/mindmesh && helm dependency build && cd -
+for env in dev staging prod; do
+  helm lint deploy/helm/mindmesh -f deploy/helm/mindmesh/values-$env.yaml
+  rendered="$(helm template mindmesh deploy/helm/mindmesh -f deploy/helm/mindmesh/values-$env.yaml)"
+  echo "$rendered" | kubeconform -strict -summary -ignore-missing-schemas
+  # values-dev.yaml runs single-replica with no PDB by design — skip that one check for it.
+  if [ "$env" = dev ]; then
+    echo "$rendered" | SKIP_PDB_CHECK=1 deploy/scripts/policy-check.sh
+  else
+    echo "$rendered" | deploy/scripts/policy-check.sh
+  fi
+done
+```
+
+`-ignore-missing-schemas` is required because `ExternalSecret`/`ScaledObject`/`ServiceMonitor` are
+third-party CRDs kubeconform doesn't ship schemas for; they only render when their `*.enabled`
+flag is set (off in all three committed overlays except ExternalSecrets in staging/prod).
+
+## Local dev (kind + Tilt)
+
+The whole stack — 5 backing stores, 6 services, and the SPA — runs on a local `kind` cluster in
+two commands:
+
+```bash
+cp .env.example .env          # optional: edit creds / image tags / ports
+scripts/cluster-up.sh         # kind cluster + node DNS fix + JWT secret + dev stores (idempotent)
+tilt up                       # build every image, deploy the chart, port-forward, serve the SPA
+```
+
+- Open the Tilt UI at `http://localhost:10350` to watch builds/logs; the app is at
+  **`http://localhost:5173`** (Vite dev server, hot-reloading against the port-forwarded backends).
+- Each backend is port-forwarded on its own port (identity `:8080` … search `:8085`, matching
+  `web/vite.config.ts`), so `curl localhost:8080/healthz` etc. work directly.
+- The in-cluster `web` Deployment also runs (serving the built nginx image at `:8090`) for prod
+  parity; day-to-day you'll use Vite at `:5173`.
+- **Stop:** `tilt down` stops the app but keeps the cluster + stores; `scripts/cluster-down.sh`
+  deletes the whole cluster. (`task dev-up` / `task dev` / `task dev-down` wrap these.)
+- Changed one service and don't want Tilt? `scripts/redeploy.sh <svc>` rebuilds+reloads just it.
+
+There is **no ingress controller** in the dev cluster — reach services via the port-forwards above,
+not the Ingress (which is a prod concern). `docker-compose` (`task compose-up`) remains as a lighter,
+non-Kubernetes alternative for pure-backend work.
+
+## Configuration (.env)
+
+Nothing environment-specific is hardcoded in the scripts, the Tiltfile, or committed values —
+it all flows from `.env` (falling back to the committed `.env.example` defaults):
+
+```
+.env  ──▶  cluster-up.sh (cluster name, stores, secret)
+      └──▶  Tiltfile (image registry/tag, and Helm --set for DB DSNs derived from the same creds)
+                 └──▶  Helm values ──▶ ConfigMap + Secret ──▶ container env
+```
+
+So changing e.g. `POSTGRES_PASSWORD` in `.env` updates both the dev Postgres store and every
+service's DSN from one place. `.env` is gitignored; commit changes to `.env.example` only.
+In staging/prod the *same variable names* map to ExternalSecret keys, so the contract is identical.
+
+## Production (ArgoCD GitOps)
+
+Prod points at **external managed stores** (RDS/Aurora+Citus, MSK/Redpanda Cloud, ElastiCache,
+managed OpenSearch, ClickHouse Cloud); the chart never runs stateful DBs in-cluster. Flow:
+
+1. Push to `main` → CI (`.github/workflows/deploy.yml`) builds+pushes all images (6 services +
+   migrate + web) to GHCR, tagged by commit SHA.
+2. The release SHA is surfaced to `values-prod.yaml` image tags (ArgoCD Image Updater, or a CI
+   commit) and ArgoCD's `ApplicationSet` syncs the prod `Application` (see `argocd/README.md`).
+3. Each service's **pre-upgrade migration Job** runs first, then Deployments **roll** (below).
+4. Secrets (DB DSNs, ClickHouse password) come from ExternalSecrets; the store contract is: each
+   service needs its `DB_DSN` (or `CLICKHOUSE_PASSWORD`) key present in the configured
+   `ClusterSecretStore` under `mindmesh/prod/<service>`.
+
+### Rolling updates (zero-downtime)
+
+Every Deployment uses an explicit `RollingUpdate` strategy (`maxUnavailable: 0`, `maxSurge: 25%`)
+so a new pod must pass its readiness probe (`/readyz`) before an old one is removed, with a PDB
+guarding voluntary disruptions. Because migrations run in a **pre-upgrade Job before** the new
+pods roll, schema changes must be **backward-compatible (expand-contract)** — the old pods keep
+serving against the migrated schema during the rollout. Tune via `<svc>.strategy` in values.
+
+### Edge routing
+
+The frontend and API share **one host** so the SPA's relative `/v1/*` fetches are same-origin (no
+CORS): the longer `/v1/*` prefixes win over the web `/` catch-all by ingress-nginx longest-match.
+
+| Path | → Service |
+|---|---|
+| `/v1/cards/{id}/answer`, `/v1/cards/{id}/preview`, `/v1/cards/{id}:reschedule`, `/v1/study` | scheduler (regex; see below) |
+| `/v1/cards`, `/v1/decks`, `/v1/notes`, `/v1/note-types`, `/v1/deck-configs`, `/v1/filtered-decks` | collection |
+| `/v1/auth`, `/v1/users`, `/v1/profiles`, `/.well-known/jwks.json` | identity |
+| `/v1/sync` | sync · `/v1/search` | search · `/v1/stats` | analytics |
+| `/` (everything else) | web (SPA) |
+
+Requires ingress-nginx (`nginx.ingress.kubernetes.io/use-regex` splits the scheduler verbs out of
+collection's `/v1/cards` prefix). Verify the regex precedence live when standing up a real
+controller — it's rendered and static-checked here but the dev cluster has no ingress controller.
+
+## Known limitations (documented, not silently guessed around)
+
+- **`/v1/cards` prefix overlap** (addressed, needs live confirmation): collection owns
+  `/v1/cards` CRUD while scheduler's `/v1/cards/{id}/answer|preview|:reschedule` live under the same
+  prefix. Split via scheduler's `use-regex` Ingress (longer/anchored paths win) — see the
+  [routing table](#edge-routing). Correct in the rendered manifests; the exact ingress-nginx regex
+  precedence should be confirmed against a live controller (the dev cluster has none).
+- **OpenSearch security**: disabled in the reference deployment (matches local `docker-compose`).
+  A real cluster enabling it needs an `externalSecrets` block for `search`
+  (`OPENSEARCH_USERNAME`/`PASSWORD`) that no overlay wires up yet.
+- **Migration DSNs in staging/prod**: `<service>.migrations.databaseUrl` is deliberately blank in
+  `values-staging.yaml`/`values-prod.yaml` (the pre-install Job no-ops until it's set). Real
+  deployments inject it at deploy time from a CD secret store — see `argocd/README.md` — never by
+  committing a DSN.
+
+## Out of scope
+
+Documented as future work, not built here:
+
+- Service mesh (Istio/Linkerd) + mTLS between services.
+- Argo Rollouts canary steps gated on Prometheus SLO queries.
+- KEDA operator actually installed / live Kafka-lag-driven autoscaling (the `ScaledObject`
+  template exists, gated behind `keda.enabled`, and is unexercised).
+- External Secrets Operator actually installed, and a secret-plugin (e.g. argocd-vault-plugin)
+  wiring the migration DSNs above end-to-end (the `ExternalSecret` CRD template exists and is
+  exercised for the app's own `DB_DSN`/`CLICKHOUSE_PASSWORD` in staging/prod).
+- Multi-region `ApplicationSet` (cluster generator × region) + GeoDNS + per-region secret stores.
+- OPA/Gatekeeper admission policies + chaos-engineering drills.
+- Envoy/Kong edge with JWT validation and rate-limiting at the edge (services already validate
+  JWTs themselves via cached JWKS, so this is a defense-in-depth/performance layer, not a gap).

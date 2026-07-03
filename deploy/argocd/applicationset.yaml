@@ -1,0 +1,57 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: mindmesh
+  namespace: argocd
+spec:
+  # goTemplate lets the syncPolicy block below differ per element (dev/staging
+  # auto-sync; prod requires an explicit `argocd app sync mindmesh-prod`).
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+
+  generators:
+    - list:
+        elements:
+          - env: dev
+            namespace: mindmesh-dev
+            autoSync: "true"
+          - env: staging
+            namespace: mindmesh-staging
+            autoSync: "true"
+          - env: prod
+            namespace: mindmesh-prod
+            autoSync: "false"
+
+  template:
+    metadata:
+      name: "mindmesh-{{.env}}"
+      labels:
+        env: "{{.env}}"
+    spec:
+      project: mindmesh
+      source:
+        repoURL: https://github.com/mindmesh/mindmesh.git
+        targetRevision: main         # point at your release branch/tag once this lands on main
+        path: deploy/helm/mindmesh
+        helm:
+          valueFiles:
+            - "values-{{.env}}.yaml"
+          # Per-env secrets that must never be committed (e.g. migrations.databaseUrl,
+          # left blank in values-staging.yaml/values-prod.yaml) are injected here at
+          # sync time from your CD's secret store — NOT from a plain `values` block.
+          # Example shape once you wire a secret plugin (e.g. argocd-vault-plugin):
+          #
+          # parameters:
+          #   - name: identity.migrations.databaseUrl
+          #     value: "$ARGOCD_ENV_IDENTITY_DSN"
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "{{.namespace}}"
+      syncPolicy:
+        syncOptions:
+          - CreateNamespace=true
+        {{- if eq .autoSync "true" }}
+        automated:
+          prune: true
+          selfHeal: true
+        {{- end }}

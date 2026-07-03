@@ -1,0 +1,11 @@
+# Build context is web/. Keep it lean and reproducible: never ship local
+# node_modules or a stale dist into the build (they're rebuilt in-image).
+node_modules
+dist
+.env
+.env.*
+playwright-report
+test-results
+coverage
+*.log
+.DS_Store

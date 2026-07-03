@@ -1,0 +1,261 @@
+# Umbrella values for the MindMesh platform.
+#
+# Structure:
+#   global.env            -> non-secret env shared by every service (merged as the
+#                            base; each service's own `env` overrides on conflict).
+#   <alias>:              -> values for one `mindmesh-service` instance.
+#
+# These are PRODUCTION-SHAPED defaults (3 replicas via HPA, PDBs, in-cluster Secrets
+# off). Apply an overlay for a concrete environment:
+#   helm template mindmesh . -f values-dev.yaml        # local / kind
+#   helm template mindmesh . -f values-staging.yaml
+#   helm template mindmesh . -f values-prod.yaml       # ExternalSecrets, high scale
+#
+# The DB_DSN / migrate URLs below point at in-cluster Service names
+# (postgres, redis, redpanda, opensearch, clickhouse); provision those as managed
+# services or operators per docs/detailed/14. Secret VALUES here are dev placeholders
+# (the well-known docker-compose creds) — real environments use values-prod.yaml's
+# ExternalSecrets, never committed DSNs.
+
+global:
+  env:
+    ENV: prod
+    LOG_LEVEL: info
+    OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger-collector:4317"
+    KAFKA_BROKERS: "redpanda:9092"
+    REDIS_ADDR: "redis:6379"
+    # Shared JWT issuer: identity signs with JWT_ISSUER, validators check JWKS_ISSUER.
+    JWT_ISSUER: "https://mindmesh.dev"
+    JWKS_ISSUER: "https://mindmesh.dev"
+
+# --- identity -------------------------------------------------------------
+identity:
+  fullnameOverride: identity
+  image:
+    repository: identity
+  env:
+    SERVICE_NAME: identity
+    OTEL_SERVICE_NAME: identity
+    RUN_MIGRATIONS: "false"          # the pre-install Job owns migrations
+    JWT_PRIVATE_KEY_PATH: /etc/mindmesh/keys/ed25519.pem
+    JWT_PUBLIC_KEY_PATH: /etc/mindmesh/keys/ed25519.pub.pem
+  # Ed25519 signing keys mounted from an out-of-band Secret (kubectl / ESO).
+  fileSecrets:
+    - name: mindmesh-jwt-keys
+      mountPath: /etc/mindmesh/keys
+      readOnly: true
+      items:
+        - { key: ed25519.pem, path: ed25519.pem }
+        - { key: ed25519.pub.pem, path: ed25519.pub.pem }
+  secret:
+    create: true
+    data:
+      DB_DSN: "postgres://mindmesh:mindmesh@postgres:5432/mindmesh?sslmode=disable"
+  migrations:
+    enabled: true
+    store: identity
+    databaseUrl: "postgres://mindmesh:mindmesh@postgres:5432/mindmesh?sslmode=disable&x-migrations-table=schema_migrations_identity"
+  ingress:
+    enabled: true
+    hosts:
+      - host: api.mindmesh.dev
+        paths:
+          - { path: /v1/auth, pathType: Prefix }
+          - { path: /v1/users, pathType: Prefix }
+          - { path: /v1/profiles, pathType: Prefix }
+          - { path: /.well-known/jwks.json, pathType: Prefix }
+
+# --- collection -----------------------------------------------------------
+collection:
+  fullnameOverride: collection
+  image:
+    repository: collection
+  env:
+    SERVICE_NAME: collection
+    OTEL_SERVICE_NAME: collection
+    RUN_MIGRATIONS: "false"
+    JWKS_URL: "http://identity:8080/.well-known/jwks.json"
+  secret:
+    create: true
+    data:
+      DB_DSN: "postgres://mindmesh:mindmesh@postgres:5432/mindmesh?sslmode=disable"
+  migrations:
+    enabled: true
+    store: collection
+    databaseUrl: "postgres://mindmesh:mindmesh@postgres:5432/mindmesh?sslmode=disable&x-migrations-table=schema_migrations_collection"
+  ingress:
+    enabled: true
+    hosts:
+      - host: api.mindmesh.dev
+        paths:
+          # collection owns the /v1/cards RESOURCE (CRUD + :bulk). scheduler's
+          # /v1/cards/{id}/answer|preview|:reschedule live under this prefix but are
+          # split off to scheduler via its use-regex Ingress (longer paths win). See
+          # the routing table in deploy/README.md.
+          - { path: /v1/decks, pathType: Prefix }
+          - { path: /v1/notes, pathType: Prefix }
+          - { path: /v1/note-types, pathType: Prefix }
+          - { path: /v1/deck-configs, pathType: Prefix }
+          - { path: /v1/filtered-decks, pathType: Prefix }
+          - { path: /v1/cards, pathType: Prefix }
+
+# --- scheduler ------------------------------------------------------------
+scheduler:
+  fullnameOverride: scheduler
+  image:
+    repository: scheduler
+  env:
+    SERVICE_NAME: scheduler
+    OTEL_SERVICE_NAME: scheduler
+    RUN_MIGRATIONS: "false"
+    JWKS_URL: "http://identity:8080/.well-known/jwks.json"
+    COLLECTION_GRPC_ADDR: "collection:50051"
+  secret:
+    create: true
+    data:
+      DB_DSN: "postgres://mindmesh:mindmesh@postgres:5432/mindmesh?sslmode=disable"
+  migrations:
+    enabled: true
+    store: scheduler
+    databaseUrl: "postgres://mindmesh:mindmesh@postgres:5432/mindmesh?sslmode=disable&x-migrations-table=schema_migrations_scheduler"
+  ingress:
+    enabled: true
+    # Scheduler owns the study verbs that live UNDER collection's /v1/cards prefix
+    # (…/answer, …/preview, :reschedule). use-regex + these longer, anchored paths
+    # make ingress-nginx match them before collection's plain /v1/cards prefix, so
+    # a grade POST reaches scheduler while card CRUD stays on collection. Requires
+    # ingress-nginx (a prod prerequisite; dev uses port-forward / Vite).
+    annotations:
+      nginx.ingress.kubernetes.io/use-regex: "true"
+    hosts:
+      - host: api.mindmesh.dev
+        paths:
+          - { path: "/v1/cards/[^/]+/(answer|preview)", pathType: ImplementationSpecific }
+          - { path: "/v1/cards/[^/]+:reschedule", pathType: ImplementationSpecific }
+          - { path: /v1/study, pathType: Prefix }
+
+# --- sync -----------------------------------------------------------------
+sync:
+  fullnameOverride: sync
+  image:
+    repository: sync
+  env:
+    SERVICE_NAME: sync
+    OTEL_SERVICE_NAME: sync
+    RUN_MIGRATIONS: "false"
+    JWKS_URL: "http://identity:8080/.well-known/jwks.json"
+    COLLECTION_GRPC_ADDR: "collection:50051"
+  secret:
+    create: true
+    data:
+      DB_DSN: "postgres://mindmesh:mindmesh@postgres:5432/mindmesh?sslmode=disable"
+  migrations:
+    enabled: true
+    store: sync
+    databaseUrl: "postgres://mindmesh:mindmesh@postgres:5432/mindmesh?sslmode=disable&x-migrations-table=schema_migrations_sync"
+  ingress:
+    enabled: true
+    hosts:
+      - host: api.mindmesh.dev
+        paths:
+          - { path: /v1/sync, pathType: Prefix }
+
+# --- search ---------------------------------------------------------------
+# No SQL store (bootstraps its OpenSearch index at boot) => no migration Job.
+# OpenSearch security is disabled locally, so no env Secret is needed in dev.
+search:
+  fullnameOverride: search
+  image:
+    repository: search
+  env:
+    SERVICE_NAME: search
+    OTEL_SERVICE_NAME: search
+    JWKS_URL: "http://identity:8080/.well-known/jwks.json"
+    COLLECTION_GRPC_ADDR: "collection:50051"
+    OPENSEARCH_ADDRESSES: "http://opensearch:9200"
+    JWT_PRIVATE_KEY_PATH: /etc/mindmesh/keys/ed25519.pem
+    JWT_PUBLIC_KEY_PATH: /etc/mindmesh/keys/ed25519.pub.pem
+  # The indexer mints its own per-user token to call Collection, so search needs
+  # the same signing key material as identity (not just remote JWKS verification).
+  fileSecrets:
+    - name: mindmesh-jwt-keys
+      mountPath: /etc/mindmesh/keys
+      readOnly: true
+      items:
+        - { key: ed25519.pem, path: ed25519.pem }
+        - { key: ed25519.pub.pem, path: ed25519.pub.pem }
+  ingress:
+    enabled: true
+    hosts:
+      - host: api.mindmesh.dev
+        paths:
+          - { path: /v1/search, pathType: Prefix }
+
+# --- analytics ------------------------------------------------------------
+analytics:
+  fullnameOverride: analytics
+  image:
+    repository: analytics
+  env:
+    SERVICE_NAME: analytics
+    OTEL_SERVICE_NAME: analytics
+    RUN_MIGRATIONS: "false"
+    JWKS_URL: "http://identity:8080/.well-known/jwks.json"
+    CLICKHOUSE_ADDR: "clickhouse:9000"
+    CLICKHOUSE_DB: mindmesh
+    CLICKHOUSE_USER: mindmesh
+    JWT_PRIVATE_KEY_PATH: /etc/mindmesh/keys/ed25519.pem
+    JWT_PUBLIC_KEY_PATH: /etc/mindmesh/keys/ed25519.pub.pem
+  # auth.NewSigner is initialized unconditionally at boot (even though analytics
+  # verifies via remote JWKS and never mints tokens itself), so it needs the same
+  # key material as identity/search regardless of environment.
+  fileSecrets:
+    - name: mindmesh-jwt-keys
+      mountPath: /etc/mindmesh/keys
+      readOnly: true
+      items:
+        - { key: ed25519.pem, path: ed25519.pem }
+        - { key: ed25519.pub.pem, path: ed25519.pub.pem }
+  secret:
+    create: true
+    data:
+      CLICKHOUSE_PASSWORD: mindmesh
+  migrations:
+    enabled: true
+    store: clickhouse
+    databaseUrl: "clickhouse://clickhouse:9000?username=mindmesh&password=mindmesh&database=mindmesh&x-multi-statement=true&x-migrations-table=schema_migrations_clickhouse"
+  ingress:
+    enabled: true
+    hosts:
+      - host: api.mindmesh.dev
+        paths:
+          - { path: /v1/stats, pathType: Prefix }
+
+# --- web (frontend SPA) ---------------------------------------------------
+# The React SPA served as static files by nginx. Reuses the generic chart in
+# HTTP-only mode: no gRPC port, no migrations, no secrets, nginx /healthz probe.
+# Its Ingress is the catch-all `/` on the SAME host as the API, so the SPA's
+# relative /v1/* fetches stay same-origin (no CORS). The longer /v1/* prefixes
+# win over `/` via ingress-nginx's longest-match ordering.
+web:
+  fullnameOverride: web
+  image:
+    repository: web
+  # HTTP-only tier: 0 disables the gRPC container/service port (nginx serves no gRPC).
+  ports:
+    grpc: 0
+  env:
+    SERVICE_NAME: web
+  # nginx serves /healthz but not /readyz — point readiness at /healthz too.
+  probes:
+    readiness:
+      path: /healthz
+  resources:
+    requests: { cpu: 25m, memory: 32Mi }
+    limits: { cpu: 250m, memory: 128Mi }
+  ingress:
+    enabled: true
+    hosts:
+      - host: api.mindmesh.dev
+        paths:
+          - { path: /, pathType: Prefix }

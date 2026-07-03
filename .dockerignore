@@ -1,0 +1,29 @@
+# Keep the Docker build context small and never bake local secrets/artifacts.
+.git
+.github
+.gitignore
+.golangci.yml
+Taskfile.yml
+docker-compose.yml
+CLAUDE.md
+*.md
+
+# Local dev signing keys — MUST NOT be baked into images (mounted via Secret).
+keys/
+
+# Deploy artifacts and docs aren't needed inside service images.
+deploy/
+docs/
+test/
+
+# Web SPA build inputs/outputs (served separately).
+web/node_modules/
+web/dist/
+web/.vite/
+
+# Editor/OS noise.
+.idea/
+.vscode/
+.DS_Store
+
+# NOTE: migrations/ is intentionally NOT ignored — Dockerfile.migrate bakes it in.

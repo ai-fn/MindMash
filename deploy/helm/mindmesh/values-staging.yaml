@@ -1,0 +1,167 @@
+# Staging overlay — mirrors prod's secret handling (ExternalSecrets, not templated
+# Secrets) so secret-wiring problems surface here instead of in prod, but caps scale
+# and cost below prod.
+#
+#   helm template mindmesh deploy/helm/mindmesh -f deploy/helm/mindmesh/values-staging.yaml
+#   helm upgrade --install mindmesh deploy/helm/mindmesh -n staging --create-namespace \
+#     -f deploy/helm/mindmesh/values-staging.yaml \
+#     --set-string identity.migrations.databaseUrl="$IDENTITY_DSN" \
+#     ... (one --set-string per store; see deploy/README.md)
+#
+# `migrations.databaseUrl` is intentionally left blank below: the pre-install migration
+# Job is a no-op (see migration-job.yaml's guard) unless a DSN is supplied. Never commit
+# a real staging DSN — inject it at deploy time from CI secrets / your CD's secret plugin.
+#
+# ExternalSecrets requires the External Secrets Operator + a ClusterSecretStore named
+# "aws-secretsmanager" (or adjust secretStoreRef below) already installed in-cluster —
+# this overlay only emits the CRD, it doesn't install the operator (out of scope, see
+# deploy/README.md).
+
+global:
+  env:
+    ENV: staging
+    LOG_LEVEL: debug
+    JWT_ISSUER: "https://staging.mindmesh.dev"
+    JWKS_ISSUER: "https://staging.mindmesh.dev"
+
+identity:
+  image: { tag: staging }
+  autoscaling: { maxReplicas: 8 }
+  secret: { create: false }
+  externalSecrets:
+    enabled: true
+    secretStoreRef: { name: aws-secretsmanager, kind: ClusterSecretStore }
+    remoteRefs:
+      DB_DSN: { key: mindmesh/staging/identity, property: db_dsn }
+  migrations:
+    databaseUrl: ""
+  ingress:
+    hosts:
+      - host: staging.mindmesh.dev
+        paths:
+          - { path: /v1/auth, pathType: Prefix }
+          - { path: /v1/users, pathType: Prefix }
+          - { path: /v1/profiles, pathType: Prefix }
+          - { path: /.well-known/jwks.json, pathType: Prefix }
+    tls:
+      - secretName: mindmesh-staging-tls
+        hosts: [staging.mindmesh.dev]
+
+collection:
+  image: { tag: staging }
+  autoscaling: { maxReplicas: 8 }
+  secret: { create: false }
+  externalSecrets:
+    enabled: true
+    secretStoreRef: { name: aws-secretsmanager, kind: ClusterSecretStore }
+    remoteRefs:
+      DB_DSN: { key: mindmesh/staging/collection, property: db_dsn }
+  migrations:
+    databaseUrl: ""
+  ingress:
+    hosts:
+      - host: staging.mindmesh.dev
+        paths:
+          - { path: /v1/decks, pathType: Prefix }
+          - { path: /v1/notes, pathType: Prefix }
+          - { path: /v1/note-types, pathType: Prefix }
+          - { path: /v1/deck-configs, pathType: Prefix }
+          - { path: /v1/filtered-decks, pathType: Prefix }
+          - { path: /v1/cards, pathType: Prefix }
+    tls:
+      - secretName: mindmesh-staging-tls
+        hosts: [staging.mindmesh.dev]
+
+scheduler:
+  image: { tag: staging }
+  autoscaling: { maxReplicas: 8 }
+  secret: { create: false }
+  externalSecrets:
+    enabled: true
+    secretStoreRef: { name: aws-secretsmanager, kind: ClusterSecretStore }
+    remoteRefs:
+      DB_DSN: { key: mindmesh/staging/scheduler, property: db_dsn }
+  migrations:
+    databaseUrl: ""
+  # use-regex annotation is inherited from base values.yaml (maps merge); the paths
+  # list fully replaces base, so the /v1/cards study-verb splits are repeated here.
+  ingress:
+    hosts:
+      - host: staging.mindmesh.dev
+        paths:
+          - { path: "/v1/cards/[^/]+/(answer|preview)", pathType: ImplementationSpecific }
+          - { path: "/v1/cards/[^/]+:reschedule", pathType: ImplementationSpecific }
+          - { path: /v1/study, pathType: Prefix }
+    tls:
+      - secretName: mindmesh-staging-tls
+        hosts: [staging.mindmesh.dev]
+
+sync:
+  image: { tag: staging }
+  autoscaling: { maxReplicas: 8 }
+  secret: { create: false }
+  externalSecrets:
+    enabled: true
+    secretStoreRef: { name: aws-secretsmanager, kind: ClusterSecretStore }
+    remoteRefs:
+      DB_DSN: { key: mindmesh/staging/sync, property: db_dsn }
+  migrations:
+    databaseUrl: ""
+  ingress:
+    hosts:
+      - host: staging.mindmesh.dev
+        paths:
+          - { path: /v1/sync, pathType: Prefix }
+    tls:
+      - secretName: mindmesh-staging-tls
+        hosts: [staging.mindmesh.dev]
+
+# No SQL store and no secret in any overlay yet — OpenSearch security (basic
+# auth/IAM) is disabled in the reference deployment. Enabling it in a real staging
+# cluster needs an externalSecrets block here (OPENSEARCH_USERNAME/PASSWORD) — out
+# of scope for this pass, see deploy/README.md.
+search:
+  image: { tag: staging }
+  autoscaling: { maxReplicas: 6 }
+  ingress:
+    hosts:
+      - host: staging.mindmesh.dev
+        paths:
+          - { path: /v1/search, pathType: Prefix }
+    tls:
+      - secretName: mindmesh-staging-tls
+        hosts: [staging.mindmesh.dev]
+
+analytics:
+  image: { tag: staging }
+  autoscaling: { maxReplicas: 8 }
+  secret: { create: false }
+  externalSecrets:
+    enabled: true
+    secretStoreRef: { name: aws-secretsmanager, kind: ClusterSecretStore }
+    remoteRefs:
+      CLICKHOUSE_PASSWORD: { key: mindmesh/staging/analytics, property: clickhouse_password }
+  migrations:
+    databaseUrl: ""
+  ingress:
+    hosts:
+      - host: staging.mindmesh.dev
+        paths:
+          - { path: /v1/stats, pathType: Prefix }
+    tls:
+      - secretName: mindmesh-staging-tls
+        hosts: [staging.mindmesh.dev]
+
+# Frontend SPA — served on the same host as the API (catch-all `/`, longer /v1/*
+# prefixes win). No secret / no migrations; just image tag + host + TLS.
+web:
+  image: { tag: staging }
+  autoscaling: { maxReplicas: 4 }
+  ingress:
+    hosts:
+      - host: staging.mindmesh.dev
+        paths:
+          - { path: /, pathType: Prefix }
+    tls:
+      - secretName: mindmesh-staging-tls
+        hosts: [staging.mindmesh.dev]

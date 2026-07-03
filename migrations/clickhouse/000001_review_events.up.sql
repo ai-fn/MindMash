@@ -2,7 +2,7 @@
 -- Fed by the stats-aggregator worker from the Kafka review.recorded stream.
 --
 -- ReplacingMergeTree dedups rows sharing the full sort key, which includes
--- review_id; combined with at-least-once Kafka delivery this makes ingestion
+-- review_id -- combined with at-least-once Kafka delivery this makes ingestion
 -- idempotent (a redelivered review collapses to one row on merge). Reads use
 -- FINAL (see the rollup views) so duplicates are folded even before merge.
 CREATE TABLE IF NOT EXISTS review_events

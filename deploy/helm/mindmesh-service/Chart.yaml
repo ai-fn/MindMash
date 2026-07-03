@@ -1,0 +1,20 @@
+apiVersion: v2
+name: mindmesh-service
+description: >-
+  Generic, parameterized chart for a single MindMesh Go microservice. One
+  instance renders a Deployment, Service, HPA, PodDisruptionBudget,
+  ServiceAccount, ConfigMap and (optionally) a Secret / ExternalSecret,
+  golang-migrate pre-install Job, Ingress, KEDA ScaledObject and ServiceMonitor.
+  The umbrella `mindmesh` chart instantiates it once per service.
+type: application
+version: 0.1.0
+# Default image tag when image.tag is empty. Bump alongside a release.
+appVersion: "0.1.0"
+keywords:
+  - mindmesh
+  - microservice
+home: https://github.com/mindmesh/mindmesh
+sources:
+  - https://github.com/mindmesh/mindmesh
+maintainers:
+  - name: MindMesh

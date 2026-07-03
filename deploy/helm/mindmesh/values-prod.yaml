@@ -1,0 +1,109 @@
+# Production overlay.
+#
+#   helm template mindmesh deploy/helm/mindmesh -f deploy/helm/mindmesh/values-prod.yaml
+#   helm upgrade --install mindmesh deploy/helm/mindmesh -n prod --create-namespace \
+#     -f deploy/helm/mindmesh/values-prod.yaml \
+#     --set-string identity.image.tag="$RELEASED_SHA" ... (one per service, from CI/CD) \
+#     --set-string identity.migrations.databaseUrl="$IDENTITY_DSN" ... (one per store)
+#
+# values.yaml's un-overlaid defaults are ALREADY prod-shaped (3-20 replica HPA, PDB
+# minAvailable:2, host api.mindmesh.dev) — see its header comment. So this overlay is
+# deliberately small: it only swaps secret handling to ExternalSecrets, blanks the
+# migration DSNs (CD-injected, never committed), and adds TLS. `global.env` and image
+# tags are intentionally NOT repeated here — they're inherited from values.yaml, and
+# tags are pinned per release via --set-string from CI/CD, not committed as a floating
+# "prod" string.
+#
+# ExternalSecrets requires the External Secrets Operator + a ClusterSecretStore named
+# "aws-secretsmanager" already installed in-cluster (out of scope here, see deploy/README.md).
+#
+# NOTE: multi-region (one ApplicationSet entry per region + GeoDNS + per-region secret
+# stores) is out of scope for this pass — see deploy/README.md.
+
+identity:
+  secret: { create: false }
+  externalSecrets:
+    enabled: true
+    secretStoreRef: { name: aws-secretsmanager, kind: ClusterSecretStore }
+    remoteRefs:
+      DB_DSN: { key: mindmesh/prod/identity, property: db_dsn }
+  migrations:
+    databaseUrl: ""
+  ingress:
+    tls:
+      - secretName: mindmesh-tls
+        hosts: [api.mindmesh.dev]
+
+collection:
+  secret: { create: false }
+  externalSecrets:
+    enabled: true
+    secretStoreRef: { name: aws-secretsmanager, kind: ClusterSecretStore }
+    remoteRefs:
+      DB_DSN: { key: mindmesh/prod/collection, property: db_dsn }
+  migrations:
+    databaseUrl: ""
+  ingress:
+    tls:
+      - secretName: mindmesh-tls
+        hosts: [api.mindmesh.dev]
+
+scheduler:
+  secret: { create: false }
+  externalSecrets:
+    enabled: true
+    secretStoreRef: { name: aws-secretsmanager, kind: ClusterSecretStore }
+    remoteRefs:
+      DB_DSN: { key: mindmesh/prod/scheduler, property: db_dsn }
+  migrations:
+    databaseUrl: ""
+  ingress:
+    tls:
+      - secretName: mindmesh-tls
+        hosts: [api.mindmesh.dev]
+
+sync:
+  secret: { create: false }
+  externalSecrets:
+    enabled: true
+    secretStoreRef: { name: aws-secretsmanager, kind: ClusterSecretStore }
+    remoteRefs:
+      DB_DSN: { key: mindmesh/prod/sync, property: db_dsn }
+  migrations:
+    databaseUrl: ""
+  ingress:
+    tls:
+      - secretName: mindmesh-tls
+        hosts: [api.mindmesh.dev]
+
+# No SQL store and no secret in any overlay yet — OpenSearch security (basic auth/IAM)
+# is disabled in the reference deployment. Enabling it for real needs an externalSecrets
+# block here (OPENSEARCH_USERNAME/PASSWORD) — out of scope for this pass, see deploy/README.md.
+search:
+  ingress:
+    tls:
+      - secretName: mindmesh-tls
+        hosts: [api.mindmesh.dev]
+
+analytics:
+  secret: { create: false }
+  externalSecrets:
+    enabled: true
+    secretStoreRef: { name: aws-secretsmanager, kind: ClusterSecretStore }
+    remoteRefs:
+      CLICKHOUSE_PASSWORD: { key: mindmesh/prod/analytics, property: clickhouse_password }
+  migrations:
+    databaseUrl: ""
+  ingress:
+    tls:
+      - secretName: mindmesh-tls
+        hosts: [api.mindmesh.dev]
+
+# Frontend SPA. No secret/migrations; host + catch-all `/` path inherited from
+# values.yaml (prod keeps api.mindmesh.dev), so this only adds TLS. Image tag is
+# --set-string per release from CI/CD, like the other services.
+web:
+  ingress:
+    tls:
+      - secretName: mindmesh-tls
+        hosts: [api.mindmesh.dev]

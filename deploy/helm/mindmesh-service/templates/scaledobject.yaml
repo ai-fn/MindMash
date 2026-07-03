@@ -1,0 +1,22 @@
+{{- if .Values.keda.enabled -}}
+{{- /*
+  SCAFFOLD: KEDA autoscaling for Kafka consumers (scale on consumer-group lag).
+  Requires the KEDA operator CRDs. When enabled, KEDA manages the HPA, so the
+  chart's own HPA is suppressed (see hpa.yaml). Off by default.
+*/ -}}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "mindmesh-service.fullname" . }}
+  labels:
+    {{- include "mindmesh-service.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    name: {{ include "mindmesh-service.fullname" . }}
+  pollingInterval: {{ .Values.keda.pollingInterval }}
+  cooldownPeriod: {{ .Values.keda.cooldownPeriod }}
+  minReplicaCount: {{ .Values.keda.minReplicaCount }}
+  maxReplicaCount: {{ .Values.keda.maxReplicaCount }}
+  triggers:
+    {{- toYaml .Values.keda.triggers | nindent 4 }}
+{{- end -}}

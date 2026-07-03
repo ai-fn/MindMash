@@ -1,0 +1,63 @@
+{{- if and .Values.migrations.enabled .Values.migrations.databaseUrl -}}
+{{- /*
+  golang-migrate runner, gated as a pre-install/pre-upgrade hook so the schema is
+  current before new pods roll. Reversible (down migrations ship in the image).
+  Runs after migration-secret.yaml (hook-weight -10) and before the app resources.
+*/ -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "mindmesh-service.fullname" . }}-migrate
+  labels:
+    {{- include "mindmesh-service.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.migrations.backoffLimit }}
+  # Keep failed pods briefly for debugging, then reap.
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        {{- include "mindmesh-service.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: Never
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: migrate
+          image: {{ include "mindmesh-service.migrateImage" . }}
+          imagePullPolicy: {{ .Values.migrations.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          # Image ENTRYPOINT is the `migrate` binary; these are its args. K8s expands
+          # $(MIGRATE_DATABASE_URL) from the env below (which carries x-migrations-table).
+          args:
+            - "-path"
+            - "/migrations/{{ .Values.migrations.store }}"
+            - "-database"
+            - "$({{ .Values.migrations.databaseUrlEnv }})"
+            - "up"
+          env:
+            - name: {{ .Values.migrations.databaseUrlEnv }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "mindmesh-service.fullname" . }}-migrate
+                  key: {{ .Values.migrations.databaseUrlEnv }}
+          resources:
+            {{- toYaml .Values.migrations.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end -}}
