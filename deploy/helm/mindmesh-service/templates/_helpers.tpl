@@ -53,9 +53,13 @@ app.kubernetes.io/part-of: mindmesh
 {{- end -}}
 {{- end -}}
 
-{{/* Container image ref, tag defaulting to the chart appVersion. */}}
+{{/*
+Container image ref. Tag precedence: this service's image.tag > the umbrella's
+global.image.tag (one knob to pin every service to a release SHA — CI writes it
+into the overlay, see deploy/README.md) > the chart appVersion.
+*/}}
 {{- define "mindmesh-service.image" -}}
-{{- $tag := .Values.image.tag | default .Chart.AppVersion -}}
+{{- $tag := .Values.image.tag | default (dig "image" "tag" "" (.Values.global | default (dict))) | default .Chart.AppVersion -}}
 {{- if .Values.image.registry -}}
 {{- printf "%s/%s:%s" .Values.image.registry .Values.image.repository $tag -}}
 {{- else -}}
@@ -63,9 +67,9 @@ app.kubernetes.io/part-of: mindmesh
 {{- end -}}
 {{- end -}}
 
-{{/* Migration image ref. */}}
+{{/* Migration image ref. Same tag precedence as the service image (global.image.tag pins it too). */}}
 {{- define "mindmesh-service.migrateImage" -}}
-{{- $tag := .Values.migrations.image.tag | default .Chart.AppVersion -}}
+{{- $tag := .Values.migrations.image.tag | default (dig "image" "tag" "" (.Values.global | default (dict))) | default .Chart.AppVersion -}}
 {{- if .Values.migrations.image.registry -}}
 {{- printf "%s/%s:%s" .Values.migrations.image.registry .Values.migrations.image.repository $tag -}}
 {{- else -}}

@@ -36,6 +36,11 @@ spec:
         helm:
           valueFiles:
             - "values-{{.env}}.yaml"
+          # Image tags are NOT injected here: CI commits the release SHA into each overlay's
+          # global.image.tag (staging: the `bump-staging-tag` job in deploy.yml, automatic; prod:
+          # the deploy-prod.yml promote workflow, deliberate), so ArgoCD reads the pinned tag
+          # straight from git — no Argo CD Image Updater component required.
+          #
           # Per-env secrets that must never be committed (e.g. migrations.databaseUrl,
           # left blank in values-staging.yaml/values-prod.yaml) are injected here at
           # sync time from your CD's secret store — NOT from a plain `values` block.

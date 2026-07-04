@@ -18,8 +18,21 @@ jobs:
         run: go vet ./...
       - name: Build
         run: go build ./...
-      - name: Unit tests
-        run: go test -short -race -count=1 ./...
+      - name: Unit tests + coverage gate
+        env:
+          # Ratchet FLOOR, not a target. Baseline is ~9.0% because many handler/main
+          # packages have no tests yet (well-tested libs: fsrs/searchdsl/template are >95%).
+          # Raise this as coverage improves; it only blocks regressions below the floor.
+          COVERAGE_MIN: "8.0"
+        run: |
+          set -euo pipefail
+          # Exclude the vendored JS-tool Go file under web/node_modules from the profile.
+          pkgs="$(go list ./... | grep -v '/web/node_modules/')"
+          go test -short -race -count=1 -covermode=atomic -coverprofile=cover.out $pkgs
+          total="$(go tool cover -func=cover.out | awk '/^total:/ {gsub(/%/,"",$3); print $3}')"
+          echo "total coverage: ${total}% (floor ${COVERAGE_MIN}%)"
+          awk -v t="$total" -v m="$COVERAGE_MIN" 'BEGIN { exit (t+0 >= m+0) ? 0 : 1 }' \
+            || { echo "::error::coverage ${total}% is below the floor ${COVERAGE_MIN}%"; exit 1; }
 
   lint:
     runs-on: ubuntu-latest
@@ -32,18 +45,21 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
-          version: latest
+          version: v1.64.8   # pinned for reproducible CI (compatible with the Go 1.26 toolchain)
 
   proto:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: bufbuild/buf-setup-action@v1
+        with:
+          version: 1.70.0   # pinned for reproducible CI
       - name: buf lint
         run: cd api && buf lint
+      # A real gate now (spec 18 mandates buf breaking-change in CI). Contract-first means
+      # the generated TS client must never silently drift — a breaking proto change fails CI.
       - name: buf breaking
         run: cd api && buf breaking --against "https://github.com/mindmesh/mindmesh.git#branch=main,subdir=api"
-        continue-on-error: true
 
   web:
     runs-on: ubuntu-latest

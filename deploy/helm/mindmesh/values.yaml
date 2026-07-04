@@ -18,6 +18,12 @@
 # ExternalSecrets, never committed DSNs.
 
 global:
+  # Single knob to pin every service AND the migrate Job to one image tag — normally
+  # a release SHA. CI writes it into the env overlay (staging: auto write-back; prod:
+  # manual promote — see deploy/README.md). A per-service `<svc>.image.tag` still wins;
+  # left unset here so the base falls back to .Chart.AppVersion. dev pins `:dev` per-service.
+  # image:
+  #   tag: ""
   env:
     ENV: prod
     LOG_LEVEL: info

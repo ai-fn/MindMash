@@ -46,6 +46,10 @@ serviceAccount:
   name: ""
   annotations: {}
 
+# Services and the migrate Job never call the Kubernetes API, so don't mount the
+# ServiceAccount token into their pods (shrinks the blast radius of a container compromise).
+automountServiceAccountToken: false
+
 # distroless "nonroot" runs as uid/gid 65532.
 podSecurityContext:
   runAsNonRoot: true

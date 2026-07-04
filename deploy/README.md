@@ -15,7 +15,7 @@ KEDA/ESO, multi-region, OPA) are scaffolded off-by-default or documented as futu
 | **How** | kind + [Tilt](https://tilt.dev): `scripts/cluster-up.sh` then `tilt up` | GitOps: ArgoCD syncs `values-prod.yaml` on push to `main` (see `argocd/README.md`) |
 | **Stores** | in-cluster dev stand-ins (`deploy/dev/stores.yaml.tmpl`) | **external managed** services, wired via ExternalSecrets |
 | **Frontend** | Vite dev server (HMR) at `localhost:5173` | `web` nginx image behind the edge Ingress at `/` |
-| **Config** | `.env` (see [Configuration](#configuration-env)) | ExternalSecrets + `--set` image tags from CI |
+| **Config** | `.env` (see [Configuration](#configuration-env)) | ExternalSecrets + CI-written `global.image.tag` |
 | **Stop** | `tilt down` (app) · `scripts/cluster-down.sh` (whole cluster) | ArgoCD app disable / `helm uninstall` |
 
 Both are detailed below ([Local dev](#local-dev-kind--tilt), [Production](#production-argocd-gitops)).
@@ -140,10 +140,21 @@ In staging/prod the *same variable names* map to ExternalSecret keys, so the con
 Prod points at **external managed stores** (RDS/Aurora+Citus, MSK/Redpanda Cloud, ElastiCache,
 managed OpenSearch, ClickHouse Cloud); the chart never runs stateful DBs in-cluster. Flow:
 
-1. Push to `main` → CI (`.github/workflows/deploy.yml`) builds+pushes all images (6 services +
-   migrate + web) to GHCR, tagged by commit SHA.
-2. The release SHA is surfaced to `values-prod.yaml` image tags (ArgoCD Image Updater, or a CI
-   commit) and ArgoCD's `ApplicationSet` syncs the prod `Application` (see `argocd/README.md`).
+Images are pinned by a single **`global.image.tag`** knob (chart helper `mindmesh-service.image`) —
+one value tags every service **and** the migrate Job. A per-service `<svc>.image.tag` still overrides
+it (dev uses that to pin `:dev`); CI writes the release SHA into the env overlays as below.
+
+1. Push to `main` → CI (`.github/workflows/deploy.yml`) builds, **scans (Trivy)**, and pushes all
+   images (6 services + migrate + web) to GHCR, tagged by commit SHA.
+2. **Staging (automatic):** the same workflow's `bump-staging-tag` job writes that SHA into
+   `values-staging.yaml`'s `global.image.tag` and commits it back to `main` (`[skip ci]`). ArgoCD's
+   staging `Application` (auto-sync) rolls the new images.
+   **Prod (deliberate):** run the `Deploy prod (promote)` workflow (`.github/workflows/deploy-prod.yml`,
+   `workflow_dispatch`) with the SHA to promote — it verifies every image exists, pins
+   `values-prod.yaml`'s `global.image.tag`, and commits. A human then runs
+   `argocd app sync mindmesh-prod` (prod's Application is `autoSync: false`, so nothing ships until you do).
+   > Both write-back jobs push to `main`. If `main` is branch-protected against direct pushes, grant the
+   > Actions bot an exception (or switch it to a bot-PR flow) — otherwise the push step fails.
 3. Each service's **pre-upgrade migration Job** runs first, then Deployments **roll** (below).
 4. Secrets (DB DSNs, ClickHouse password) come from ExternalSecrets; the store contract is: each
    service needs its `DB_DSN` (or `CLICKHOUSE_PASSWORD`) key present in the configured
@@ -188,6 +199,10 @@ controller — it's rendered and static-checked here but the dev cluster has no 
   `values-staging.yaml`/`values-prod.yaml` (the pre-install Job no-ops until it's set). Real
   deployments inject it at deploy time from a CD secret store — see `argocd/README.md` — never by
   committing a DSN.
+- **ESO secret rotation doesn't roll pods**: the Deployment `checksum/secret` annotation is only
+  emitted for the templated dev Secret, so when the External Secrets Operator rotates a staging/prod
+  Secret the running pods keep the old env until they restart. A reloader (e.g. stakater/Reloader) or
+  a manual `kubectl rollout restart` is needed to pick up rotated secrets.
 
 ## Out of scope
 

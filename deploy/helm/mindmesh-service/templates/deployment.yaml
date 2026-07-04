@@ -32,6 +32,7 @@ spec:
         {{- end }}
     spec:
       serviceAccountName: {{ include "mindmesh-service.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.automountServiceAccountToken }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}

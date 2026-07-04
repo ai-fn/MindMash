@@ -20,6 +20,14 @@
 # NOTE: multi-region (one ApplicationSet entry per region + GeoDNS + per-region secret
 # stores) is out of scope for this pass — see deploy/README.md.
 
+global:
+  # Bootstrap placeholder. Prod is promoted deliberately (its ApplicationSet is
+  # autoSync: false): the `deploy-prod.yml` workflow_dispatch overwrites this with the
+  # chosen release SHA and commits it BEFORE a human runs `argocd app sync mindmesh-prod`.
+  # So `:main` is never actually synced to prod — the promote pins an immutable SHA first.
+  image:
+    tag: main
+
 identity:
   secret: { create: false }
   externalSecrets:

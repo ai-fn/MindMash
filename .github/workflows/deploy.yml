@@ -26,12 +26,23 @@ jobs:
         with:
           context: .
           build-args: SERVICE=${{ matrix.service }}
+          # load the built image into the local docker so Trivy can scan it on PRs too
+          # (not just the main push path).
+          load: true
           push: ${{ github.ref == 'refs/heads/main' }}
           tags: |
             ghcr.io/mindmesh/${{ matrix.service }}:${{ github.sha }}
             ghcr.io/mindmesh/${{ matrix.service }}:main
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+      - name: Scan ${{ matrix.service }} image (Trivy)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ghcr.io/mindmesh/${{ matrix.service }}:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          vuln-type: os,library
 
   migrate-image:
     runs-on: ubuntu-latest
@@ -50,12 +61,21 @@ jobs:
         with:
           context: .
           file: Dockerfile.migrate
+          load: true
           push: ${{ github.ref == 'refs/heads/main' }}
           tags: |
             ghcr.io/mindmesh/migrate:${{ github.sha }}
             ghcr.io/mindmesh/migrate:main
           cache-from: type=gha,scope=migrate
           cache-to: type=gha,mode=max,scope=migrate
+      - name: Scan migrate image (Trivy)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ghcr.io/mindmesh/migrate:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          vuln-type: os,library
 
   # The frontend SPA image builds from web/ with its own Dockerfile (no SERVICE
   # build-arg), so it's a separate job rather than a row in the service matrix.
@@ -76,12 +96,21 @@ jobs:
         with:
           context: web
           file: web/Dockerfile
+          load: true
           push: ${{ github.ref == 'refs/heads/main' }}
           tags: |
             ghcr.io/mindmesh/web:${{ github.sha }}
             ghcr.io/mindmesh/web:main
           cache-from: type=gha,scope=web
           cache-to: type=gha,mode=max,scope=web
+      - name: Scan web image (Trivy)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ghcr.io/mindmesh/web:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          vuln-type: os,library
 
   charts:
     runs-on: ubuntu-latest
@@ -92,9 +121,10 @@ jobs:
           go-version: "1.26"
           cache: true
       - name: Install kubeconform + yq
+        # Pinned for reproducible CI — bump deliberately, not implicitly via @latest.
         run: |
-          go install github.com/yannh/kubeconform/cmd/kubeconform@latest
-          go install github.com/mikefarah/yq/v4@latest
+          go install github.com/yannh/kubeconform/cmd/kubeconform@v0.6.7
+          go install github.com/mikefarah/yq/v4@v4.53.3
       - name: helm dependency build
         run: helm dependency build deploy/helm/mindmesh
       - name: Lint + template + kubeconform + policy check
@@ -119,3 +149,43 @@ jobs:
             fi
             echo "::endgroup::"
           done
+
+  # Close the GitOps loop: after images are pushed to GHCR on main, pin the staging
+  # overlay's global.image.tag to this commit SHA and commit it back. ArgoCD (staging
+  # auto-sync) then rolls the new images. Prod is promoted separately + deliberately via
+  # deploy-prod.yml. The [skip ci] in the commit message stops this from re-triggering CI
+  # (targeted at the bot commit only, so human edits to values-*.yaml still get validated).
+  bump-staging-tag:
+    # Gate on charts too: don't auto-deploy staging if chart validation failed.
+    needs: [images, migrate-image, web-image, charts]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: bump-staging-tag
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install yq (pinned)
+        run: |
+          set -euo pipefail
+          curl -fsSL https://github.com/mikefarah/yq/releases/download/v4.53.3/yq_linux_amd64 -o /usr/local/bin/yq
+          chmod +x /usr/local/bin/yq
+      - name: Pin staging image tag to this commit and push
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          yq -i '.global.image.tag = strenv(SHA)' deploy/helm/mindmesh/values-staging.yaml
+          if git diff --quiet -- deploy/helm/mindmesh/values-staging.yaml; then
+            echo "staging tag already at ${SHA}"; exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add deploy/helm/mindmesh/values-staging.yaml
+          git commit -m "chore(deploy): bump staging image tag to ${SHA} [skip ci]"
+          git push origin HEAD:main

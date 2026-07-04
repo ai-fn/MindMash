@@ -18,6 +18,12 @@
 # deploy/README.md).
 
 global:
+  # Bootstrap placeholder: the CI `bump-staging-tag` job (deploy.yml) overwrites this with
+  # the commit SHA on every push to main, so steady state is always an immutable tag and
+  # ArgoCD staging auto-syncs it. `:main` only matters for the very first sync before the
+  # first write-back. Do NOT re-add per-service `image.tag` here — that would shadow this knob.
+  image:
+    tag: main
   env:
     ENV: staging
     LOG_LEVEL: debug
@@ -25,7 +31,6 @@ global:
     JWKS_ISSUER: "https://staging.mindmesh.dev"
 
 identity:
-  image: { tag: staging }
   autoscaling: { maxReplicas: 8 }
   secret: { create: false }
   externalSecrets:
@@ -48,7 +53,6 @@ identity:
         hosts: [staging.mindmesh.dev]
 
 collection:
-  image: { tag: staging }
   autoscaling: { maxReplicas: 8 }
   secret: { create: false }
   externalSecrets:
@@ -73,7 +77,6 @@ collection:
         hosts: [staging.mindmesh.dev]
 
 scheduler:
-  image: { tag: staging }
   autoscaling: { maxReplicas: 8 }
   secret: { create: false }
   externalSecrets:
@@ -97,7 +100,6 @@ scheduler:
         hosts: [staging.mindmesh.dev]
 
 sync:
-  image: { tag: staging }
   autoscaling: { maxReplicas: 8 }
   secret: { create: false }
   externalSecrets:
@@ -121,7 +123,6 @@ sync:
 # cluster needs an externalSecrets block here (OPENSEARCH_USERNAME/PASSWORD) — out
 # of scope for this pass, see deploy/README.md.
 search:
-  image: { tag: staging }
   autoscaling: { maxReplicas: 6 }
   ingress:
     hosts:
@@ -133,7 +134,6 @@ search:
         hosts: [staging.mindmesh.dev]
 
 analytics:
-  image: { tag: staging }
   autoscaling: { maxReplicas: 8 }
   secret: { create: false }
   externalSecrets:
@@ -155,7 +155,6 @@ analytics:
 # Frontend SPA — served on the same host as the API (catch-all `/`, longer /v1/*
 # prefixes win). No secret / no migrations; just image tag + host + TLS.
 web:
-  image: { tag: staging }
   autoscaling: { maxReplicas: 4 }
   ingress:
     hosts:
