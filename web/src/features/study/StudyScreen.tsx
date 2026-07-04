@@ -364,7 +364,7 @@ export function StudyScreen() {
           {isShowingFront ? (
             <CardFrame html={currentCard.frontHtml} onReveal={reveal} />
           ) : (
-            <CardFrame html={currentCard.frontHtml + (cardData?.backHtml ?? '')} />
+            <CardFrame html={cardData?.backHtml ?? currentCard.frontHtml} />
           )}
         </div>
       </div>

@@ -3,7 +3,7 @@
 // authenticated route EXCEPT /study/:deckId, which stays full-bleed/bare (Constraint 1) —
 // see router.tsx for the route split.
 import { useTranslation } from 'react-i18next'
-import { NavLink, Outlet } from 'react-router-dom'
+import { Link, NavLink, Outlet } from 'react-router-dom'
 
 import { ThemeToggle } from '../features/theme/ThemeToggle'
 import { cn } from '../ui'
@@ -35,7 +35,12 @@ export function AppLayout() {
 
       <header className="border-b border-border bg-surface">
         <div className="mx-auto flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-          <span className="text-base font-semibold text-fg">{tCommon('app.name')}</span>
+          <Link
+            to="/"
+            className="rounded-[var(--radius-md)] text-base font-semibold text-fg transition-colors duration-[var(--duration-fast)] ease-default hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+          >
+            {tCommon('app.name')}
+          </Link>
 
           <nav aria-label={tNav('primaryNavLabel')} className="flex flex-wrap items-center gap-1">
             {NAV_ITEMS.map((item) => (
@@ -46,7 +51,9 @@ export function AppLayout() {
                 className={({ isActive }) =>
                   cn(
                     navLinkBase,
-                    isActive ? 'bg-accent-muted text-fg' : 'text-muted hover:bg-accent-muted hover:text-fg',
+                    isActive
+                      ? 'bg-accent-muted text-fg'
+                      : 'text-muted hover:bg-accent-muted hover:text-fg',
                   )
                 }
               >

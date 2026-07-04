@@ -131,7 +131,7 @@ export function DecksScreen() {
                     onEditConfig={() => setConfigDeck(deck)}
                   />
                 </div>
-                {isOpen && <QuickAddNote deckId={deck.id} />}
+                {isOpen && <QuickAddNote deckId={deck.id} onAdded={() => setOpenDeckId(null)} />}
               </li>
             )
           })}

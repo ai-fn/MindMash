@@ -298,7 +298,7 @@ describe('StatsScreen', () => {
 
     await user.selectOptions(screen.getByLabelText('Group by'), 'state')
 
-    expect(useAnalyticsServiceGetBreakdown).toHaveBeenLastCalledWith({ by: 'state', range: '30' })
+    expect(useAnalyticsServiceGetBreakdown).toHaveBeenLastCalledWith({ by: 'state', range: '30d' })
   })
 
   it('changing the range selector calls overview/retention/breakdown hooks with the new range', async () => {
@@ -318,9 +318,9 @@ describe('StatsScreen', () => {
 
     await user.selectOptions(screen.getByLabelText('Range'), '7')
 
-    expect(useAnalyticsServiceGetOverview).toHaveBeenLastCalledWith({ range: '7' })
-    expect(useAnalyticsServiceGetRetention).toHaveBeenLastCalledWith({ range: '7' })
-    expect(useAnalyticsServiceGetBreakdown).toHaveBeenLastCalledWith({ by: 'deck', range: '7' })
+    expect(useAnalyticsServiceGetOverview).toHaveBeenLastCalledWith({ range: '7d' })
+    expect(useAnalyticsServiceGetRetention).toHaveBeenLastCalledWith({ range: '7d' })
+    expect(useAnalyticsServiceGetBreakdown).toHaveBeenLastCalledWith({ by: 'deck', range: '7d' })
   })
 
   it('changing the year selector calls the heatmap hook with the new year', async () => {

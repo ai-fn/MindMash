@@ -19,12 +19,12 @@ vi.mock('../../lib/api/scheduler/study-service/study-service', () => ({
   getStudyServiceGetCountsQueryKey: (deckId: string) => ['study-service', 'getCounts', deckId],
 }))
 
-async function renderQuickAddNote(deckId = 'deck-1') {
+async function renderQuickAddNote(deckId = 'deck-1', onAdded?: () => void) {
   const { QuickAddNote } = await import('./QuickAddNote.tsx')
   const queryClient = new QueryClient()
   const result = render(
     <QueryClientProvider client={queryClient}>
-      <QuickAddNote deckId={deckId} />
+      <QuickAddNote deckId={deckId} onAdded={onAdded} />
     </QueryClientProvider>,
   )
   return { ...result, queryClient }
@@ -128,6 +128,25 @@ describe('QuickAddNote', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: ['study-service', 'getCounts', 'deck-42'],
     })
+  })
+
+  it('calls onAdded after a successful add so the parent can collapse the form', async () => {
+    await mockResolvedBasicNoteType()
+    const mutate = vi.fn((_vars, opts: { onSuccess?: () => void }) => {
+      opts.onSuccess?.()
+    })
+    const { useNoteServiceCreateNote } =
+      await import('../../lib/api/collection/note-service/note-service')
+    vi.mocked(useNoteServiceCreateNote).mockReturnValue({ mutate, isPending: false } as never)
+    const onAdded = vi.fn()
+    const user = userEvent.setup()
+
+    await renderQuickAddNote('deck-42', onAdded)
+    await user.type(screen.getByLabelText('Front'), 'Hola')
+    await user.type(screen.getByLabelText('Back'), 'Hello')
+    await user.click(screen.getByRole('button', { name: 'Add note' }))
+
+    expect(onAdded).toHaveBeenCalledTimes(1)
   })
 
   it('disables submit while the create-note mutation is in-flight', async () => {

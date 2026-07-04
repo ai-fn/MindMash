@@ -207,7 +207,7 @@ export function CardDetail({ cardId, onClose }: CardDetailProps) {
       ) : (
         <div className="flex flex-col gap-5">
           <div className="overflow-hidden rounded-[var(--radius-md)] border border-border">
-            <CardFrame html={(cardResponse?.frontHtml ?? '') + (cardResponse?.backHtml ?? '')} />
+            <CardFrame html={cardResponse?.backHtml ?? cardResponse?.frontHtml ?? ''} />
           </div>
 
           <form

@@ -23,17 +23,19 @@ function backendProxy(env: Record<string, string>): Record<string, ProxyOptions>
   // POST /v1/cards/{id}/answer would be misrouted to Collection.
   return {
     '^/v1/cards/[^/]+/(answer|preview)$': { target: scheduler, changeOrigin: true },
-    '^/v1/study(/|$)': { target: scheduler, changeOrigin: true },
-    '^/v1/(auth|users|profiles)(/|$)': { target: identity, changeOrigin: true },
-    '^/v1/sync(/|$)': { target: sync, changeOrigin: true },
+    '^/v1/study([/?]|$)': { target: scheduler, changeOrigin: true },
+    '^/v1/(auth|users|profiles)([/?]|$)': { target: identity, changeOrigin: true },
+    '^/v1/sync([/?]|$)': { target: sync, changeOrigin: true },
     // Analytics (GetOverview/Heatmap/Retention/Breakdown) and Search (DSL) live on their own
     // services. Without these rules /v1/stats and /v1/search fall through to Vite's SPA
     // handler and silently return index.html — so Stats/Browse render empty instead of
     // erroring, making the analytics/search integration look dead in local dev.
-    '^/v1/stats(/|$)': { target: analytics, changeOrigin: true },
-    '^/v1/search(/|$)': { target: search, changeOrigin: true },
+    // NB: the boundary is `([/?]|$)`, not `(/|$)` — a bare resource hit with a query string
+    // (e.g. GET /v1/search?q=foo) must still match, or it falls through to the SPA fallback.
+    '^/v1/stats([/?]|$)': { target: analytics, changeOrigin: true },
+    '^/v1/search([/?]|$)': { target: search, changeOrigin: true },
     // Generic Collection routes last: decks, cards/{id}, notes, note-types.
-    '^/v1/(decks|cards|notes|note-types)(/|$)': { target: collection, changeOrigin: true },
+    '^/v1/(decks|cards|notes|note-types)([/?]|$)': { target: collection, changeOrigin: true },
   }
 }
 

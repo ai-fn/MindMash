@@ -123,10 +123,14 @@ export function StatsScreen() {
   const [year, setYear] = useState<number>(currentYear)
   const [breakdownBy, setBreakdownBy] = useState<BreakdownBy>('deck')
 
-  const overviewQuery = useAnalyticsServiceGetOverview({ range })
+  // The analytics API expects the range as "<N>d" (e.g. "30d") or "all"; the selector keeps
+  // the bare keys ('7', '30', …) for its labels, so convert to the wire format at the boundary.
+  const apiRange = range === 'all' ? 'all' : `${range}d`
+
+  const overviewQuery = useAnalyticsServiceGetOverview({ range: apiRange })
   const heatmapQuery = useAnalyticsServiceGetHeatmap({ year })
-  const retentionQuery = useAnalyticsServiceGetRetention({ range })
-  const breakdownQuery = useAnalyticsServiceGetBreakdown({ by: breakdownBy, range })
+  const retentionQuery = useAnalyticsServiceGetRetention({ range: apiRange })
+  const breakdownQuery = useAnalyticsServiceGetBreakdown({ by: breakdownBy, range: apiRange })
 
   // See DecksScreen.tsx / StudyScreen.tsx for the established pattern: customFetch already
   // throws on non-2xx, so by the time `data` is defined here it's always the success shape.

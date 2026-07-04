@@ -9,6 +9,8 @@ import { useBasicNoteType } from './useBasicNoteType'
 
 export type QuickAddNoteProps = {
   deckId: string
+  /** Called after a card is successfully added, so the parent can collapse the form. */
+  onAdded?: () => void
 }
 
 // Minimal inline quick-add-note form (Task 7, see task-7-brief.md), restyled (Task 5)
@@ -20,7 +22,7 @@ export type QuickAddNoteProps = {
 // add a second way to reach the same "one thing open at a time" outcome without
 // adding value. Transparently ensures the "Basic" note type exists via
 // `useBasicNoteType`.
-export function QuickAddNote({ deckId }: QuickAddNoteProps) {
+export function QuickAddNote({ deckId, onAdded }: QuickAddNoteProps) {
   const { t } = useTranslation('authoring')
   const queryClient = useQueryClient()
   const { noteTypeId, isPending: isNoteTypePending } = useBasicNoteType()
@@ -44,6 +46,7 @@ export function QuickAddNote({ deckId }: QuickAddNoteProps) {
           void queryClient.invalidateQueries({
             queryKey: getStudyServiceGetCountsQueryKey(deckId),
           })
+          onAdded?.()
         },
         onError: () => {
           setError(t('error'))

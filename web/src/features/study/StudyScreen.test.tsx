@@ -89,7 +89,10 @@ describe('StudyScreen', () => {
     } as never
 
     vi.mocked(mocks.useCardServiceGetCard).mockReturnValue({
-      data: { data: { backHtml: '<p>back-1</p>' } },
+      // backHtml is the fully-rendered back side, which (per the Basic template's
+      // `{{FrontSide}}<hr>{{Back}}`) already includes the front — the answer view renders
+      // it alone, it must NOT be concatenated with frontHtml or the front shows twice.
+      data: { data: { backHtml: '<p>front-1</p><hr><p>back-1</p>' } },
       isPending: false,
     } as never)
     vi.mocked(mocks.useStudyServiceGetPreview).mockReturnValue({
@@ -362,7 +365,11 @@ describe('StudyScreen', () => {
     // content on screen after undo is caught, instead of passing vacuously against a
     // single static mock value both cards would share.
     vi.mocked(mocks.useCardServiceGetCard).mockImplementation(((cardId: string) => ({
-      data: { data: { backHtml: `<p>back-${cardId}</p>` } },
+      // Full back side (incl. front via {{FrontSide}}) — see the beforeEach note. Front
+      // index derives from the cardId ('card-1' -> front-1) so each card stays identifiable.
+      data: {
+        data: { backHtml: `<p>front-${cardId.replace('card-', '')}</p><hr><p>back-${cardId}</p>` },
+      },
       isPending: false,
     })) as never)
     const mutate = vi.fn((_vars, opts: { onSuccess?: () => void }) => {
