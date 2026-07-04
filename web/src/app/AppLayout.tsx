@@ -34,7 +34,7 @@ export function AppLayout() {
       </a>
 
       <header className="border-b border-border bg-surface">
-        <div className="mx-auto flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+        <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-between gap-3 px-6 py-3">
           <Link
             to="/"
             className="rounded-[var(--radius-md)] text-base font-semibold text-fg transition-colors duration-[var(--duration-fast)] ease-default hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
@@ -66,7 +66,7 @@ export function AppLayout() {
         </div>
       </header>
 
-      <main id="main-content">
+      <main id="main-content" className="mx-auto max-w-4xl">
         <Outlet />
       </main>
     </div>
