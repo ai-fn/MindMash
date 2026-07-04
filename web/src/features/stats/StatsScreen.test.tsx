@@ -67,9 +67,15 @@ const populatedBreakdown = {
 describe('StatsScreen', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Pin "today" so the rolling trailing-year heatmap window is deterministic (the
+    // populated-heatmap fixture dates 2026-01-01/02 fall inside a window ending 2026-07-04).
+    // shouldAdvanceTime keeps userEvent's internal timers working under fake timers.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(new Date('2026-07-04T00:00:00Z'))
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     vi.resetModules()
   })
 
@@ -338,9 +344,11 @@ describe('StatsScreen', () => {
 
     await renderScreen()
 
-    const previousYear = String(new Date().getFullYear() - 1)
-    await user.selectOptions(screen.getByLabelText('Year'), previousYear)
+    // A specific past calendar year (distinct from the Current window's own previous-year
+    // fetch), so the assertion reflects the user's selection rather than the initial render.
+    const targetYear = new Date().getUTCFullYear() - 2
+    await user.selectOptions(screen.getByLabelText('Year'), String(targetYear))
 
-    expect(useAnalyticsServiceGetHeatmap).toHaveBeenLastCalledWith({ year: Number(previousYear) })
+    expect(useAnalyticsServiceGetHeatmap).toHaveBeenCalledWith({ year: targetYear })
   })
 })

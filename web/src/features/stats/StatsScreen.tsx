@@ -15,7 +15,7 @@ import type {
   V1GetRetentionResponse,
   V1HeatmapDay,
 } from '../../lib/api/analytics/analyticsV1AnalyticsProto.schemas'
-import { Card, EmptyState, Field, Select, Skeleton, Spinner } from '../../ui'
+import { Card, cn, EmptyState, Field, Select, Skeleton, Spinner } from '../../ui'
 
 // Analytics dashboard (Task 8, see task-8-brief.md). Wires the Task 7 generated analytics
 // client (overview/heatmap/retention/breakdown) into a single-screen stats view. Range/year/
@@ -82,53 +82,120 @@ function heatmapLevel(reviews: number): 0 | 1 | 2 | 3 | 4 {
   return 4
 }
 
+// Level 0 (no activity) renders as a neutral gray cell (bg-border), matching GitHub/LeetCode
+// where empty days are gray and only active days carry color; levels 1-4 ramp the semantic
+// "success" green (studying is a positive state, per the design law in index.css) via opacity.
 const HEATMAP_LEVEL_OPACITY: Record<0 | 1 | 2 | 3 | 4, number> = {
   0: 0,
-  1: 0.25,
-  2: 0.5,
-  3: 0.75,
+  1: 0.4,
+  2: 0.6,
+  3: 0.8,
   4: 1,
 }
 
-/** Builds a Sunday-start weekday x week grid (GitHub-heatmap layout) for the given year. */
-function buildHeatmapWeeks(
-  year: number,
+interface HeatmapCell {
+  /** ISO YYYY-MM-DD, or '' for an out-of-range padding cell (rendered as an empty spacer). */
+  date: string
+  reviews: number
+}
+
+interface HeatmapModel {
+  weeks: HeatmapCell[][]
+  /** The week-column index at which each new month first appears, for the month-label row. */
+  months: { weekIndex: number; monthIso: string }[]
+  /** Total reviews across the visible window (for the "N reviews …" subtitle). */
+  totalReviews: number
+}
+
+/** Midnight-UTC start of the given date's calendar day. */
+function startOfUtcDay(d: Date): Date {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
+}
+
+/**
+ * Builds a Sunday-start weekday × week grid (GitHub/LeetCode contribution-graph layout).
+ *
+ *   - mode 'current' → a rolling trailing 12-month window ending *today*: the last cell is
+ *     today and the first is 364 days earlier, so the newest square is always the current day.
+ *   - mode <year>    → that full calendar year (Jan 1 – Dec 31), for browsing history.
+ *
+ * Leading days are padded so column 0 starts on a Sunday; trailing days (including any days
+ * after today in the final week) are padded so the last column is a full 7 rows. All dates
+ * are UTC, matching the backend's UTC day bucketing.
+ */
+function buildHeatmapModel(
+  mode: 'current' | number,
+  today: Date,
   daysByDate: Map<string, number>,
-): { date: string; reviews: number }[][] {
-  const start = new Date(Date.UTC(year, 0, 1))
-  const end = new Date(Date.UTC(year, 11, 31))
-  // Pad the leading days so the first column starts on a Sunday.
-  const startWeekday = start.getUTCDay()
-  const cells: { date: string; reviews: number }[] = []
-  for (let i = 0; i < startWeekday; i++) {
-    cells.push({ date: '', reviews: -1 }) // -1 marks a non-rendered padding cell
+): HeatmapModel {
+  let start: Date
+  let end: Date
+  if (mode === 'current') {
+    end = startOfUtcDay(today)
+    start = startOfUtcDay(today)
+    start.setUTCDate(start.getUTCDate() - 364)
+  } else {
+    start = new Date(Date.UTC(mode, 0, 1))
+    end = new Date(Date.UTC(mode, 11, 31))
   }
+
+  const cells: HeatmapCell[] = []
+  for (let i = 0; i < start.getUTCDay(); i++) {
+    cells.push({ date: '', reviews: -1 }) // leading padding so column 0 starts on Sunday
+  }
+  let totalReviews = 0
   for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
     const iso = d.toISOString().slice(0, 10)
-    cells.push({ date: iso, reviews: daysByDate.get(iso) ?? 0 })
+    const reviews = daysByDate.get(iso) ?? 0
+    cells.push({ date: iso, reviews })
+    totalReviews += reviews
   }
-  const weeks: { date: string; reviews: number }[][] = []
+  while (cells.length % 7 !== 0) {
+    cells.push({ date: '', reviews: -1 }) // trailing padding to complete the final week column
+  }
+
+  const weeks: HeatmapCell[][] = []
   for (let i = 0; i < cells.length; i += 7) {
     weeks.push(cells.slice(i, i + 7))
   }
-  return weeks
+
+  const months: { weekIndex: number; monthIso: string }[] = []
+  let lastMonth = -1
+  weeks.forEach((week, weekIndex) => {
+    const firstReal = week.find((c) => c.date !== '')
+    if (!firstReal) return
+    const month = Number(firstReal.date.slice(5, 7))
+    if (month !== lastMonth) {
+      months.push({ weekIndex, monthIso: firstReal.date })
+      lastMonth = month
+    }
+  })
+
+  return { weeks, months, totalReviews }
 }
 
 export function StatsScreen() {
-  const { t } = useTranslation('stats')
-  // Computed once per mount rather than calling `new Date().getFullYear()` separately for
-  // the initial `year` state and the `yearOptions` list below, so both stay in sync.
-  const currentYear = useMemo(() => new Date().getFullYear(), [])
+  const { t, i18n } = useTranslation('stats')
+  // Computed once per mount: `today` anchors the rolling heatmap window and `currentYear`
+  // (its UTC year) is what the "Current" selection resolves to.
+  const today = useMemo(() => new Date(), [])
+  const currentYear = today.getUTCFullYear()
   const [range, setRange] = useState<RangeValue>('30')
-  const [year, setYear] = useState<number>(currentYear)
+  // Heatmap selection: 'current' = rolling trailing 12 months ending today; a number = that
+  // full calendar year.
+  const [yearSel, setYearSel] = useState<'current' | number>('current')
   const [breakdownBy, setBreakdownBy] = useState<BreakdownBy>('deck')
+  const primaryYear = yearSel === 'current' ? currentYear : yearSel
 
   // The analytics API expects the range as "<N>d" (e.g. "30d") or "all"; the selector keeps
   // the bare keys ('7', '30', …) for its labels, so convert to the wire format at the boundary.
   const apiRange = range === 'all' ? 'all' : `${range}d`
 
   const overviewQuery = useAnalyticsServiceGetOverview({ range: apiRange })
-  const heatmapQuery = useAnalyticsServiceGetHeatmap({ year })
+  // The rolling trailing-year window spans two calendar years, and the backend serves one
+  // calendar year per call, so fetch the primary year and the one before it and merge.
+  const heatmapQuery = useAnalyticsServiceGetHeatmap({ year: primaryYear })
+  const heatmapPrevQuery = useAnalyticsServiceGetHeatmap({ year: primaryYear - 1 })
   const retentionQuery = useAnalyticsServiceGetRetention({ range: apiRange })
   const breakdownQuery = useAnalyticsServiceGetBreakdown({ by: breakdownBy, range: apiRange })
 
@@ -136,6 +203,7 @@ export function StatsScreen() {
   // throws on non-2xx, so by the time `data` is defined here it's always the success shape.
   const overview = overviewQuery.data?.data as V1GetOverviewResponse | undefined
   const heatmap = heatmapQuery.data?.data as V1GetHeatmapResponse | undefined
+  const heatmapPrev = heatmapPrevQuery.data?.data as V1GetHeatmapResponse | undefined
   const retention = retentionQuery.data?.data as V1GetRetentionResponse | undefined
   const breakdown = breakdownQuery.data?.data as V1GetBreakdownResponse | undefined
 
@@ -149,20 +217,39 @@ export function StatsScreen() {
 
   const daysByDate = useMemo(() => {
     const map = new Map<string, number>()
-    for (const day of (heatmap?.days ?? []) as V1HeatmapDay[]) {
-      if (day.date) {
-        map.set(day.date, Number(day.reviews ?? '0'))
+    for (const response of [heatmapPrev, heatmap]) {
+      for (const day of (response?.days ?? []) as V1HeatmapDay[]) {
+        if (day.date) {
+          map.set(day.date, Number(day.reviews ?? '0'))
+        }
       }
     }
     return map
-  }, [heatmap])
-  const weeks = useMemo(() => buildHeatmapWeeks(year, daysByDate), [year, daysByDate])
+  }, [heatmap, heatmapPrev])
+  const heatmapModel = useMemo(
+    () => buildHeatmapModel(yearSel, today, daysByDate),
+    [yearSel, today, daysByDate],
+  )
+  // Localized short month names (UTC, to match the day buckets) for the month-label row.
+  const monthFmt = useMemo(
+    () => new Intl.DateTimeFormat(i18n.language, { month: 'short', timeZone: 'UTC' }),
+    [i18n.language],
+  )
+  const monthLabelByWeek = useMemo(() => {
+    const map = new Map<number, string>()
+    for (const m of heatmapModel.months) {
+      map.set(m.weekIndex, monthFmt.format(new Date(`${m.monthIso}T00:00:00Z`)))
+    }
+    return map
+  }, [heatmapModel.months, monthFmt])
 
   const buckets = (breakdown?.buckets ?? []) as V1BreakdownBucket[]
   const maxBucketReviews = Math.max(1, ...buckets.map((b) => Number(b.reviews ?? '0')))
 
-  const yearOptions = useMemo(
-    () => Array.from({ length: YEARS_BACK + 1 }, (_, i) => currentYear - i),
+  // Past calendar years available in the heatmap selector; the current period is the
+  // separate "Current" rolling-window option.
+  const pastYears = useMemo(
+    () => Array.from({ length: YEARS_BACK }, (_, i) => currentYear - 1 - i),
     [currentYear],
   )
 
@@ -241,17 +328,27 @@ export function StatsScreen() {
 
       {/* Contribution heatmap */}
       <Card className="flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-base font-semibold text-fg">{t('heatmap.title')}</h2>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex flex-col gap-0.5">
+            <h2 className="text-base font-semibold text-fg">{t('heatmap.title')}</h2>
+            <p className="text-sm text-muted">
+              {yearSel === 'current'
+                ? t('heatmap.summary', { count: heatmapModel.totalReviews })
+                : t('heatmap.summaryYear', { count: heatmapModel.totalReviews, year: yearSel })}
+            </p>
+          </div>
           <div className="w-32">
             <Field label={t('heatmap.year')}>
               {(controlProps) => (
                 <Select
                   {...controlProps}
-                  value={year}
-                  onChange={(e) => setYear(Number(e.target.value))}
+                  value={String(yearSel)}
+                  onChange={(e) =>
+                    setYearSel(e.target.value === 'current' ? 'current' : Number(e.target.value))
+                  }
                 >
-                  {yearOptions.map((y) => (
+                  <option value="current">{t('heatmap.current')}</option>
+                  {pastYears.map((y) => (
                     <option key={y} value={y}>
                       {y}
                     </option>
@@ -261,7 +358,7 @@ export function StatsScreen() {
             </Field>
           </div>
         </div>
-        {heatmapQuery.isPending ? (
+        {heatmapQuery.isPending || heatmapPrevQuery.isPending ? (
           <Skeleton className="h-32 w-full" />
         ) : (
           <div className="flex flex-col gap-2">
@@ -269,42 +366,62 @@ export function StatsScreen() {
                 aria-label must remain individually reachable by assistive tech. A
                 role="img" on the container would flatten the accessibility tree and
                 make per-day labels unreachable (see task-8 review finding). */}
-            <div className="flex gap-[3px] overflow-x-auto">
-              {weeks.map((week, weekIndex) => (
-                <div key={weekIndex} className="flex flex-col gap-[3px]">
-                  {week.map((cell, dayIndex) =>
-                    cell.reviews === -1 ? (
-                      <div key={dayIndex} className="h-3 w-3" aria-hidden="true" />
-                    ) : (
-                      <div
-                        key={cell.date}
-                        aria-label={t('heatmap.dayLabel', {
-                          date: cell.date,
-                          count: cell.reviews,
-                        })}
-                        title={t('heatmap.dayLabel', { date: cell.date, count: cell.reviews })}
-                        className="h-3 w-3 rounded-[2px] bg-accent"
-                        style={{
-                          opacity: Math.max(
-                            0.08,
-                            HEATMAP_LEVEL_OPACITY[heatmapLevel(cell.reviews)],
-                          ),
-                        }}
-                      />
-                    ),
-                  )}
+            <div className="w-full overflow-x-auto">
+              <div className="inline-flex flex-col gap-1">
+                {/* Month labels, aligned to the week columns they begin on. */}
+                <div className="flex gap-[3px]">
+                  {heatmapModel.weeks.map((_, weekIndex) => (
+                    <div key={weekIndex} className="relative h-4 w-3">
+                      {monthLabelByWeek.has(weekIndex) && (
+                        <span className="absolute left-0 top-0 whitespace-nowrap text-xs text-muted">
+                          {monthLabelByWeek.get(weekIndex)}
+                        </span>
+                      )}
+                    </div>
+                  ))}
                 </div>
-              ))}
+                {/* Week columns (Sunday at top), newest week on the right, today last. */}
+                <div className="flex gap-[3px]">
+                  {heatmapModel.weeks.map((week, weekIndex) => (
+                    <div key={weekIndex} className="flex flex-col gap-[3px]">
+                      {week.map((cell, dayIndex) =>
+                        cell.date === '' ? (
+                          <div key={dayIndex} className="h-3 w-3" aria-hidden="true" />
+                        ) : (
+                          <div
+                            key={cell.date}
+                            aria-label={t('heatmap.dayLabel', {
+                              date: cell.date,
+                              count: cell.reviews,
+                            })}
+                            title={t('heatmap.dayLabel', { date: cell.date, count: cell.reviews })}
+                            className={cn(
+                              'h-3 w-3 rounded-[2px]',
+                              cell.reviews > 0 ? 'bg-success' : 'bg-border',
+                            )}
+                            style={
+                              cell.reviews > 0
+                                ? { opacity: HEATMAP_LEVEL_OPACITY[heatmapLevel(cell.reviews)] }
+                                : undefined
+                            }
+                          />
+                        ),
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
             <div className="flex items-center gap-2 text-xs text-muted">
               <span>{t('heatmap.legendLess')}</span>
               <div className="flex gap-[3px]">
-                {([0, 1, 2, 3, 4] as const).map((level) => (
+                <div className="h-3 w-3 rounded-[2px] bg-border" aria-hidden="true" />
+                {([1, 2, 3, 4] as const).map((level) => (
                   <div
                     key={level}
                     aria-hidden="true"
-                    className="h-3 w-3 rounded-[2px] bg-accent"
-                    style={{ opacity: Math.max(0.08, HEATMAP_LEVEL_OPACITY[level]) }}
+                    className="h-3 w-3 rounded-[2px] bg-success"
+                    style={{ opacity: HEATMAP_LEVEL_OPACITY[level] }}
                   />
                 ))}
               </div>

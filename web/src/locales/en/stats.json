@@ -22,6 +22,11 @@
   "heatmap": {
     "title": "Activity",
     "year": "Year",
+    "current": "Current",
+    "summary_one": "{{count}} review in the past year",
+    "summary_other": "{{count}} reviews in the past year",
+    "summaryYear_one": "{{count}} review in {{year}}",
+    "summaryYear_other": "{{count}} reviews in {{year}}",
     "dayLabel_one": "{{date}}: {{count}} review",
     "dayLabel_other": "{{date}}: {{count}} reviews",
     "legendLess": "Less",
