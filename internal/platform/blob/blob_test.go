@@ -1,8 +1,12 @@
 package blob
 
 import (
+	"errors"
+	"fmt"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -56,6 +60,29 @@ func TestLoadConfig_UsePathStyleParsed(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, cfg.UsePathStyle)
+		})
+	}
+}
+
+func TestIsNotFound(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"types.NotFound", &types.NotFound{}, true},
+		{"types.NoSuchKey", &types.NoSuchKey{}, true},
+		{"wrapped NotFound", fmt.Errorf("head: %w", &types.NotFound{}), true},
+		{"smithy 404", &smithy.GenericAPIError{Code: "404"}, true},
+		{"smithy NoSuchKey", &smithy.GenericAPIError{Code: "NoSuchKey"}, true},
+		{"other smithy error", &smithy.GenericAPIError{Code: "AccessDenied"}, false},
+		{"plain error", errors.New("boom"), false},
+		{"nil", nil, false},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, isNotFound(tc.err))
 		})
 	}
 }

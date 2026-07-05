@@ -98,6 +98,17 @@ analytics:
     requests: { cpu: 50m, memory: 64Mi }
     limits: { cpu: 500m, memory: 256Mi }
 
+media:
+  image: { registry: mindmesh, tag: dev }
+  replicaCount: 1
+  autoscaling: { enabled: false }
+  pdb: { enabled: false }
+  migrations:
+    image: { registry: mindmesh, repository: migrate, tag: dev }
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
 # Frontend SPA. The in-cluster image exists for parity, but day-to-day the app is
 # served via the Vite dev server (Tilt local_resource, HMR). No ingress controller
 # in kind, so reach it by port-forward.

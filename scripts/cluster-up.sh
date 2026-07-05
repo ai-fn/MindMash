@@ -42,7 +42,7 @@ envsubst < deploy/dev/stores.yaml.tmpl | kubectl --context "${CTX}" apply -f -
 echo "==> waiting for stores to become ready (up to 3m)"
 kubectl --context "${CTX}" wait --for=condition=available --timeout=180s \
   deployment/postgres deployment/redis deployment/redpanda \
-  deployment/opensearch deployment/clickhouse
+  deployment/opensearch deployment/clickhouse deployment/minio
 
 cat <<EOF
 

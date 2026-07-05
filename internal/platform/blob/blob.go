@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/smithy-go"
 )
 
 // Config holds S3/MinIO connection configuration.
@@ -143,6 +144,62 @@ func (c *Client) PresignPut(ctx context.Context, bucket, key string, ttl time.Du
 		return "", fmt.Errorf("blob: presign put %s/%s: %w", bucket, key, err)
 	}
 	return req.URL, nil
+}
+
+// ObjectInfo describes a stored object, as returned by Stat.
+type ObjectInfo struct {
+	Size        int64
+	ContentType string
+	ETag        string
+}
+
+// Stat issues a HEAD request for bucket/key. It returns found=false (and a nil
+// error) when the object does not exist, so callers can distinguish "absent"
+// from a genuine transport/permission failure. This backs the Media confirm
+// flow, which HEADs a client-uploaded object to verify it landed and to read
+// its size before recording metadata.
+func (c *Client) Stat(ctx context.Context, bucket, key string) (ObjectInfo, bool, error) {
+	out, err := c.s3.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		if isNotFound(err) {
+			return ObjectInfo{}, false, nil
+		}
+		return ObjectInfo{}, false, fmt.Errorf("blob: stat %s/%s: %w", bucket, key, err)
+	}
+
+	info := ObjectInfo{}
+	if out.ContentLength != nil {
+		info.Size = *out.ContentLength
+	}
+	if out.ContentType != nil {
+		info.ContentType = *out.ContentType
+	}
+	if out.ETag != nil {
+		info.ETag = *out.ETag
+	}
+	return info, true, nil
+}
+
+// isNotFound reports whether err represents an S3/MinIO "object not found"
+// condition. HeadObject models this as types.NotFound; MinIO and some proxies
+// surface types.NoSuchKey or a bare 404 smithy APIError instead.
+func isNotFound(err error) bool {
+	var notFound *types.NotFound
+	var noSuchKey *types.NoSuchKey
+	if errors.As(err, &notFound) || errors.As(err, &noSuchKey) {
+		return true
+	}
+	var apiErr smithy.APIError
+	if errors.As(err, &apiErr) {
+		switch apiErr.ErrorCode() {
+		case "NotFound", "NoSuchKey", "404":
+			return true
+		}
+	}
+	return false
 }
 
 // EnsureBucket creates bucket if it does not already exist.

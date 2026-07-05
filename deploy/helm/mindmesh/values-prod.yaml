@@ -107,6 +107,28 @@ analytics:
       - secretName: mindmesh-tls
         hosts: [api.mindmesh.dev]
 
+media:
+  # Managed object store (virtual-hosted style) instead of in-cluster MinIO.
+  env:
+    S3_ENDPOINT: "https://s3.eu-west-1.amazonaws.com"
+    S3_REGION: eu-west-1
+    S3_USE_PATH_STYLE: "false"
+    S3_DEFAULT_BUCKET: mindmesh-prod-media
+  secret: { create: false }
+  externalSecrets:
+    enabled: true
+    secretStoreRef: { name: aws-secretsmanager, kind: ClusterSecretStore }
+    remoteRefs:
+      DB_DSN: { key: mindmesh/prod/media, property: db_dsn }
+      S3_ACCESS_KEY_ID: { key: mindmesh/prod/media, property: s3_access_key_id }
+      S3_SECRET_ACCESS_KEY: { key: mindmesh/prod/media, property: s3_secret_access_key }
+  migrations:
+    databaseUrl: ""
+  ingress:
+    tls:
+      - secretName: mindmesh-tls
+        hosts: [api.mindmesh.dev]
+
 # Frontend SPA. No secret/migrations; host + catch-all `/` path inherited from
 # values.yaml (prod keeps api.mindmesh.dev), so this only adds TLS. Image tag is
 # --set-string per release from CI/CD, like the other services.

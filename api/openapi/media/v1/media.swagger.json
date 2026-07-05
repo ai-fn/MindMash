@@ -1,0 +1,240 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "media/v1/media.proto",
+    "version": "version not set"
+  },
+  "tags": [
+    {
+      "name": "MediaService"
+    },
+    {
+      "name": "MediaInternalService"
+    }
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v1/media/{mediaId}": {
+      "delete": {
+        "summary": "Delete unlinks the caller's media row; the underlying blob is garbage\ncollected once no user references its checksum any more.",
+        "operationId": "MediaService_Delete",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1DeleteResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "mediaId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "MediaService"
+        ]
+      }
+    },
+    "/v1/media/{mediaId}:confirm": {
+      "post": {
+        "summary": "Confirm finalizes an upload: it HEADs the object to verify it landed and\nmatches the declared size, flips the row to ready, and emits media.uploaded.",
+        "operationId": "MediaService_Confirm",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1ConfirmResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "mediaId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/MediaServiceConfirmBody"
+            }
+          }
+        ],
+        "tags": [
+          "MediaService"
+        ]
+      }
+    },
+    "/v1/media:presign": {
+      "post": {
+        "summary": "Presign validates the declared mime/size and returns a presigned upload URL,\nor short-circuits with already_exists=true when the checksum is already\nstored (this user's prior upload, or another user's — the blob is shared).",
+        "operationId": "MediaService_Presign",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1PresignResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1PresignRequest"
+            }
+          }
+        ],
+        "tags": [
+          "MediaService"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "MediaServiceConfirmBody": {
+      "type": "object"
+    },
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "@type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": {}
+    },
+    "rpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
+    "v1ConfirmResponse": {
+      "type": "object",
+      "properties": {
+        "media": {
+          "$ref": "#/definitions/v1Media"
+        }
+      }
+    },
+    "v1DeleteResponse": {
+      "type": "object"
+    },
+    "v1Media": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "checksum": {
+          "type": "string",
+          "title": "lowercase hex SHA-256"
+        },
+        "kind": {
+          "type": "string",
+          "title": "image | audio | video | latex | other"
+        },
+        "mime": {
+          "type": "string"
+        },
+        "bytes": {
+          "type": "string",
+          "format": "int64"
+        },
+        "status": {
+          "type": "string",
+          "title": "pending | ready"
+        },
+        "usn": {
+          "type": "string",
+          "format": "int64"
+        }
+      },
+      "description": "Media is the metadata for one stored blob owned by the caller."
+    },
+    "v1PresignRequest": {
+      "type": "object",
+      "properties": {
+        "filename": {
+          "type": "string",
+          "title": "original client filename (for extension hinting only)"
+        },
+        "mime": {
+          "type": "string",
+          "title": "declared content type; validated against the allowlist"
+        },
+        "sha256": {
+          "type": "string",
+          "title": "lowercase hex SHA-256 of the bytes, computed by the client"
+        },
+        "bytes": {
+          "type": "string",
+          "format": "int64",
+          "title": "declared size; validated against the per-kind cap"
+        }
+      }
+    },
+    "v1PresignResponse": {
+      "type": "object",
+      "properties": {
+        "mediaId": {
+          "type": "string"
+        },
+        "uploadUrl": {
+          "type": "string",
+          "title": "empty when already_exists is true"
+        },
+        "alreadyExists": {
+          "type": "boolean",
+          "title": "blob already stored; client can skip the PUT"
+        }
+      }
+    }
+  }
+}

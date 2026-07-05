@@ -4,7 +4,7 @@
 # fixed :dev tag, a plain `helm upgrade` won't re-pull them — hence the explicit
 # load + rollout restart.
 #
-#   scripts/redeploy.sh <identity|collection|scheduler|sync|search|analytics|web|migrate>
+#   scripts/redeploy.sh <identity|collection|scheduler|sync|search|analytics|media|web|migrate>
 set -euo pipefail
 
 cd "$(dirname "$0")/.."   # repo root
@@ -16,7 +16,7 @@ set +a
 : "${IMAGE_REGISTRY:=mindmesh}"
 : "${IMAGE_TAG:=dev}"
 
-svc="${1:?usage: scripts/redeploy.sh <identity|collection|scheduler|sync|search|analytics|web|migrate>}"
+svc="${1:?usage: scripts/redeploy.sh <identity|collection|scheduler|sync|search|analytics|media|web|migrate>}"
 CTX="kind-${KIND_CLUSTER_NAME}"
 img="${IMAGE_REGISTRY}/${svc}:${IMAGE_TAG}"
 

@@ -34,7 +34,7 @@ cluster = cget('KIND_CLUSTER_NAME', 'mindmesh-dev')
 allow_k8s_contexts('kind-' + cluster)
 
 # ── Images ────────────────────────────────────────────────────────────────────
-services = ['identity', 'collection', 'scheduler', 'sync', 'search', 'analytics']
+services = ['identity', 'collection', 'scheduler', 'sync', 'search', 'analytics', 'media']
 for svc in services:
     docker_build(registry + '/' + svc + ':' + tag, context='.', dockerfile='Dockerfile',
                  build_args={'SERVICE': svc})
@@ -53,7 +53,7 @@ set_args = [
     'global.env.JWKS_ISSUER=' + cget('JWKS_ISSUER', 'https://dev.mindmesh.local'),
     'analytics.secret.data.CLICKHOUSE_PASSWORD=' + cget('CLICKHOUSE_PASSWORD', 'mindmesh'),
 ]
-for svc in ['identity', 'collection', 'scheduler', 'sync']:
+for svc in ['identity', 'collection', 'scheduler', 'sync', 'media']:
     set_args.append('%s.secret.data.DB_DSN=%s' % (svc, pg_dsn))
     set_args.append('%s.migrations.databaseUrl=%s&x-migrations-table=schema_migrations_%s' % (svc, pg_dsn, svc))
 
@@ -65,6 +65,7 @@ ports = {
     'identity': cget('IDENTITY_PORT', '8080'), 'collection': cget('COLLECTION_PORT', '8081'),
     'scheduler': cget('SCHEDULER_PORT', '8082'), 'sync': cget('SYNC_PORT', '8083'),
     'analytics': cget('ANALYTICS_PORT', '8084'), 'search': cget('SEARCH_PORT', '8085'),
+    'media': cget('MEDIA_PORT', '8086'),
 }
 for svc in services:
     k8s_resource(svc, port_forwards=ports[svc] + ':8080', labels=['backend'])

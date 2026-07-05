@@ -237,6 +237,40 @@ analytics:
         paths:
           - { path: /v1/stats, pathType: Prefix }
 
+# --- media ----------------------------------------------------------------
+# Postgres metadata + S3/MinIO blobs. S3 endpoint/bucket are plain env; the S3
+# credentials live in the Secret. staging/prod overlays repoint S3_ENDPOINT at a
+# managed object store and swap the credentials.
+media:
+  fullnameOverride: media
+  image:
+    repository: media
+  env:
+    SERVICE_NAME: media
+    OTEL_SERVICE_NAME: media
+    RUN_MIGRATIONS: "false"
+    JWKS_URL: "http://identity:8080/.well-known/jwks.json"
+    S3_ENDPOINT: "http://minio:9000"
+    S3_REGION: us-east-1
+    S3_USE_PATH_STYLE: "true"
+    S3_DEFAULT_BUCKET: mindmesh
+  secret:
+    create: true
+    data:
+      DB_DSN: "postgres://mindmesh:mindmesh@postgres:5432/mindmesh?sslmode=disable"
+      S3_ACCESS_KEY_ID: minioadmin
+      S3_SECRET_ACCESS_KEY: minioadmin
+  migrations:
+    enabled: true
+    store: media
+    databaseUrl: "postgres://mindmesh:mindmesh@postgres:5432/mindmesh?sslmode=disable&x-migrations-table=schema_migrations_media"
+  ingress:
+    enabled: true
+    hosts:
+      - host: api.mindmesh.dev
+        paths:
+          - { path: /v1/media, pathType: Prefix }
+
 # --- web (frontend SPA) ---------------------------------------------------
 # The React SPA served as static files by nginx. Reuses the generic chart in
 # HTTP-only mode: no gRPC port, no migrations, no secrets, nginx /healthz probe.

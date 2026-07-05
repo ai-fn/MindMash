@@ -1,0 +1,104 @@
+syntax = "proto3";
+
+package media.v1;
+
+import "google/api/annotations.proto";
+
+// ─── Media Service ──────────────────────────────────────────────────────────
+//
+// Upload, dedupe, delivery and (async) processing of media blobs. Blobs travel
+// client → S3 directly via presigned URLs; this service stays off the data path
+// and only records metadata. Every RPC is hard-filtered to the caller's
+// user_id/profile_id (from the gateway-injected JWT context); tenancy is never
+// supplied by the client. Dedupe is content-addressed (SHA-256): identical bytes
+// are stored once and shared, while each user keeps their own metadata row.
+service MediaService {
+  // Presign validates the declared mime/size and returns a presigned upload URL,
+  // or short-circuits with already_exists=true when the checksum is already
+  // stored (this user's prior upload, or another user's — the blob is shared).
+  rpc Presign(PresignRequest) returns (PresignResponse) {
+    option (google.api.http) = {
+      post: "/v1/media:presign"
+      body: "*"
+    };
+  }
+
+  // Confirm finalizes an upload: it HEADs the object to verify it landed and
+  // matches the declared size, flips the row to ready, and emits media.uploaded.
+  rpc Confirm(ConfirmRequest) returns (ConfirmResponse) {
+    option (google.api.http) = {
+      post: "/v1/media/{media_id}:confirm"
+      body: "*"
+    };
+  }
+
+  // Delete unlinks the caller's media row; the underlying blob is garbage
+  // collected once no user references its checksum any more.
+  rpc Delete(DeleteRequest) returns (DeleteResponse) {
+    option (google.api.http) = {
+      delete: "/v1/media/{media_id}"
+    };
+  }
+}
+
+// MediaInternalService is gRPC-only (no REST gateway). It is called by trusted
+// peer services — notably Sync, which diffs a client's held checksums against
+// the user's media set to drive media reconciliation.
+service MediaInternalService {
+  // ListChecksums returns the caller's media checksums, optionally only those
+  // changed at or above since_usn, for delta reconciliation.
+  rpc ListChecksums(ListChecksumsRequest) returns (ListChecksumsResponse) {}
+}
+
+// Media is the metadata for one stored blob owned by the caller.
+message Media {
+  string id = 1;
+  string checksum = 2; // lowercase hex SHA-256
+  string kind = 3;     // image | audio | video | latex | other
+  string mime = 4;
+  int64 bytes = 5;
+  string status = 6; // pending | ready
+  int64 usn = 7;
+}
+
+message PresignRequest {
+  string filename = 1; // original client filename (for extension hinting only)
+  string mime = 2;     // declared content type; validated against the allowlist
+  string sha256 = 3;   // lowercase hex SHA-256 of the bytes, computed by the client
+  int64 bytes = 4;     // declared size; validated against the per-kind cap
+}
+
+message PresignResponse {
+  string media_id = 1;
+  string upload_url = 2;    // empty when already_exists is true
+  bool already_exists = 3;  // blob already stored; client can skip the PUT
+}
+
+message ConfirmRequest {
+  string media_id = 1;
+}
+
+message ConfirmResponse {
+  Media media = 1;
+}
+
+message DeleteRequest {
+  string media_id = 1;
+}
+
+message DeleteResponse {}
+
+message ListChecksumsRequest {
+  int64 since_usn = 1; // 0 returns all of the caller's media
+}
+
+message ListChecksumsResponse {
+  repeated MediaChecksum items = 1;
+}
+
+message MediaChecksum {
+  string media_id = 1;
+  string checksum = 2; // lowercase hex SHA-256
+  int64 usn = 3;
+  string status = 4;
+}

@@ -1,0 +1,2 @@
+-- No-op: Citus tables cannot be cleanly undistributed. Dropping the tables
+-- (000001/000002 down) is the way to unwind.

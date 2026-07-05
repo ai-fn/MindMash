@@ -169,3 +169,37 @@ metadata: { name: clickhouse }
 spec:
   selector: { app: clickhouse }
   ports: [{ name: http, port: 8123, targetPort: 8123 }, { name: native, port: 9000, targetPort: 9000 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  labels: { app: minio, mindmesh.dev/dev-store: "true" }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: minio } }
+  template:
+    metadata: { labels: { app: minio } }
+    spec:
+      containers:
+        - name: minio
+          image: ${MINIO_IMAGE}
+          args: ["server", "/data", "--console-address", ":9001"]
+          env:
+            - { name: MINIO_ROOT_USER, value: "${MINIO_ROOT_USER}" }
+            - { name: MINIO_ROOT_PASSWORD, value: "${MINIO_ROOT_PASSWORD}" }
+          # S3 API on 9000, web console on 9001. The media service EnsureBuckets
+          # the target bucket at boot, so no bucket-creation sidecar is needed.
+          ports: [{ containerPort: 9000 }, { containerPort: 9001 }]
+          readinessProbe:
+            httpGet: { path: /minio/health/live, port: 9000 }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 12
+---
+apiVersion: v1
+kind: Service
+metadata: { name: minio }
+spec:
+  selector: { app: minio }
+  ports: [{ name: s3, port: 9000, targetPort: 9000 }, { name: console, port: 9001, targetPort: 9001 }]
