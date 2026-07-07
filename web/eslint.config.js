@@ -2,6 +2,7 @@ import js from '@eslint/js'
 import globals from 'globals'
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
+import i18next from 'eslint-plugin-i18next'
 import tseslint from 'typescript-eslint'
 import prettier from 'eslint-config-prettier'
 import { defineConfig, globalIgnores } from 'eslint/config'
@@ -40,6 +41,19 @@ export default defineConfig([
     files: ['*.config.ts', '*.config.js'],
     languageOptions: {
       globals: globals.node,
+    },
+  },
+  {
+    // i18n hardcoded-string gate (spec 13 build step 1): user-visible JSX text in the app's
+    // screens/components must go through `t()`, never be a literal. `jsx-text-only` mode checks
+    // only text between JSX tags — attribute/prop strings (className, aria-*, keys) are left to
+    // developers, so this flags real untranslated copy without drowning in false positives.
+    // Scoped to the rendered surfaces; tests and generated clients are excluded.
+    files: ['src/features/**/*.tsx', 'src/ui/**/*.tsx', 'src/app/**/*.tsx'],
+    ignores: ['**/*.test.tsx', '**/*.test.ts'],
+    plugins: { i18next },
+    rules: {
+      'i18next/no-literal-string': ['error', { mode: 'jsx-text-only' }],
     },
   },
 ])

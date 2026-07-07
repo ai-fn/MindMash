@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	"golang.org/x/text/message"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -11,10 +12,17 @@ import (
 // AppError is a domain error that carries both a gRPC status code and an
 // optional wrapped cause. It satisfies the grpc Status interface so it can be
 // returned directly from gRPC handlers and translated by grpc-gateway.
+//
+// Message is the English (fallback) text always present. For user-facing errors that should be
+// localized, callers additionally set a MsgID (a platform/i18n message key) via WithMsgID; the
+// HTTP edge then renders it in the request's locale via Localize. Errors without a MsgID (the
+// vast majority — internal/500-class) are unaffected and stay English.
 type AppError struct {
 	Code    codes.Code
 	Message string
 	Err     error
+	MsgID   string
+	Args    []any
 }
 
 func (e *AppError) Error() string {
@@ -26,6 +34,25 @@ func (e *AppError) Error() string {
 
 func (e *AppError) Unwrap() error {
 	return e.Err
+}
+
+// WithMsgID marks this error as localizable, tagging it with a platform/i18n message key and
+// optional format args. Returns the same error for fluent use:
+//
+//	return errors.Unauthenticated("invalid credentials").WithMsgID(i18n.MsgInvalidCredentials)
+func (e *AppError) WithMsgID(id string, args ...any) *AppError {
+	e.MsgID = id
+	e.Args = args
+	return e
+}
+
+// Localize renders the user-facing message: the localized MsgID via p when both are set,
+// otherwise the plain English Message. p may be nil (e.g. no request locale resolved).
+func (e *AppError) Localize(p *message.Printer) string {
+	if e.MsgID != "" && p != nil {
+		return p.Sprintf(e.MsgID, e.Args...)
+	}
+	return e.Message
 }
 
 // GRPCStatus implements the interface checked by status.FromError, allowing

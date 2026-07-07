@@ -38,15 +38,18 @@ func (s *stubOAuthExchanger) Exchange(_ context.Context, _, _, _ string) (OAuthU
 type captureEmailSender struct {
 	verificationToken string
 	resetToken        string
+	lastLocale        string
 }
 
-func (c *captureEmailSender) SendVerification(_ context.Context, _, token string) error {
+func (c *captureEmailSender) SendVerification(_ context.Context, _, token, locale string) error {
 	c.verificationToken = token
+	c.lastLocale = locale
 	return nil
 }
 
-func (c *captureEmailSender) SendPasswordReset(_ context.Context, _, token string) error {
+func (c *captureEmailSender) SendPasswordReset(_ context.Context, _, token, locale string) error {
 	c.resetToken = token
+	c.lastLocale = locale
 	return nil
 }
 

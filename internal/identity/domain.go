@@ -161,7 +161,8 @@ type OAuthExchanger interface {
 
 // EmailSender dispatches transactional emails.  The production implementation
 // uses an SMTP/SES/SendGrid gateway; the dev stub logs the token.
+// The recipient's locale drives the subject/body language (rendered via platform/i18n).
 type EmailSender interface {
-	SendVerification(ctx context.Context, email, token string) error
-	SendPasswordReset(ctx context.Context, email, token string) error
+	SendVerification(ctx context.Context, email, token, locale string) error
+	SendPasswordReset(ctx context.Context, email, token, locale string) error
 }

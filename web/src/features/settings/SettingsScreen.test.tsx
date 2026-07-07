@@ -53,7 +53,26 @@ describe('SettingsScreen', () => {
 
     expect(screen.getByText('rin@example.com')).toBeInTheDocument()
     expect(screen.getByText('user-123')).toBeInTheDocument()
-    expect(screen.getByText('en')).toBeInTheDocument()
+  })
+
+  it('renders a language switcher defaulting to the active locale', async () => {
+    await renderScreen()
+
+    const select = screen.getByRole('combobox', { name: 'Interface language' })
+    expect(select).toHaveValue('en')
+    expect(screen.getByRole('option', { name: 'English' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Русский' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: '中文' })).toBeInTheDocument()
+  })
+
+  it('switches the UI language when a new locale is chosen', async () => {
+    const user = userEvent.setup()
+    await renderScreen()
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Interface language' }), 'ru')
+
+    // The heading (settings:title) re-renders in Russian once the ru bundle lazy-loads.
+    expect(await screen.findByRole('heading', { name: 'Настройки' })).toBeInTheDocument()
   })
 
   it('calls logout when the Log out button is clicked', async () => {

@@ -317,19 +317,22 @@ type fakeEmailSender struct {
 	mu            sync.Mutex
 	verifications []string // tokens sent via SendVerification
 	resets        []string // tokens sent via SendPasswordReset
+	lastLocale    string   // locale of the most recent send
 }
 
-func (e *fakeEmailSender) SendVerification(_ context.Context, _, token string) error {
+func (e *fakeEmailSender) SendVerification(_ context.Context, _, token, locale string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.verifications = append(e.verifications, token)
+	e.lastLocale = locale
 	return nil
 }
 
-func (e *fakeEmailSender) SendPasswordReset(_ context.Context, _, token string) error {
+func (e *fakeEmailSender) SendPasswordReset(_ context.Context, _, token, locale string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.resets = append(e.resets, token)
+	e.lastLocale = locale
 	return nil
 }
 

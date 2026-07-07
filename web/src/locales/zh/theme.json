@@ -1,0 +1,9 @@
+{
+  "label": "主题：",
+  "modes": {
+    "light": "浅色",
+    "dark": "深色",
+    "system": "跟随系统"
+  },
+  "toggleAriaLabel": "当前主题：{{mode}}。点击以切换。"
+}

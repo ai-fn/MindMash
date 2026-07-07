@@ -1,0 +1,22 @@
+{
+  "loading": "正在加载卡片…",
+  "empty": "当前没有到期的卡片。",
+  "deckComplete": "牌组完成——干得漂亮！",
+  "backToDecks": "返回牌组",
+  "exit": "退出学习会话",
+  "showAnswer": "显示答案",
+  "progress": "{{current}} / {{total}}",
+  "grade": {
+    "again": "重来",
+    "hard": "困难",
+    "good": "良好",
+    "easy": "简单",
+    "dontKnow": "不知道",
+    "know": "知道"
+  },
+  "answerError": "无法提交该评分。请重试。",
+  "undo": {
+    "title": "评分已提交",
+    "action": "撤销"
+  }
+}

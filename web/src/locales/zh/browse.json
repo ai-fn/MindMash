@@ -1,0 +1,31 @@
+{
+  "title": "浏览卡片",
+  "search": {
+    "label": "搜索",
+    "placeholder": "deck:French is:due tag:verb",
+    "help": "使用 deck:、is:due、tag: 进行筛选。留空以查看最近的卡片。"
+  },
+  "state": {
+    "new": "新卡",
+    "learning": "学习中",
+    "review": "复习",
+    "suspended": "已暂停"
+  },
+  "preview": {
+    "noText": "暂无预览。"
+  },
+  "stats": {
+    "interval": "间隔：{{count}} 天",
+    "interval_other": "间隔：{{count}} 天",
+    "reps": "复习次数：{{count}}"
+  },
+  "loadMore": "加载更多",
+  "loadingMore": "加载中…",
+  "loading": "正在加载卡片…",
+  "empty": "没有匹配的卡片。",
+  "emptyDescription": "尝试其他查询，或清除搜索以查看最近的卡片。",
+  "error": "无法加载卡片。",
+  "errorDescription": "搜索时出现问题。请检查网络连接后重试。",
+  "retry": "重试",
+  "resultLabel": "卡片结果"
+}

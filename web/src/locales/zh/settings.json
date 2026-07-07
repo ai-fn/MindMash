@@ -1,0 +1,25 @@
+{
+  "title": "设置",
+  "profile": {
+    "title": "个人资料",
+    "email": "电子邮箱",
+    "userId": "用户 ID",
+    "locale": "语言",
+    "localeSelectLabel": "界面语言",
+    "logout": "退出登录"
+  },
+  "localeNames": {
+    "en": "English",
+    "ru": "Русский",
+    "zh": "中文"
+  },
+  "appearance": {
+    "title": "外观"
+  },
+  "study": {
+    "title": "学习",
+    "advancedGrading": "高级评分",
+    "advancedGradingDescription": "在学习时显示全部 4 个评分按钮（重来/困难/良好/简单），而非简化的「不知道」/「知道」。",
+    "otherPrefsNote": "暂无其他按用户的学习偏好设置——超出此项的设置未接入后端接口，因此不在此显示。"
+  }
+}

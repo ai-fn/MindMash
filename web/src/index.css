@@ -144,3 +144,18 @@
     scroll-behavior: auto !important;
   }
 }
+
+/*
+ * CJK typography. When the active UI locale is Chinese, prepend a CJK-capable system font stack
+ * so Han glyphs render with proper native fonts instead of substituted/tofu glyphs. The `lang`
+ * attribute on <html> is kept in sync with i18next's active language by lib/i18n.ts
+ * (syncDocumentLang). Zero-byte by design: relies on OS-installed CJK fonts (PingFang SC on
+ * Apple, Microsoft YaHei on Windows, Noto Sans CJK on Linux/Android) rather than shipping a
+ * large webfont. Extend the selector (e.g. `[lang='ja']`, `[lang='ko']`) as more CJK locales
+ * are added.
+ */
+html[lang='zh'] {
+  font-family:
+    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC', 'Noto Sans SC',
+    'Source Han Sans SC', system-ui, sans-serif;
+}

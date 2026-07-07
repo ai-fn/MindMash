@@ -5,7 +5,13 @@
     "email": "Email",
     "userId": "User ID",
     "locale": "Language",
+    "localeSelectLabel": "Interface language",
     "logout": "Log out"
+  },
+  "localeNames": {
+    "en": "English",
+    "ru": "Русский",
+    "zh": "中文"
   },
   "appearance": {
     "title": "Appearance"

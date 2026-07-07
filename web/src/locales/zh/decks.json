@@ -1,0 +1,71 @@
+{
+  "title": "你的牌组",
+  "loading": "正在加载牌组…",
+  "empty": "你还没有任何牌组。",
+  "emptyDescription": "创建你的第一个牌组，开始添加卡片并学习。",
+  "counts": {
+    "new": "新卡：{{count}}",
+    "learning": "学习中：{{count}}",
+    "review": "复习：{{count}}"
+  },
+  "menu": {
+    "label": "{{deckName}} 的更多操作",
+    "addCard": "添加卡片",
+    "createSubdeck": "创建子牌组",
+    "editConfig": "牌组设置",
+    "rename": "重命名",
+    "delete": "删除"
+  },
+  "rename": {
+    "dialogTitle": "重命名牌组",
+    "label": "牌组名称",
+    "submit": "保存名称",
+    "success": "牌组已重命名。"
+  },
+  "delete": {
+    "dialogTitle": "删除牌组",
+    "confirm": "删除「{{deckName}}」？此操作无法撤销。",
+    "cancel": "取消",
+    "confirmAction": "删除牌组",
+    "success": "牌组已删除。"
+  },
+  "config": {
+    "dialogTitle": "牌组设置",
+    "loading": "正在加载设置…",
+    "desiredRetentionLabel": "目标记忆保持率 (%)",
+    "newPerDayLabel": "每天新卡数",
+    "revPerDayLabel": "每天复习数",
+    "submit": "保存设置",
+    "success": "牌组设置已保存。",
+    "unavailable": "此牌组无可用设置。",
+    "unavailableDescription": "此牌组没有可编辑的排程配置。"
+  },
+  "noteTypes": {
+    "openButton": "笔记类型",
+    "dialogTitle": "笔记类型",
+    "loading": "正在加载笔记类型…",
+    "empty": "还没有笔记类型。",
+    "emptyDescription": "添加第一张卡片时会创建笔记类型。",
+    "fieldCount": "字段数：{{count}}",
+    "templateCount": "卡片模板数：{{count}}"
+  },
+  "filteredDecks": {
+    "openButton": "筛选牌组",
+    "dialogTitle": "筛选牌组",
+    "loading": "正在加载筛选牌组…",
+    "empty": "还没有筛选牌组。",
+    "emptyDescription": "创建筛选牌组以保存卡片查询供以后使用。",
+    "nameLabel": "名称",
+    "namePlaceholder": "筛选牌组名称",
+    "queryLabel": "查询",
+    "queryPlaceholder": "例如 deck:Spanish is:due",
+    "create": "创建筛选牌组",
+    "createSuccess": "筛选牌组已创建。",
+    "delete": "删除",
+    "deleteConfirm": "删除「{{name}}」？此操作无法撤销。",
+    "deleteCancel": "取消",
+    "deleteConfirmAction": "删除筛选牌组",
+    "deleteSuccess": "筛选牌组已删除。"
+  },
+  "error": "出现问题。请重试。"
+}

@@ -1,0 +1,31 @@
+{
+  "newDeck": {
+    "dialogTitle": "创建新牌组",
+    "label": "新牌组名称",
+    "placeholder": "牌组名称",
+    "submit": "创建牌组"
+  },
+  "createSubdeck": {
+    "dialogTitle": "在「{{parentDeckName}}」下创建子牌组",
+    "label": "新子牌组名称",
+    "submit": "创建子牌组",
+    "success": "子牌组已创建。"
+  },
+  "quickAddNote": {
+    "frontLabel": "正面",
+    "backLabel": "背面",
+    "submit": "添加笔记",
+    "preparing": "准备中…"
+  },
+  "cardDetail": {
+    "dialogTitle": "卡片详情",
+    "save": "保存更改",
+    "saveSuccess": "卡片已保存。",
+    "delete": "删除卡片",
+    "deleteConfirm": "删除此卡片？这将删除该笔记及其所有卡片，且无法撤销。",
+    "deleteCancel": "取消",
+    "deleteConfirmAction": "删除卡片",
+    "deleteSuccess": "卡片已删除。"
+  },
+  "error": "出现问题。请重试。"
+}

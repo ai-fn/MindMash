@@ -17,6 +17,7 @@ import {
   onUnauthorized,
   setTokens,
 } from './authToken'
+import i18n from '../i18n'
 
 const REFRESH_PATH = '/v1/auth/refresh'
 
@@ -60,13 +61,19 @@ async function toEnvelope<T>(response: Response): Promise<T> {
   return { status: response.status, data, headers: response.headers } as T
 }
 
-function withAuthHeader(options: RequestInit): RequestInit {
-  const accessToken = getAccessToken()
-  if (!accessToken) {
-    return options
-  }
+// Adds per-request headers: the bearer token (when signed in) and Accept-Language (always),
+// so the backend can localize responses. Post-auth the server prefers the JWT `locale` claim;
+// Accept-Language is the signal for pre-auth responses (registration, pre-login errors).
+function withRequestHeaders(options: RequestInit): RequestInit {
   const headers = new Headers(options.headers)
-  headers.set('Authorization', `Bearer ${accessToken}`)
+  const accessToken = getAccessToken()
+  if (accessToken) {
+    headers.set('Authorization', `Bearer ${accessToken}`)
+  }
+  const language = i18n.resolvedLanguage
+  if (language) {
+    headers.set('Accept-Language', language)
+  }
   return { ...options, headers }
 }
 
@@ -117,7 +124,7 @@ async function failUnauthorized(response: Response): Promise<never> {
 
 export async function customFetch<T>(url: string, options: RequestInit): Promise<T> {
   const isRefreshCall = url === REFRESH_PATH
-  const requestInit = withAuthHeader(options)
+  const requestInit = withRequestHeaders(options)
   const response = await fetch(resolveUrl(url), requestInit)
 
   if (response.status !== 401) {
@@ -139,7 +146,7 @@ export async function customFetch<T>(url: string, options: RequestInit): Promise
     return failUnauthorized(response)
   }
 
-  const retryInit = withAuthHeader(options)
+  const retryInit = withRequestHeaders(options)
   const retryResponse = await fetch(resolveUrl(url), retryInit)
   if (!retryResponse.ok) {
     if (retryResponse.status === 401) {

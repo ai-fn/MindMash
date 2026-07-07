@@ -4,6 +4,8 @@ import { useAuthStore } from '../auth/authStore'
 import { ThemeToggle } from '../theme/ThemeToggle'
 import { useStudyPrefsStore } from '../study/studyPrefsStore'
 import { Button, Card, Switch } from '../../ui'
+import { SUPPORTED_LOCALES } from '../../lib/i18n'
+import { chooseLocale, isSupportedLocale } from '../../lib/locale'
 
 // Profile & settings (Task 12, see task-12-brief.md). Three sections — Profile, Appearance,
 // Study — each a `Card` block, matching DecksScreen.tsx/StatsScreen.tsx's established
@@ -11,11 +13,13 @@ import { Button, Card, Switch } from '../../ui'
 // authStore (populated by enrichFromGetMe() during bootstrap()/login(), see authStore.ts) —
 // no fresh GetMe call here. Logout moved here from DecksScreen's header per the brief.
 export function SettingsScreen() {
-  const { t } = useTranslation('settings')
+  const { t, i18n } = useTranslation('settings')
   const email = useAuthStore((state) => state.email)
   const userId = useAuthStore((state) => state.userId)
-  const locale = useAuthStore((state) => state.locale)
   const logout = useAuthStore((state) => state.logout)
+  // The *active UI* language (resolvedLanguage) drives the switcher, not the account `locale`
+  // field — an explicit switcher choice can diverge from the stored account locale.
+  const activeLocale = i18n.resolvedLanguage ?? 'en'
   const advancedGrading = useStudyPrefsStore((state) => state.advancedGrading)
   const toggleAdvancedGrading = useStudyPrefsStore((state) => state.toggle)
 
@@ -36,11 +40,23 @@ export function SettingsScreen() {
           </div>
           <div className="flex items-center justify-between gap-3">
             <dt className="text-muted">{t('profile.locale')}</dt>
-            {/* MVP is English-only (see lib/i18n.ts's module comment); rendered as plain text
-                rather than a single-option <select> since a disabled dropdown with one option
-                would imply more affordance than actually exists. Locale switching UI lands
-                with Phase 2 multi-locale support. */}
-            <dd className="text-fg">{locale ?? 'en'}</dd>
+            <dd className="text-fg">
+              <select
+                aria-label={t('profile.localeSelectLabel')}
+                value={activeLocale}
+                onChange={(event) => {
+                  const next = event.target.value
+                  if (isSupportedLocale(next)) void chooseLocale(next)
+                }}
+                className="rounded-md border border-border bg-surface px-2 py-1 text-fg"
+              >
+                {SUPPORTED_LOCALES.map((code) => (
+                  <option key={code} value={code}>
+                    {t(`localeNames.${code}`)}
+                  </option>
+                ))}
+              </select>
+            </dd>
           </div>
         </dl>
         <div>

@@ -14,6 +14,7 @@ import (
 
 	"github.com/mindmesh/mindmesh/internal/platform/auth"
 	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
+	"github.com/mindmesh/mindmesh/internal/platform/i18n"
 	"github.com/mindmesh/mindmesh/internal/platform/ids"
 )
 
@@ -132,7 +133,7 @@ func (s *Service) Register(ctx context.Context, email, password, locale string) 
 		return "", txErr
 	}
 
-	if err := s.email.SendVerification(ctx, email, verificationToken); err != nil {
+	if err := s.email.SendVerification(ctx, email, verificationToken, locale); err != nil {
 		// A send failure is not fatal; log it and continue so that a broken
 		// email gateway cannot prevent users from completing registration.
 		s.log.Error("identity: register send verification email", zap.Error(err), zap.String("user_id", user.ID))
@@ -149,12 +150,12 @@ func (s *Service) Login(ctx context.Context, email, password string) (accessToke
 	// prevent user-enumeration attacks.
 	user, lookupErr := s.repo.GetUserByEmail(ctx, email)
 	if lookupErr != nil {
-		return "", "", 0, "", "", platformerrors.Unauthenticated("invalid credentials")
+		return "", "", 0, "", "", platformerrors.Unauthenticated("invalid credentials").WithMsgID(i18n.MsgInvalidCredentials)
 	}
 
 	if user.PasswordHash == nil {
 		// OAuth-only account; no password set.
-		return "", "", 0, "", "", platformerrors.Unauthenticated("invalid credentials")
+		return "", "", 0, "", "", platformerrors.Unauthenticated("invalid credentials").WithMsgID(i18n.MsgInvalidCredentials)
 	}
 
 	ok, verifyErr := auth.VerifyPassword(password, *user.PasswordHash)
@@ -162,7 +163,7 @@ func (s *Service) Login(ctx context.Context, email, password string) (accessToke
 		return "", "", 0, "", "", fmt.Errorf("identity: login verify password: %w", verifyErr)
 	}
 	if !ok {
-		return "", "", 0, "", "", platformerrors.Unauthenticated("invalid credentials")
+		return "", "", 0, "", "", platformerrors.Unauthenticated("invalid credentials").WithMsgID(i18n.MsgInvalidCredentials)
 	}
 
 	profile, err := s.pickDefaultProfile(ctx, user.ID)
@@ -576,7 +577,7 @@ func (s *Service) VerifyEmail(ctx context.Context, token string) error {
 	return s.repo.WithTx(ctx, func(txRepo Repository) error {
 		userID, purpose, err := txRepo.ConsumeEmailVerification(ctx, token)
 		if err != nil {
-			return platformerrors.InvalidArgument("invalid or expired verification token")
+			return platformerrors.InvalidArgument("invalid or expired verification token").WithMsgID(i18n.MsgInvalidOrExpiredToken)
 		}
 		if purpose != "verify_email" {
 			return platformerrors.InvalidArgument("invalid token purpose")
@@ -612,7 +613,7 @@ func (s *Service) RequestPasswordReset(ctx context.Context, emailAddr string) er
 	if err := s.repo.CreateEmailVerification(ctx, ev); err != nil {
 		return fmt.Errorf("identity: request password reset create token: %w", err)
 	}
-	if err := s.email.SendPasswordReset(ctx, emailAddr, token); err != nil {
+	if err := s.email.SendPasswordReset(ctx, emailAddr, token, user.Locale); err != nil {
 		s.log.Error("identity: request password reset send email", zap.Error(err))
 	}
 	return nil
@@ -631,7 +632,7 @@ func (s *Service) ResetPassword(ctx context.Context, token, newPassword string) 
 	return s.repo.WithTx(ctx, func(txRepo Repository) error {
 		userID, purpose, err := txRepo.ConsumeEmailVerification(ctx, token)
 		if err != nil {
-			return platformerrors.InvalidArgument("invalid or expired reset token")
+			return platformerrors.InvalidArgument("invalid or expired reset token").WithMsgID(i18n.MsgInvalidOrExpiredToken)
 		}
 		if purpose != "password_reset" {
 			return platformerrors.InvalidArgument("invalid token purpose")

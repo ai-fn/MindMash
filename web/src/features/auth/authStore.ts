@@ -18,6 +18,7 @@ import {
 } from '../../lib/api/identity/auth-service/auth-service'
 import type { V1ProfileInfo } from '../../lib/api/identity/identityV1IdentityProto.schemas'
 import { clearTokens, getRefreshToken, setOnUnauthorized, setTokens } from '../../lib/api/authToken'
+import { applyServerLocale } from '../../lib/locale'
 
 // The generated response types are a `{ status: 200; data: T } | { status: <error>; data:
 // RpcStatus }` union (see auth-service.ts). In practice `customFetch` already throws on
@@ -68,10 +69,11 @@ export const useAuthStore = create<AuthState>((set, get) => {
       profiles: data.profiles,
     })
 
-    // Deliberately not calling i18n.changeLanguage here: MVP is en-only (Global
-    // Constraint 5/8), and `locale` from GetMe is always 'en' for now. Full locale
-    // switching (dynamically loading other resource bundles + an explicit
-    // changeLanguage call gated on `locale === 'en'` vs other values) is Phase 2 scope.
+    // Adopt the account's locale for the UI — but only if the user hasn't explicitly picked a
+    // language via the Settings switcher (applyServerLocale enforces that precedence). Lazily
+    // loads the ru/zh bundle if needed; fire-and-forget so session hydration isn't blocked on
+    // a locale chunk fetch.
+    void applyServerLocale(data.locale)
   }
 
   return {

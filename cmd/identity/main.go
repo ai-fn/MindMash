@@ -10,6 +10,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -21,6 +22,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/status"
 
 	identityv1 "github.com/mindmesh/mindmesh/api/identity/v1"
 	"github.com/mindmesh/mindmesh/internal/identity"
@@ -28,8 +30,10 @@ import (
 	"github.com/mindmesh/mindmesh/internal/platform/cache"
 	"github.com/mindmesh/mindmesh/internal/platform/config"
 	"github.com/mindmesh/mindmesh/internal/platform/db"
+	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
 	"github.com/mindmesh/mindmesh/internal/platform/grpcx"
 	"github.com/mindmesh/mindmesh/internal/platform/httpx"
+	"github.com/mindmesh/mindmesh/internal/platform/i18n"
 	"github.com/mindmesh/mindmesh/internal/platform/log"
 	"github.com/mindmesh/mindmesh/internal/platform/observability"
 )
@@ -134,7 +138,7 @@ func run() error {
 
 	// REST gateway, registered in-process (no extra network hop).  The internal
 	// service is intentionally NOT exposed over REST.
-	gwMux := runtime.NewServeMux()
+	gwMux := runtime.NewServeMux(runtime.WithErrorHandler(localizedErrorHandler))
 	if err := identityv1.RegisterAuthServiceHandlerServer(ctx, gwMux, handler); err != nil {
 		return fmt.Errorf("identity: register auth gateway: %w", err)
 	}
@@ -160,7 +164,10 @@ func run() error {
 	}
 
 	httpSrv := httpx.New(httpx.DefaultConfig(base.HTTPAddr), httpx.Options{
-		Handler:        injectIdentity(signer)(gwMux),
+		// injectIdentity resolves the JWT (populating IdentityContext, incl. Locale) first, then
+		// i18n.HTTPMiddleware resolves the request locale (claim → Accept-Language → English)
+		// into the context for the handlers and the localized error handler.
+		Handler:        injectIdentity(signer)(i18n.HTTPMiddleware(gwMux)),
 		MetricsHandler: observability.InitMetrics(),
 		Readiness:      readiness,
 		JWKSHandler:    jwksHandler,
@@ -187,6 +194,19 @@ func run() error {
 // with protected ones (me/profiles); rather than maintain a path allow-list here,
 // authentication is optional at the edge and each protected handler enforces its
 // own requirement via auth.IdentityFromContext.
+// localizedErrorHandler is the grpc-gateway error handler for the REST edge. When the returned
+// error is an *AppError tagged with a localizable MsgID, it re-renders the status message in the
+// request's resolved locale (carried in ctx by i18n.HTTPMiddleware) before delegating to the
+// default handler. Errors without a MsgID pass through unchanged.
+func localizedErrorHandler(ctx context.Context, mux *runtime.ServeMux, m runtime.Marshaler, w http.ResponseWriter, r *http.Request, err error) {
+	var ae *platformerrors.AppError
+	if errors.As(err, &ae) && ae.MsgID != "" {
+		localized := ae.Localize(i18n.PrinterFromContext(ctx))
+		err = status.New(ae.Code, localized).Err()
+	}
+	runtime.DefaultHTTPErrorHandler(ctx, mux, m, w, r, err)
+}
+
 func injectIdentity(v auth.Verifier) func(http.Handler) http.Handler {
 	const prefix = "Bearer "
 	return func(next http.Handler) http.Handler {

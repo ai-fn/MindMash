@@ -11,6 +11,7 @@ import (
 
 	platformdb "github.com/mindmesh/mindmesh/internal/platform/db"
 	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
+	"github.com/mindmesh/mindmesh/internal/platform/i18n"
 )
 
 // dbtx is satisfied by both *pgxpool.Pool and pgx.Tx, allowing the same query
@@ -73,7 +74,8 @@ func (r *PostgresRepository) CreateUser(ctx context.Context, u *User) error {
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
-			return platformerrors.AlreadyExists("user with this email already exists")
+			return platformerrors.AlreadyExists("user with this email already exists").
+				WithMsgID(i18n.MsgEmailAlreadyExists)
 		}
 		return fmt.Errorf("identity: create user: %w", err)
 	}

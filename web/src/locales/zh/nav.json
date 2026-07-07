@@ -1,0 +1,15 @@
+{
+  "primaryNavLabel": "主导航",
+  "links": {
+    "decks": "牌组",
+    "browse": "浏览",
+    "stats": "统计",
+    "settings": "设置"
+  },
+  "skipToContent": "跳到内容",
+  "notFound": {
+    "heading": "页面未找到",
+    "body": "你查找的页面不存在或可能已被移动。",
+    "backLink": "返回牌组"
+  }
+}

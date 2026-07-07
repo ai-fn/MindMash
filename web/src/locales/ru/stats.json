@@ -1,0 +1,63 @@
+{
+  "title": "Ваша статистика",
+  "range": {
+    "label": "Период",
+    "7": "Последние 7 дней",
+    "30": "Последние 30 дней",
+    "90": "Последние 90 дней",
+    "365": "Последний год",
+    "all": "Всё время"
+  },
+  "loading": "Загрузка статистики…",
+  "empty": "Пока нет статистики",
+  "emptyDescription": "Позанимайтесь с несколькими карточками, чтобы увидеть статистику.",
+  "overview": {
+    "reviews": "Повторения",
+    "accuracy": "Точность",
+    "streak": "Текущая серия",
+    "streakValue_one": "{{count}} день",
+    "streakValue_few": "{{count}} дня",
+    "streakValue_many": "{{count}} дней",
+    "streakValue_other": "{{count}} дня",
+    "timeStudied": "Время занятий"
+  },
+  "heatmap": {
+    "title": "Активность",
+    "year": "Год",
+    "current": "Текущий",
+    "summary_one": "{{count}} повторение за последний год",
+    "summary_few": "{{count}} повторения за последний год",
+    "summary_many": "{{count}} повторений за последний год",
+    "summary_other": "{{count}} повторения за последний год",
+    "summaryYear_one": "{{count}} повторение за {{year}}",
+    "summaryYear_few": "{{count}} повторения за {{year}}",
+    "summaryYear_many": "{{count}} повторений за {{year}}",
+    "summaryYear_other": "{{count}} повторения за {{year}}",
+    "dayLabel_one": "{{date}}: {{count}} повторение",
+    "dayLabel_few": "{{date}}: {{count}} повторения",
+    "dayLabel_many": "{{date}}: {{count}} повторений",
+    "dayLabel_other": "{{date}}: {{count}} повторения",
+    "legendLess": "Меньше",
+    "legendMore": "Больше"
+  },
+  "retention": {
+    "title": "Запоминание",
+    "measured": "Измерено",
+    "target": "Цель",
+    "dueContext": "{{correct}} из {{reviews}} повторений верно"
+  },
+  "breakdown": {
+    "title": "Разбивка",
+    "by": "Группировать по",
+    "deck": "Колода",
+    "state": "Состояние",
+    "hour": "Час",
+    "accuracy": "{{percent}}% верно",
+    "reviewsCount": "{{count}} повторения",
+    "reviewsCount_one": "{{count}} повторение",
+    "reviewsCount_few": "{{count}} повторения",
+    "reviewsCount_many": "{{count}} повторений",
+    "reviewsCount_other": "{{count}} повторения",
+    "empty": "Нет данных за этот период."
+  }
+}

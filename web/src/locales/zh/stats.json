@@ -1,0 +1,52 @@
+{
+  "title": "你的统计",
+  "range": {
+    "label": "范围",
+    "7": "最近 7 天",
+    "30": "最近 30 天",
+    "90": "最近 90 天",
+    "365": "最近一年",
+    "all": "全部时间"
+  },
+  "loading": "正在加载统计…",
+  "empty": "暂无统计",
+  "emptyDescription": "学习几张卡片后即可查看统计。",
+  "overview": {
+    "reviews": "复习次数",
+    "accuracy": "正确率",
+    "streak": "当前连续天数",
+    "streakValue_one": "{{count}} 天",
+    "streakValue_other": "{{count}} 天",
+    "timeStudied": "学习时长"
+  },
+  "heatmap": {
+    "title": "活动",
+    "year": "年份",
+    "current": "当前",
+    "summary_one": "过去一年 {{count}} 次复习",
+    "summary_other": "过去一年 {{count}} 次复习",
+    "summaryYear_one": "{{year}} 年 {{count}} 次复习",
+    "summaryYear_other": "{{year}} 年 {{count}} 次复习",
+    "dayLabel_one": "{{date}}：{{count}} 次复习",
+    "dayLabel_other": "{{date}}：{{count}} 次复习",
+    "legendLess": "较少",
+    "legendMore": "较多"
+  },
+  "retention": {
+    "title": "记忆保持",
+    "measured": "实测",
+    "target": "目标",
+    "dueContext": "{{reviews}} 次到期复习中 {{correct}} 次正确"
+  },
+  "breakdown": {
+    "title": "分项",
+    "by": "分组方式",
+    "deck": "牌组",
+    "state": "状态",
+    "hour": "小时",
+    "accuracy": "{{percent}}% 正确",
+    "reviewsCount": "{{count}} 次复习",
+    "reviewsCount_other": "{{count}} 次复习",
+    "empty": "此范围内暂无数据。"
+  }
+}
