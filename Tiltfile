@@ -34,10 +34,21 @@ cluster = cget('KIND_CLUSTER_NAME', 'mindmesh-dev')
 allow_k8s_contexts('kind-' + cluster)
 
 # ── Images ────────────────────────────────────────────────────────────────────
+# Go builds resolve modules through a localhost proxy served from the host module
+# cache (scripts/modproxy.sh, started by scripts/cluster-up.sh) so `go mod download`
+# stays offline under the dev VPN. --network=host lets the build reach it; the `|`
+# in GOPROXY falls back to proxy.golang.org if the proxy is down. GOSUMDB=off skips
+# the (network) checksum-db lookup — go.sum still verifies integrity. CI/prod pass
+# none of this and keep the Dockerfile's network defaults.
+modproxy_port = cget('MODPROXY_PORT', '8877')
+go_build_args = {
+    'GOPROXY': 'http://127.0.0.1:' + modproxy_port + '|https://proxy.golang.org,direct',
+    'GOSUMDB': 'off',
+}
 services = ['identity', 'collection', 'scheduler', 'sync', 'search', 'analytics', 'media']
 for svc in services:
     docker_build(registry + '/' + svc + ':' + tag, context='.', dockerfile='Dockerfile',
-                 build_args={'SERVICE': svc})
+                 build_args=dict(go_build_args, SERVICE=svc), network='host')
 docker_build(registry + '/migrate:' + tag, context='.', dockerfile='Dockerfile.migrate')
 docker_build(registry + '/web:' + tag, context='web', dockerfile='web/Dockerfile')
 

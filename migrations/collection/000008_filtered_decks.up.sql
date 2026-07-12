@@ -1,7 +1,7 @@
 -- Filtered (dynamic/cram) decks built from a search query.
 -- Cards are temporarily moved into a filtered deck for cram sessions.
 -- Distributed by user_id (Citus shard key); composite PK (user_id, id).
-CREATE TABLE filtered_decks (
+CREATE TABLE IF NOT EXISTS filtered_decks (
     id         UUID          NOT NULL,
     user_id    UUID          NOT NULL,
     profile_id UUID          NOT NULL,          -- carried from Identity; no FK cross-service

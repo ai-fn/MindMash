@@ -2,7 +2,7 @@
 -- type identifies which entity was deleted (e.g. 'card', 'note', 'deck', 'note_type').
 -- usn is stamped at deletion time from the user_usn counter.
 -- Distributed by user_id (Citus shard key); composite PK (user_id, type, id).
-CREATE TABLE tombstones (
+CREATE TABLE IF NOT EXISTS tombstones (
     user_id    UUID          NOT NULL,
     type       TEXT          NOT NULL,           -- entity type: card | note | deck | note_type | tag
     id         UUID          NOT NULL,           -- entity id that was deleted

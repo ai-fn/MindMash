@@ -1,4 +1,4 @@
-CREATE TABLE refresh_tokens (
+CREATE TABLE IF NOT EXISTS refresh_tokens (
     jti        TEXT PRIMARY KEY,                          -- ULID minted by platform/auth signer
     user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     profile_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
@@ -8,6 +8,6 @@ CREATE TABLE refresh_tokens (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_refresh_tokens_user_id ON refresh_tokens (user_id);
-CREATE INDEX idx_refresh_tokens_family_id ON refresh_tokens (family_id);
-CREATE INDEX idx_refresh_tokens_expires_at ON refresh_tokens (expires_at);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id ON refresh_tokens (user_id);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_family_id ON refresh_tokens (family_id);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires_at ON refresh_tokens (expires_at);

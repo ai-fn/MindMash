@@ -1,7 +1,7 @@
 -- Note type (model) definition: fields schema, card templates, and CSS.
 -- fields and card_templates are stored as JSONB for flexible schema evolution.
 -- Distributed by user_id (Citus shard key); composite PK (user_id, id).
-CREATE TABLE note_types (
+CREATE TABLE IF NOT EXISTS note_types (
     id             UUID          NOT NULL,
     user_id        UUID          NOT NULL,
     profile_id     UUID          NOT NULL,          -- carried from Identity; no FK cross-service

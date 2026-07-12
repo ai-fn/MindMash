@@ -17,6 +17,9 @@ metadata:
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 spec:
   backoffLimit: {{ .Values.migrations.backoffLimit }}
+  # Cap the run so a migration that genuinely hangs fails instead of blocking the
+  # release forever; the self-healing entrypoint recovers a dirty wedge on the next run.
+  activeDeadlineSeconds: {{ .Values.migrations.activeDeadlineSeconds }}
   # Keep failed pods briefly for debugging, then reap.
   ttlSecondsAfterFinished: 600
   template:
@@ -39,20 +42,25 @@ spec:
           imagePullPolicy: {{ .Values.migrations.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          # Image ENTRYPOINT is the `migrate` binary; these are its args. K8s expands
-          # $(MIGRATE_DATABASE_URL) from the env below (which carries x-migrations-table).
+          # Self-healing wrapper (see scripts/migrate-entrypoint.sh) instead of the raw
+          # `migrate` binary: it runs `up` and, in dev (MIGRATE_AUTO_HEAL=true), recovers
+          # a dirty-wedged DB. K8s expands $(MIGRATE_DATABASE_URL) from the env below
+          # (which carries x-migrations-table).
+          command:
+            - "/usr/local/bin/migrate-entrypoint.sh"
           args:
-            - "-path"
             - "/migrations/{{ .Values.migrations.store }}"
-            - "-database"
             - "$({{ .Values.migrations.databaseUrlEnv }})"
-            - "up"
           env:
             - name: {{ .Values.migrations.databaseUrlEnv }}
               valueFrom:
                 secretKeyRef:
                   name: {{ include "mindmesh-service.fullname" . }}-migrate
                   key: {{ .Values.migrations.databaseUrlEnv }}
+            # Dev-only self-heal of a dirty-wedged DB. OFF in prod/staging (a dirty
+            # DB there is an incident to page on, not to auto-resolve).
+            - name: MIGRATE_AUTO_HEAL
+              value: {{ .Values.migrations.autoHeal | quote }}
           resources:
             {{- toYaml .Values.migrations.resources | nindent 12 }}
           volumeMounts:

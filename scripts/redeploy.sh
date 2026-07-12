@@ -24,7 +24,16 @@ echo "==> building ${img}"
 case "$svc" in
   web)     docker build -t "$img" web ;;
   migrate) docker build -f Dockerfile.migrate -t "$img" . ;;
-  *)       docker build --build-arg SERVICE="$svc" -t "$img" . ;;
+  # Route `go mod download` through the localhost module proxy (host cache) so the
+  # build stays offline under the dev VPN. Falls back to proxy.golang.org if the
+  # proxy is down. CI/prod use the Dockerfile's network defaults. See scripts/modproxy.sh.
+  *)       scripts/modproxy.sh ensure
+           port="$(scripts/modproxy.sh port)"
+           docker build --network=host \
+             --build-arg SERVICE="$svc" \
+             --build-arg GOPROXY="http://127.0.0.1:${port}|https://proxy.golang.org,direct" \
+             --build-arg GOSUMDB=off \
+             -t "$img" . ;;
 esac
 
 echo "==> loading into kind"

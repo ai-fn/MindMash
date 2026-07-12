@@ -3,7 +3,7 @@
 -- Dedupe is per-user: UNIQUE(user_id, checksum). The underlying blob is content-addressed and
 -- shared across users (s3_key derives from the checksum), but each user keeps their own row so
 -- ownership/link and per-user sync (usn/mtime) stay tenant-isolated.
-CREATE TABLE media (
+CREATE TABLE IF NOT EXISTS media (
     id          UUID          NOT NULL,
     user_id     UUID          NOT NULL,
     profile_id  UUID          NOT NULL,
@@ -21,11 +21,11 @@ CREATE TABLE media (
 );
 
 -- Sync delta feed reads rows above a client USN watermark; keep it single-shard-scannable.
-CREATE INDEX media_user_usn ON media (user_id, usn);
+CREATE INDEX IF NOT EXISTS media_user_usn ON media (user_id, usn);
 
 -- Derived renditions (thumbnails, transcodes, rendered LaTeX). Carries user_id for Citus
 -- colocation with the parent media row. Variant blobs are also content-addressed and shared.
-CREATE TABLE media_variants (
+CREATE TABLE IF NOT EXISTS media_variants (
     user_id   UUID   NOT NULL,
     media_id  UUID   NOT NULL,
     variant   TEXT   NOT NULL,        -- e.g. 'thumb'
@@ -38,7 +38,7 @@ CREATE TABLE media_variants (
 
 -- Per-user monotonic USN counter (same mechanism as Collection). Each write bumps it so the
 -- Sync change feed can order media alongside a user's other entities.
-CREATE TABLE user_usn (
+CREATE TABLE IF NOT EXISTS user_usn (
     user_id UUID   NOT NULL,
     usn     BIGINT NOT NULL,
     PRIMARY KEY (user_id)

@@ -4,11 +4,19 @@
 #   docker build --build-arg SERVICE=identity -t mindmesh/identity:dev .
 #
 # Produces a static, non-root, distroless image (no shell, no package manager).
+#
+# GOPROXY/GOSUMDB are build-args so local dev can point the build at a localhost
+# module proxy served from the host cache (scripts/modproxy.sh) — the dev VPN
+# resets connections to proxy.golang.org mid-transfer, stalling `go mod download`.
+# CI/prod pass neither and keep the network defaults below. See scripts/modproxy.sh.
 
 # ---- build stage ---------------------------------------------------------
 FROM golang:1.26-alpine AS build
 
 ARG SERVICE
+ARG GOPROXY=https://proxy.golang.org,direct
+ARG GOSUMDB=sum.golang.org
+ENV GOPROXY=${GOPROXY} GOSUMDB=${GOSUMDB}
 # git + ca-certificates so `go mod download` can reach the module proxy over TLS.
 RUN apk add --no-cache git ca-certificates
 

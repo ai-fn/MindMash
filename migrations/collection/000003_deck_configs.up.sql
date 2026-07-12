@@ -1,6 +1,6 @@
 -- Per-user deck scheduling configuration (new/review limits, FSRS weights, etc.).
 -- Distributed by user_id (Citus shard key); composite PK (user_id, id).
-CREATE TABLE deck_configs (
+CREATE TABLE IF NOT EXISTS deck_configs (
     id                UUID          NOT NULL,
     user_id           UUID          NOT NULL,
     profile_id        UUID          NOT NULL,          -- carried from Identity; no FK cross-service

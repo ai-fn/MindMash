@@ -2,7 +2,7 @@
 -- Tags are also denormalized on notes.tags TEXT[] for fast per-note lookups.
 -- name is CITEXT for case-insensitive uniqueness within a user scope.
 -- Distributed by user_id (Citus shard key); composite PK (user_id, id).
-CREATE TABLE tags (
+CREATE TABLE IF NOT EXISTS tags (
     id         UUID          NOT NULL,
     user_id    UUID          NOT NULL,
     profile_id UUID          NOT NULL,          -- carried from Identity; no FK cross-service

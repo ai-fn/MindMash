@@ -2,7 +2,7 @@
 -- The relay polls rows WHERE published_at IS NULL, publishes them keyed by user_id,
 -- then stamps published_at.  Written inside the same DB transaction as the domain change.
 -- Distributed by user_id (Citus shard key); composite PK (user_id, id).
-CREATE TABLE outbox (
+CREATE TABLE IF NOT EXISTS outbox (
     id             UUID          NOT NULL,
     user_id        UUID          NOT NULL,
     aggregate_type TEXT          NOT NULL,       -- e.g. 'card', 'deck', 'note'
@@ -15,4 +15,4 @@ CREATE TABLE outbox (
 );
 
 -- Partial index for relay polling: only unpublished rows need to be scanned.
-CREATE INDEX outbox_unpublished ON outbox (created_at) WHERE published_at IS NULL;
+CREATE INDEX IF NOT EXISTS outbox_unpublished ON outbox (created_at) WHERE published_at IS NULL;

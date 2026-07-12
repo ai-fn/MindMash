@@ -1,7 +1,7 @@
 -- Hierarchical deck tree.  path (ltree) encodes ancestor chain for fast subtree queries.
 -- config_id is nullable: a deck without an explicit config inherits from its parent or the default.
 -- Distributed by user_id (Citus shard key); composite PK (user_id, id).
-CREATE TABLE decks (
+CREATE TABLE IF NOT EXISTS decks (
     id         UUID          NOT NULL,
     user_id    UUID          NOT NULL,
     profile_id UUID          NOT NULL,          -- carried from Identity; no FK cross-service

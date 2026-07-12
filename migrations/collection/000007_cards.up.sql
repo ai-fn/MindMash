@@ -3,7 +3,7 @@
 -- queue: negative values = suspended (<0) or buried (-1, -2).
 -- stability/difficulty are FSRS SM-18 parameters.
 -- Distributed by user_id (Citus shard key); composite PK (user_id, id).
-CREATE TABLE cards (
+CREATE TABLE IF NOT EXISTS cards (
     id           UUID          NOT NULL,
     user_id      UUID          NOT NULL,
     profile_id   UUID          NOT NULL,          -- carried from Identity; no FK cross-service

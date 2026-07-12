@@ -1,7 +1,7 @@
 -- A note holds the raw content (fields) for one or more cards derived from a note type.
 -- tags is denormalized here for fast filtering; also normalized in the tags table for autocomplete.
 -- Distributed by user_id (Citus shard key); composite PK (user_id, id).
-CREATE TABLE notes (
+CREATE TABLE IF NOT EXISTS notes (
     id           UUID          NOT NULL,
     user_id      UUID          NOT NULL,
     profile_id   UUID          NOT NULL,          -- carried from Identity; no FK cross-service

@@ -1,4 +1,4 @@
-CREATE TABLE oauth_identities (
+CREATE TABLE IF NOT EXISTS oauth_identities (
     id           UUID PRIMARY KEY,
     user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     provider     TEXT NOT NULL,            -- google | apple | github
@@ -7,4 +7,4 @@ CREATE TABLE oauth_identities (
     UNIQUE (provider, provider_uid)
 );
 
-CREATE INDEX idx_oauth_identities_user_id ON oauth_identities (user_id);
+CREATE INDEX IF NOT EXISTS idx_oauth_identities_user_id ON oauth_identities (user_id);

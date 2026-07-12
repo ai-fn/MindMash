@@ -180,6 +180,17 @@ migrations:
   # at deploy time (never commit real prod DSNs).
   databaseUrl: ""
   backoffLimit: 3
+  # Job-wide deadline (spans all backoffLimit retries): fail a genuinely stuck run
+  # instead of hanging the release forever. Generous by default because a real prod
+  # migration — a large CREATE INDEX, or Citus create_distributed_table reshuffling a
+  # populated table — can legitimately run for many minutes; killing it mid-run would
+  # leave the DB dirty (and prod runs with autoHeal=false). Envs with big data
+  # migrations should raise this further in their overlay.
+  activeDeadlineSeconds: 600
+  # Self-heal a dirty-wedged DB (force to the last clean version + re-run up). Safe
+  # only because migrations are idempotent. Default OFF: prod dirty = page a human.
+  # values-dev.yaml turns this on for the local loop.
+  autoHeal: false
   resources:
     requests: { cpu: 50m, memory: 64Mi }
     limits: { cpu: 500m, memory: 256Mi }

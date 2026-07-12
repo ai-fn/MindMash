@@ -36,8 +36,38 @@ kubectl --context "${CTX}" create secret generic mindmesh-jwt-keys \
   --from-file=ed25519.pub.pem=keys/ed25519.pub.pem \
   --dry-run=client -o yaml | kubectl --context "${CTX}" apply -f -
 
+# Render once; reuse for both preload and apply so the image list and the manifest
+# never drift.
+rendered="$(envsubst < deploy/dev/stores.yaml.tmpl)"
+
+# Preload store images into the kind node from the host Docker cache. The host
+# `docker pull` retries far better than the node's containerd (which the dev VPN
+# resets mid-pull, stranding pods in ImagePullBackOff), and often the image is
+# already cached locally. We import straight into the node's containerd rather than
+# `kind load docker-image`: kind's loader runs `ctr import --all-platforms --digests`,
+# which fails ("content digest not found") when the host Docker uses the containerd
+# image store. A plain `docker save | ctr import` imports the single image cleanly.
+# Tags are pinned, so the default IfNotPresent policy then skips the in-cluster pull.
+node="${KIND_CLUSTER_NAME}-control-plane"
+echo "==> preloading store images (host pull + containerd import)"
+echo "${rendered}" | awk '/image:/{print $2}' | tr -d '"' | sort -u | while read -r img; do
+  [ -n "${img}" ] || continue
+  if docker pull "${img}" >/dev/null 2>&1 &&
+     docker save "${img}" | docker exec --privileged -i "${node}" \
+       ctr -n k8s.io images import --snapshotter=overlayfs - >/dev/null 2>&1; then
+    echo "    loaded ${img}"
+  else
+    echo "    warn: preload failed for ${img} (falling back to in-cluster pull)"
+  fi
+done
+
 echo "==> dev backing stores (rendered from .env)"
-envsubst < deploy/dev/stores.yaml.tmpl | kubectl --context "${CTX}" apply -f -
+echo "${rendered}" | kubectl --context "${CTX}" apply -f -
+
+# Start the localhost Go module proxy (host cache) so the upcoming `tilt up` image
+# builds resolve `go mod download` offline instead of stalling on the VPN.
+echo "==> module proxy for offline Go builds"
+scripts/modproxy.sh ensure || echo "    warn: modproxy not started; Go builds will use the network proxy"
 
 echo "==> waiting for stores to become ready (up to 3m)"
 kubectl --context "${CTX}" wait --for=condition=available --timeout=180s \

@@ -12,3 +12,9 @@ FROM migrate/migrate:v4.18.1
 
 # Baked SQL — one subdirectory per store, matching migrations/<store> in the repo.
 COPY migrations/ /migrations/
+
+# Self-healing wrapper around `migrate up`. The Helm Job invokes this instead of
+# the raw binary so a dirty-wedged DB can auto-recover in dev (MIGRATE_AUTO_HEAL).
+# See scripts/migrate-entrypoint.sh for the rationale.
+COPY scripts/migrate-entrypoint.sh /usr/local/bin/migrate-entrypoint.sh
+RUN chmod +x /usr/local/bin/migrate-entrypoint.sh
