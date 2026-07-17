@@ -33,6 +33,37 @@ tag = cget('IMAGE_TAG', 'dev')
 cluster = cget('KIND_CLUSTER_NAME', 'mindmesh-dev')
 allow_k8s_contexts('kind-' + cluster)
 
+# ── Host resource guard: build concurrency ──────────────────────────────────
+# Tilt builds images in parallel. On a small machine several concurrent Go
+# compilations saturate every core and allocate GBs at once, which — on top of the
+# always-on backing stores — can drive the host into swap-thrash and freeze it.
+# Cap how many images build at once (TILT_MAX_PARALLEL, default 2; set 1 on ≤12 GB).
+update_settings(max_parallel_updates=int(cget('TILT_MAX_PARALLEL', '2')))
+
+# ── Service selection ─────────────────────────────────────────────────────────
+# Run only a subset of backend services to save CPU/RAM. Precedence (first wins):
+#   tilt up identity collection      # per-invocation (positional args)
+#   SERVICES=identity,collection     # persistent, in .env
+#   (default)                        # all services
+# Unselected services are disabled in the Helm release (<svc>.enabled=false below),
+# so their pods AND migration Jobs are never created. cluster-up.sh reads the SAME
+# SERVICES var to bring up only the backing stores those services need.
+ALL_SERVICES = ['identity', 'collection', 'scheduler', 'sync', 'search', 'analytics', 'media']
+config.define_string_list('services', args=True)
+_tilt_args = config.parse()
+
+def _split_list(s):
+    return [x for x in s.replace(',', ' ').split() if x]
+
+selected = _tilt_args.get('services') or _split_list(cget('SERVICES', '')) or ALL_SERVICES
+for _s in selected:
+    if _s not in ALL_SERVICES:
+        fail('unknown service %r; valid: %s (positional, e.g. `tilt up identity collection`)'
+             % (_s, ', '.join(ALL_SERVICES)))
+print('MindMesh — backend services this session: %s' % ', '.join(selected))
+if 'identity' not in selected:
+    print('  note: identity not selected; JWKS-validating services may fail at runtime. Add it to SERVICES if you need authenticated calls.')
+
 # ── Images ────────────────────────────────────────────────────────────────────
 # Go builds resolve modules through a localhost proxy served from the host module
 # cache (scripts/modproxy.sh, started by scripts/cluster-up.sh) so `go mod download`
@@ -45,8 +76,9 @@ go_build_args = {
     'GOPROXY': 'http://127.0.0.1:' + modproxy_port + '|https://proxy.golang.org,direct',
     'GOSUMDB': 'off',
 }
-services = ['identity', 'collection', 'scheduler', 'sync', 'search', 'analytics', 'media']
-for svc in services:
+# Build only the selected services (see selection block above) — this is the main
+# CPU/RAM lever: each Go image build is a full compile.
+for svc in selected:
     docker_build(registry + '/' + svc + ':' + tag, context='.', dockerfile='Dockerfile',
                  build_args=dict(go_build_args, SERVICE=svc), network='host')
 docker_build(registry + '/migrate:' + tag, context='.', dockerfile='Dockerfile.migrate')
@@ -65,8 +97,16 @@ set_args = [
     'analytics.secret.data.CLICKHOUSE_PASSWORD=' + cget('CLICKHOUSE_PASSWORD', 'mindmesh'),
 ]
 for svc in ['identity', 'collection', 'scheduler', 'sync', 'media']:
+    if svc not in selected:
+        continue
     set_args.append('%s.secret.data.DB_DSN=%s' % (svc, pg_dsn))
     set_args.append('%s.migrations.databaseUrl=%s&x-migrations-table=schema_migrations_%s' % (svc, pg_dsn, svc))
+
+# Disable unselected services in the umbrella chart (Chart.yaml gates each subchart on
+# `<alias>.enabled`), so their Deployment + migration Job are never rendered/applied.
+for svc in ALL_SERVICES:
+    if svc not in selected:
+        set_args.append('%s.enabled=false' % svc)
 
 k8s_yaml(helm('deploy/helm/mindmesh', name='mindmesh',
               values=['deploy/helm/mindmesh/values-dev.yaml'], set=set_args))
@@ -78,7 +118,7 @@ ports = {
     'analytics': cget('ANALYTICS_PORT', '8084'), 'search': cget('SEARCH_PORT', '8085'),
     'media': cget('MEDIA_PORT', '8086'),
 }
-for svc in services:
+for svc in selected:
     k8s_resource(svc, port_forwards=ports[svc] + ':8080', labels=['backend'])
 k8s_resource('web', port_forwards='8090:8080', labels=['frontend'])
 

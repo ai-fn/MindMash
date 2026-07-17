@@ -24,6 +24,9 @@ spec:
       containers:
         - name: postgres
           image: ${POSTGRES_IMAGE}
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: "1", memory: 512Mi }
           env:
             - { name: POSTGRES_USER, value: "${POSTGRES_USER}" }
             - { name: POSTGRES_PASSWORD, value: "${POSTGRES_PASSWORD}" }
@@ -55,6 +58,9 @@ spec:
       containers:
         - name: redis
           image: ${REDIS_IMAGE}
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits: { cpu: 250m, memory: 256Mi }
           ports: [{ containerPort: 6379 }]
           readinessProbe:
             exec: { command: ["redis-cli", "ping"] }
@@ -82,10 +88,17 @@ spec:
       containers:
         - name: redpanda
           image: ${REDPANDA_IMAGE}
+          resources:
+            requests: { cpu: 200m, memory: 512Mi }
+            limits: { cpu: "1", memory: 1536Mi }
           args:
             - redpanda
             - start
             - --smp=1
+            # Hard-cap the seastar allocator; without this Redpanda grabs a large slice
+            # of host RAM (observed ~1.4 GB) and helps starve a small dev machine.
+            - --memory=1G
+            - --reserve-memory=0M
             - --overprovisioned
             - --node-id=0
             - --kafka-addr=PLAINTEXT://0.0.0.0:9092
@@ -120,6 +133,9 @@ spec:
       containers:
         - name: opensearch
           image: ${OPENSEARCH_IMAGE}
+          resources:
+            requests: { cpu: 200m, memory: 640Mi }
+            limits: { cpu: "1", memory: 1280Mi }
           env:
             - { name: discovery.type, value: single-node }
             - { name: DISABLE_SECURITY_PLUGIN, value: "true" }
@@ -152,6 +168,10 @@ spec:
       containers:
         - name: clickhouse
           image: ${CLICKHOUSE_IMAGE}
+          # A memory limit makes recent ClickHouse cgroup-aware and self-cap its caches.
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: "1", memory: 1280Mi }
           env:
             - { name: CLICKHOUSE_USER, value: "${CLICKHOUSE_USER}" }
             - { name: CLICKHOUSE_PASSWORD, value: "${CLICKHOUSE_PASSWORD}" }
@@ -184,6 +204,9 @@ spec:
       containers:
         - name: minio
           image: ${MINIO_IMAGE}
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 500m, memory: 512Mi }
           args: ["server", "/data", "--console-address", ":9001"]
           env:
             - { name: MINIO_ROOT_USER, value: "${MINIO_ROOT_USER}" }

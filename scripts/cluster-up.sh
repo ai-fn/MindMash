@@ -40,6 +40,46 @@ kubectl --context "${CTX}" create secret generic mindmesh-jwt-keys \
 # never drift.
 rendered="$(envsubst < deploy/dev/stores.yaml.tmpl)"
 
+# ── Which backing stores to run ───────────────────────────────────────────────
+# Bring up only the stores the selected services need. SERVICES is the SAME knob the
+# Tiltfile reads (comma/space list; empty = all). STORES overrides the derivation
+# explicitly.
+declare -A _svc_stores=(
+  [identity]="postgres"
+  [collection]="postgres"
+  [scheduler]="postgres redis"
+  [sync]="postgres redpanda"
+  [search]="opensearch redpanda"
+  [analytics]="clickhouse redpanda"
+  [media]="postgres minio"
+)
+_all_svcs="identity collection scheduler sync search analytics media"
+_sel_svcs="${SERVICES:-}"; _sel_svcs="${_sel_svcs//,/ }"
+[ -n "${_sel_svcs// }" ] || _sel_svcs="$_all_svcs"
+if [ -n "${STORES:-}" ]; then
+  need_stores="${STORES//,/ }"
+else
+  need_stores=""
+  for s in $_sel_svcs; do need_stores="$need_stores ${_svc_stores[$s]:-}"; done
+fi
+need_stores="$(printf '%s\n' $need_stores | sort -u | grep -v '^$' | tr '\n' ' ')"
+echo "==> backing stores this session: ${need_stores}"
+
+# Keep only the YAML docs (Deployment + Service) whose `app:` label is in the set,
+# so preload/apply/wait below touch just the selected stores.
+rendered="$(printf '%s\n' "$rendered" | awk -v want="$need_stores" '
+  BEGIN { n = split(want, a, " "); for (i = 1; i <= n; i++) W[a[i]] = 1 }
+  function flush() { if (keep) printf "%s", buf; buf = ""; keep = 0 }
+  /^---[ \t]*$/ { flush(); buf = $0 ORS; next }
+  {
+    buf = buf $0 ORS
+    if (match($0, /app:[ \t]*"?[a-z0-9-]+/)) {
+      s = substr($0, RSTART, RLENGTH); sub(/app:[ \t]*"?/, "", s)
+      if (s in W) keep = 1
+    }
+  }
+  END { flush() }')"
+
 # Preload store images into the kind node from the host Docker cache. The host
 # `docker pull` retries far better than the node's containerd (which the dev VPN
 # resets mid-pull, stranding pods in ImagePullBackOff), and often the image is
@@ -70,9 +110,9 @@ echo "==> module proxy for offline Go builds"
 scripts/modproxy.sh ensure || echo "    warn: modproxy not started; Go builds will use the network proxy"
 
 echo "==> waiting for stores to become ready (up to 3m)"
-kubectl --context "${CTX}" wait --for=condition=available --timeout=180s \
-  deployment/postgres deployment/redis deployment/redpanda \
-  deployment/opensearch deployment/clickhouse deployment/minio
+for s in ${need_stores}; do
+  kubectl --context "${CTX}" wait --for=condition=available --timeout=180s "deployment/${s}"
+done
 
 cat <<EOF
 

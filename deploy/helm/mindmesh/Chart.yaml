@@ -15,34 +15,44 @@ sources:
 # One dependency per service, all pointing at the single generic chart via a
 # local file:// path. `helm dependency build` vendors it into charts/.
 dependencies:
+  # `condition: <alias>.enabled` lets the dev loop (Tiltfile) disable a whole service
+  # subchart — its Deployment AND migration Job — via `--set <alias>.enabled=false`.
+  # Absent/true keeps every service on by default; staging/prod overlays never set it.
   - name: mindmesh-service
     version: "0.1.0"
     repository: "file://../mindmesh-service"
     alias: identity
+    condition: identity.enabled
   - name: mindmesh-service
     version: "0.1.0"
     repository: "file://../mindmesh-service"
     alias: collection
+    condition: collection.enabled
   - name: mindmesh-service
     version: "0.1.0"
     repository: "file://../mindmesh-service"
     alias: scheduler
+    condition: scheduler.enabled
   - name: mindmesh-service
     version: "0.1.0"
     repository: "file://../mindmesh-service"
     alias: sync
+    condition: sync.enabled
   - name: mindmesh-service
     version: "0.1.0"
     repository: "file://../mindmesh-service"
     alias: search
+    condition: search.enabled
   - name: mindmesh-service
     version: "0.1.0"
     repository: "file://../mindmesh-service"
     alias: analytics
+    condition: analytics.enabled
   - name: mindmesh-service
     version: "0.1.0"
     repository: "file://../mindmesh-service"
     alias: media
+    condition: media.enabled
   # The frontend SPA reuses the same generic chart in HTTP-only mode (no gRPC
   # port, no migrations, nginx health path) — see the `web` block in values.yaml.
   - name: mindmesh-service
