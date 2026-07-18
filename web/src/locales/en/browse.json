@@ -27,5 +27,50 @@
   "error": "Couldn't load cards.",
   "errorDescription": "Something went wrong while searching. Check your connection and try again.",
   "retry": "Retry",
-  "resultLabel": "Card result"
+  "resultLabel": "Card result",
+  "bulk": {
+    "selectCard": "Select card",
+    "selectAll": "Select all",
+    "selected": "Selected: {{count}}",
+    "cancel": "Cancel",
+    "success": "Cards affected: {{count}}",
+    "error": "Bulk action failed. Please try again.",
+    "actions": {
+      "move": "Move",
+      "tag": "Tag",
+      "untag": "Untag",
+      "flag": "Flag",
+      "suspend": "Suspend",
+      "delete": "Delete"
+    },
+    "move": {
+      "title": "Move cards",
+      "deckLabel": "Destination deck",
+      "noDecks": "No decks available.",
+      "confirm": "Move"
+    },
+    "tag": {
+      "title": "Add tag",
+      "label": "Tag",
+      "placeholder": "e.g. grammar",
+      "confirm": "Add tag"
+    },
+    "untag": {
+      "title": "Remove tag",
+      "confirm": "Remove tag"
+    },
+    "flag": {
+      "title": "Set flag",
+      "clear": "Clear flag",
+      "red": "Red",
+      "orange": "Orange",
+      "green": "Green",
+      "blue": "Blue"
+    },
+    "delete": {
+      "title": "Delete cards",
+      "confirmText": "Permanently delete the selected cards ({{count}})? This can't be undone.",
+      "confirm": "Delete"
+    }
+  }
 }

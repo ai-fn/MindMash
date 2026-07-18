@@ -8,6 +8,7 @@ import type {
 } from '../../lib/api/search/searchV1SearchProto.schemas'
 import { Badge, Button, EmptyState, Field, Skeleton, Spinner, TextInput } from '../../ui'
 import type { BadgeTone } from '../../ui'
+import { BulkActionBar } from './BulkActionBar.tsx'
 import { CardDetail } from './CardDetail.tsx'
 
 // Search / card browser (Task 9, see task-9-brief.md). Wires the Task 7 generated search
@@ -81,6 +82,9 @@ export function BrowseScreen({ onSelectCard }: BrowseScreenProps = {}) {
   // reusable from any other future call site since it only needs a `cardId` + `onClose`.
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null)
   const handleSelectCard = onSelectCard ?? setSelectedCardId
+  // Multi-select for bulk operations: the set of checked card IDs. Independent of
+  // `selectedCardId` (which drives the single-card detail dialog).
+  const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
   // Stack of cursors consumed so far; `undefined` means "first page". Accumulated results are
@@ -115,6 +119,9 @@ export function BrowseScreen({ onSelectCard }: BrowseScreenProps = {}) {
     setResetForQuery(debouncedQuery)
     setCursor(undefined)
     setAccumulated([])
+    // A new query's results are a different set of cards, so any prior selection no longer
+    // applies — clear it alongside the pagination reset (same render-time derivation pattern).
+    if (selected.size > 0) setSelected(new Set())
   }
 
   // Empty query still calls the search endpoint (an empty `q` is a valid, reasonable request
@@ -149,6 +156,30 @@ export function BrowseScreen({ onSelectCard }: BrowseScreenProps = {}) {
     if (nextCursor) {
       setCursor(nextCursor)
     }
+  }
+
+  // Selection is scoped to the currently-loaded rows: the IDs of every result on screen.
+  const resultIds = results.map((c) => c.cardId).filter((id): id is string => !!id)
+  const allSelected = resultIds.length > 0 && resultIds.every((id) => selected.has(id))
+  // Only IDs still present in the loaded results are actionable; ignore any stragglers (e.g.
+  // a row that disappeared after a bulk delete before the refetch landed).
+  const selectedIds = resultIds.filter((id) => selected.has(id))
+
+  function toggleCard(cardId: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(cardId)) next.delete(cardId)
+      else next.add(cardId)
+      return next
+    })
+  }
+
+  function toggleSelectAll() {
+    setSelected(allSelected ? new Set() : new Set(resultIds))
+  }
+
+  function clearSelection() {
+    setSelected(new Set())
   }
 
   return (
@@ -188,9 +219,34 @@ export function BrowseScreen({ onSelectCard }: BrowseScreenProps = {}) {
         <EmptyState title={t('empty')} description={t('emptyDescription')} />
       ) : (
         <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-2">
+            <label className="flex w-fit items-center gap-2 text-sm text-muted">
+              <input
+                type="checkbox"
+                className="h-4 w-4 accent-[var(--color-accent)]"
+                checked={allSelected}
+                aria-label={t('bulk.selectAll')}
+                onChange={toggleSelectAll}
+              />
+              {selected.size > 0
+                ? t('bulk.selected', { count: selectedIds.length })
+                : t('bulk.selectAll')}
+            </label>
+            {selectedIds.length > 0 ? (
+              <BulkActionBar selectedIds={selectedIds} onDone={clearSelection} />
+            ) : null}
+          </div>
+
           <ul className="flex flex-col gap-2">
             {results.map((card) => (
-              <li key={card.cardId}>
+              <li key={card.cardId} className="flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  className="mt-3 h-4 w-4 accent-[var(--color-accent)]"
+                  checked={!!card.cardId && selected.has(card.cardId)}
+                  aria-label={t('bulk.selectCard')}
+                  onChange={() => card.cardId && toggleCard(card.cardId)}
+                />
                 <button
                   type="button"
                   onClick={() => card.cardId && handleSelectCard(card.cardId)}

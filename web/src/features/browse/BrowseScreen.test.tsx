@@ -28,6 +28,20 @@ vi.mock('./CardDetail.tsx', () => ({
     ) : null,
 }))
 
+// Stub the bulk action bar: these tests only assert BrowseScreen's selection wiring (which
+// IDs reach the bar, and that onDone clears the selection), not the bar's own mutation logic
+// — that's covered by BulkActionBar.test.tsx.
+vi.mock('./BulkActionBar.tsx', () => ({
+  BulkActionBar: ({ selectedIds, onDone }: { selectedIds: string[]; onDone: () => void }) => (
+    <div data-testid="bulk-bar-stub">
+      <span>ids:{selectedIds.join(',')}</span>
+      <button type="button" onClick={onDone}>
+        done stub
+      </button>
+    </div>
+  ),
+}))
+
 async function renderScreen(onSelectCard?: (cardId: string) => void) {
   const { BrowseScreen } = await import('./BrowseScreen.tsx')
   const queryClient = new QueryClient()
@@ -397,5 +411,65 @@ describe('BrowseScreen', () => {
 
     expect(onSelectCard).toHaveBeenCalledWith('card-42')
     expect(screen.queryByTestId('card-detail-stub')).not.toBeInTheDocument()
+  })
+
+  it('shows the bulk bar with the selected card IDs only once rows are checked', async () => {
+    const { useSearchServiceSearch } =
+      await import('../../lib/api/search/search-service/search-service')
+    vi.mocked(useSearchServiceSearch).mockReturnValue({
+      data: {
+        data: {
+          results: [makeCard({ cardId: 'card-1' }), makeCard({ cardId: 'card-2' })],
+          nextCursor: undefined,
+        },
+      },
+      isPending: false,
+      isFetching: false,
+      isError: false,
+      refetch: vi.fn(),
+    } as never)
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+    await renderScreen()
+
+    // No selection yet → no bulk bar.
+    expect(screen.queryByTestId('bulk-bar-stub')).not.toBeInTheDocument()
+
+    // Check one row's checkbox → bar appears with just that ID.
+    const rowCheckboxes = screen.getAllByRole('checkbox', { name: 'Select card' })
+    await user.click(rowCheckboxes[0])
+    expect(screen.getByTestId('bulk-bar-stub')).toBeInTheDocument()
+    expect(screen.getByText('ids:card-1')).toBeInTheDocument()
+
+    // Deselecting the only checked row hides the bar again.
+    await user.click(rowCheckboxes[0])
+    expect(screen.queryByTestId('bulk-bar-stub')).not.toBeInTheDocument()
+  })
+
+  it('select-all checks every loaded row, and the bar onDone clears the selection', async () => {
+    const { useSearchServiceSearch } =
+      await import('../../lib/api/search/search-service/search-service')
+    vi.mocked(useSearchServiceSearch).mockReturnValue({
+      data: {
+        data: {
+          results: [makeCard({ cardId: 'card-1' }), makeCard({ cardId: 'card-2' })],
+          nextCursor: undefined,
+        },
+      },
+      isPending: false,
+      isFetching: false,
+      isError: false,
+      refetch: vi.fn(),
+    } as never)
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+    await renderScreen()
+
+    await user.click(screen.getByRole('checkbox', { name: 'Select all' }))
+    expect(screen.getByText('ids:card-1,card-2')).toBeInTheDocument()
+
+    // The bar's onDone (fired after a successful bulk action) clears the selection.
+    await user.click(screen.getByRole('button', { name: 'done stub' }))
+    expect(screen.queryByTestId('bulk-bar-stub')).not.toBeInTheDocument()
   })
 })

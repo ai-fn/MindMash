@@ -27,5 +27,50 @@
   "error": "无法加载卡片。",
   "errorDescription": "搜索时出现问题。请检查网络连接后重试。",
   "retry": "重试",
-  "resultLabel": "卡片结果"
+  "resultLabel": "卡片结果",
+  "bulk": {
+    "selectCard": "选择卡片",
+    "selectAll": "全选",
+    "selected": "已选择：{{count}}",
+    "cancel": "取消",
+    "success": "受影响的卡片：{{count}}",
+    "error": "批量操作失败，请重试。",
+    "actions": {
+      "move": "移动",
+      "tag": "添加标签",
+      "untag": "移除标签",
+      "flag": "标记",
+      "suspend": "暂停",
+      "delete": "删除"
+    },
+    "move": {
+      "title": "移动卡片",
+      "deckLabel": "目标牌组",
+      "noDecks": "没有可用的牌组。",
+      "confirm": "移动"
+    },
+    "tag": {
+      "title": "添加标签",
+      "label": "标签",
+      "placeholder": "例如 grammar",
+      "confirm": "添加标签"
+    },
+    "untag": {
+      "title": "移除标签",
+      "confirm": "移除标签"
+    },
+    "flag": {
+      "title": "设置标记",
+      "clear": "清除标记",
+      "red": "红色",
+      "orange": "橙色",
+      "green": "绿色",
+      "blue": "蓝色"
+    },
+    "delete": {
+      "title": "删除卡片",
+      "confirmText": "永久删除所选卡片（{{count}}）？此操作无法撤销。",
+      "confirm": "删除"
+    }
+  }
 }

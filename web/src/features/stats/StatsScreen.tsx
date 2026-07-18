@@ -15,6 +15,7 @@ import type {
   V1GetRetentionResponse,
   V1HeatmapDay,
 } from '../../lib/api/analytics/analyticsV1AnalyticsProto.schemas'
+import { useAuthStore } from '../auth/authStore'
 import { Card, cn, EmptyState, Field, Select, Skeleton, Spinner } from '../../ui'
 
 // Analytics dashboard (Task 8, see task-8-brief.md). Wires the Task 7 generated analytics
@@ -28,12 +29,6 @@ type RangeValue = (typeof RANGE_VALUES)[number]
 
 const BREAKDOWN_BY_VALUES = ['deck', 'state', 'hour'] as const
 type BreakdownBy = (typeof BREAKDOWN_BY_VALUES)[number]
-
-// Year selector offers the current year plus two previous years. Three years is enough
-// history for a spaced-repetition habit-tracking heatmap without cluttering the selector —
-// most users won't have meaningful activity further back than that, and the backend has no
-// "list available years" endpoint to size this dynamically.
-const YEARS_BACK = 2
 
 /**
  * Formats a milliseconds-as-string duration (GetOverview's wire format) into a simple
@@ -93,16 +88,27 @@ const HEATMAP_LEVEL_OPACITY: Record<0 | 1 | 2 | 3 | 4, number> = {
   4: 1,
 }
 
+// The heatmap grid is 7 day rows (1–7) plus a bottom label row.
+const HEATMAP_LABEL_ROW = 8
+
 interface HeatmapCell {
-  /** ISO YYYY-MM-DD, or '' for an out-of-range padding cell (rendered as an empty spacer). */
+  /** ISO YYYY-MM-DD, or '' for a padding cell (an empty slot, rendered as nothing). */
   date: string
   reviews: number
 }
 
+/** One month's cells, laid out as fixed 7-row columns. */
+interface HeatmapMonthGroup {
+  /** An ISO date within the month (its first real day), for the short label. */
+  monthIso: string
+  /** Columns of exactly 7 cells each; leading/trailing '' cells are vertical padding. */
+  columns: HeatmapCell[][]
+}
+
 interface HeatmapModel {
-  weeks: HeatmapCell[][]
-  /** The week-column index at which each new month first appears, for the month-label row. */
-  months: { weekIndex: number; monthIso: string }[]
+  /** Month blocks in window order; each block's cells fill top-to-bottom, 7 per column, with
+   * the vertical fill position carried continuously across month boundaries. */
+  monthGroups: HeatmapMonthGroup[]
   /** Total reviews across the visible window (for the "N reviews …" subtitle). */
   totalReviews: number
 }
@@ -112,16 +118,21 @@ function startOfUtcDay(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
 }
 
+const PADDING_CELL: HeatmapCell = { date: '', reviews: -1 }
+
 /**
- * Builds a Sunday-start weekday × week grid (GitHub/LeetCode contribution-graph layout).
+ * Builds a per-month "continuous fill" layout: each month is a self-contained block whose
+ * in-range days fill top-to-bottom, 7 cells per column, and the vertical fill position is
+ * carried *continuously* across month boundaries (a month whose last column ends with 2 cells
+ * makes the next month's first column start on its 3rd row). Rows therefore do NOT correspond
+ * to weekdays — this is intentional, and distinct from a GitHub-style weekday grid.
  *
  *   - mode 'current' → a rolling trailing 12-month window ending *today*: the last cell is
  *     today and the first is 364 days earlier, so the newest square is always the current day.
- *   - mode <year>    → that full calendar year (Jan 1 – Dec 31), for browsing history.
+ *     The first/last month blocks are partial (only their in-window days).
+ *   - mode <year>    → that full calendar year (Jan 1 – Dec 31), 12 full month blocks.
  *
- * Leading days are padded so column 0 starts on a Sunday; trailing days (including any days
- * after today in the final week) are padded so the last column is a full 7 rows. All dates
- * are UTC, matching the backend's UTC day bucketing.
+ * All dates are UTC, matching the backend's UTC day bucketing.
  */
 function buildHeatmapModel(
   mode: 'current' | number,
@@ -131,47 +142,52 @@ function buildHeatmapModel(
   let start: Date
   let end: Date
   if (mode === 'current') {
+    // Rolling window ending today, starting on the *same day-of-month one year earlier* (not a
+    // fixed day count) so the first and last cells always share the same date number regardless
+    // of leap years — e.g. 2025-07-13 → 2026-07-13, never 07-14 → 07-13.
     end = startOfUtcDay(today)
-    start = startOfUtcDay(today)
-    start.setUTCDate(start.getUTCDate() - 364)
+    start = new Date(Date.UTC(today.getUTCFullYear() - 1, today.getUTCMonth(), today.getUTCDate()))
   } else {
     start = new Date(Date.UTC(mode, 0, 1))
     end = new Date(Date.UTC(mode, 11, 31))
   }
 
-  const cells: HeatmapCell[] = []
-  for (let i = 0; i < start.getUTCDay(); i++) {
-    cells.push({ date: '', reviews: -1 }) // leading padding so column 0 starts on Sunday
-  }
+  // Walk the window into day cells grouped by calendar month (a new group starts whenever the
+  // month changes), tracking a `cursor` (0–6) that persists across groups so each month picks
+  // up the vertical fill where the previous one left off.
+  const monthGroups: HeatmapMonthGroup[] = []
   let totalReviews = 0
+  let lastMonth = ''
+  let currentDays: HeatmapCell[] = []
+  let cursor = 0
+
+  const flushMonth = () => {
+    if (currentDays.length === 0) return
+    // Prepend `cursor` padding cells so the first column starts at row = cursor, then chunk into
+    // fixed 7-row columns, padding the final column out to a full 7.
+    const padded: HeatmapCell[] = [...Array<HeatmapCell>(cursor).fill(PADDING_CELL), ...currentDays]
+    while (padded.length % 7 !== 0) padded.push(PADDING_CELL)
+    const columns: HeatmapCell[][] = []
+    for (let i = 0; i < padded.length; i += 7) columns.push(padded.slice(i, i + 7))
+    monthGroups.push({ monthIso: currentDays[0].date, columns })
+    cursor = (cursor + currentDays.length) % 7
+    currentDays = []
+  }
+
   for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
     const iso = d.toISOString().slice(0, 10)
-    const reviews = daysByDate.get(iso) ?? 0
-    cells.push({ date: iso, reviews })
-    totalReviews += reviews
-  }
-  while (cells.length % 7 !== 0) {
-    cells.push({ date: '', reviews: -1 }) // trailing padding to complete the final week column
-  }
-
-  const weeks: HeatmapCell[][] = []
-  for (let i = 0; i < cells.length; i += 7) {
-    weeks.push(cells.slice(i, i + 7))
-  }
-
-  const months: { weekIndex: number; monthIso: string }[] = []
-  let lastMonth = -1
-  weeks.forEach((week, weekIndex) => {
-    const firstReal = week.find((c) => c.date !== '')
-    if (!firstReal) return
-    const month = Number(firstReal.date.slice(5, 7))
+    const month = iso.slice(0, 7)
     if (month !== lastMonth) {
-      months.push({ weekIndex, monthIso: firstReal.date })
+      flushMonth()
       lastMonth = month
     }
-  })
+    const reviews = daysByDate.get(iso) ?? 0
+    currentDays.push({ date: iso, reviews })
+    totalReviews += reviews
+  }
+  flushMonth()
 
-  return { weeks, months, totalReviews }
+  return { monthGroups, totalReviews }
 }
 
 export function StatsScreen() {
@@ -230,28 +246,53 @@ export function StatsScreen() {
     () => buildHeatmapModel(yearSel, today, daysByDate),
     [yearSel, today, daysByDate],
   )
-  // Localized short month names (UTC, to match the day buckets) for the month-label row.
+  // Flatten the month blocks into a single CSS grid: each column (real or gap) is one 1fr track,
+  // so the whole strip scales to fit its container without horizontal scroll. Real day cells are
+  // placed by explicit (col, row) across the 7 top rows; month labels span their block, centered,
+  // on the reserved bottom row (HEATMAP_LABEL_ROW).
+  const heatmapLayout = useMemo(() => {
+    const labels: { monthIso: string; startCol: number; span: number }[] = []
+    const cells: { date: string; reviews: number; col: number; row: number }[] = []
+    let track = 0
+    const lastIndex = heatmapModel.monthGroups.length - 1
+    heatmapModel.monthGroups.forEach((group, gi) => {
+      labels.push({ monthIso: group.monthIso, startCol: track + 1, span: group.columns.length })
+      group.columns.forEach((column, ci) => {
+        column.forEach((cell, ri) => {
+          if (cell.date === '') return
+          cells.push({ date: cell.date, reviews: cell.reviews, col: track + ci + 1, row: ri + 1 })
+        })
+      })
+      track += group.columns.length
+      if (gi < lastIndex) track += 1 // one empty gap track between month blocks
+    })
+    return { labels, cells, trackCount: track }
+  }, [heatmapModel])
+  // Localized short month names (UTC, to match the day buckets) for each month group's label.
   const monthFmt = useMemo(
     () => new Intl.DateTimeFormat(i18n.language, { month: 'short', timeZone: 'UTC' }),
     [i18n.language],
   )
-  const monthLabelByWeek = useMemo(() => {
-    const map = new Map<number, string>()
-    for (const m of heatmapModel.months) {
-      map.set(m.weekIndex, monthFmt.format(new Date(`${m.monthIso}T00:00:00Z`)))
-    }
-    return map
-  }, [heatmapModel.months, monthFmt])
 
   const buckets = (breakdown?.buckets ?? []) as V1BreakdownBucket[]
   const maxBucketReviews = Math.max(1, ...buckets.map((b) => Number(b.reviews ?? '0')))
 
-  // Past calendar years available in the heatmap selector; the current period is the
-  // separate "Current" rolling-window option.
-  const pastYears = useMemo(
-    () => Array.from({ length: YEARS_BACK }, (_, i) => currentYear - 1 - i),
-    [currentYear],
-  )
+  // Past calendar years available in the heatmap selector: every year from the account's
+  // registration year up to last year (the current period is the separate "Current" rolling-
+  // window option). Registration year is the earliest profile's createdAt; if that's missing,
+  // fall back to the current year (→ only the "Current" option).
+  const profiles = useAuthStore((s) => s.profiles)
+  const registrationYear = useMemo(() => {
+    const years = (profiles ?? [])
+      .map((p) => (p.createdAt ? new Date(p.createdAt).getUTCFullYear() : NaN))
+      .filter((y) => Number.isFinite(y))
+    return years.length ? Math.min(...years) : currentYear
+  }, [profiles, currentYear])
+  const pastYears = useMemo(() => {
+    const list: number[] = []
+    for (let y = currentYear - 1; y >= registrationYear; y--) list.push(y)
+    return list
+  }, [currentYear, registrationYear])
 
   if (isOverviewLoading) {
     return (
@@ -367,49 +408,47 @@ export function StatsScreen() {
                 role="img" on the container would flatten the accessibility tree and
                 make per-day labels unreachable (see task-8 review finding). */}
             <div className="w-full overflow-x-auto">
-              <div className="inline-flex flex-col gap-1">
-                {/* Month labels, aligned to the week columns they begin on. */}
-                <div className="flex gap-[3px]">
-                  {heatmapModel.weeks.map((_, weekIndex) => (
-                    <div key={weekIndex} className="relative h-4 w-3">
-                      {monthLabelByWeek.has(weekIndex) && (
-                        <span className="absolute left-0 top-0 whitespace-nowrap text-xs text-muted">
-                          {monthLabelByWeek.get(weekIndex)}
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-                {/* Week columns (Sunday at top), newest week on the right, today last. */}
-                <div className="flex gap-[3px]">
-                  {heatmapModel.weeks.map((week, weekIndex) => (
-                    <div key={weekIndex} className="flex flex-col gap-[3px]">
-                      {week.map((cell, dayIndex) =>
-                        cell.date === '' ? (
-                          <div key={dayIndex} className="h-3 w-3" aria-hidden="true" />
-                        ) : (
-                          <div
-                            key={cell.date}
-                            aria-label={t('heatmap.dayLabel', {
-                              date: cell.date,
-                              count: cell.reviews,
-                            })}
-                            title={t('heatmap.dayLabel', { date: cell.date, count: cell.reviews })}
-                            className={cn(
-                              'h-3 w-3 rounded-[2px]',
-                              cell.reviews > 0 ? 'bg-success' : 'bg-border',
-                            )}
-                            style={
-                              cell.reviews > 0
-                                ? { opacity: HEATMAP_LEVEL_OPACITY[heatmapLevel(cell.reviews)] }
-                                : undefined
-                            }
-                          />
-                        ),
-                      )}
-                    </div>
-                  ))}
-                </div>
+              {/* One CSS grid: every column (real day-column or inter-month gap) is a uniform
+                  1fr track, so the whole strip scales to fit the container instead of scrolling.
+                  Months read as separate blocks (empty gap track between them); within a block
+                  cells fill top-to-bottom, 7 per column, with the vertical position carried
+                  continuously across boundaries. Rows are fill positions, not weekdays. */}
+              <div
+                className="grid gap-[3px]"
+                style={{
+                  gridTemplateColumns: `repeat(${heatmapLayout.trackCount}, minmax(6px, 1fr))`,
+                }}
+              >
+                {heatmapLayout.labels.map((label) => (
+                  <span
+                    key={label.monthIso}
+                    className="whitespace-nowrap text-center text-xs text-muted"
+                    style={{
+                      gridRow: HEATMAP_LABEL_ROW,
+                      gridColumn: `${label.startCol} / span ${label.span}`,
+                    }}
+                  >
+                    {monthFmt.format(new Date(`${label.monthIso}T00:00:00Z`))}
+                  </span>
+                ))}
+                {heatmapLayout.cells.map((cell) => (
+                  <div
+                    key={cell.date}
+                    aria-label={t('heatmap.dayLabel', { date: cell.date, count: cell.reviews })}
+                    title={t('heatmap.dayLabel', { date: cell.date, count: cell.reviews })}
+                    className={cn(
+                      'aspect-square w-full rounded-[2px]',
+                      cell.reviews > 0 ? 'bg-success' : 'bg-border',
+                    )}
+                    style={{
+                      gridColumn: cell.col,
+                      gridRow: cell.row,
+                      ...(cell.reviews > 0
+                        ? { opacity: HEATMAP_LEVEL_OPACITY[heatmapLevel(cell.reviews)] }
+                        : {}),
+                    }}
+                  />
+                ))}
               </div>
             </div>
             <div className="flex items-center gap-2 text-xs text-muted">
