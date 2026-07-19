@@ -47,7 +47,15 @@
     "empty": "No note types yet.",
     "emptyDescription": "Note types are created when you add your first card.",
     "fieldCount": "Fields: {{count}}",
-    "templateCount": "Card templates: {{count}}"
+    "templateCount": "Card templates: {{count}}",
+    "fieldLanguageHeading": "Search language per field",
+    "languageSaved": "Field language saved",
+    "language": {
+      "agnostic": "Auto",
+      "en": "English",
+      "ru": "Russian",
+      "zh": "Chinese"
+    }
   },
   "filteredDecks": {
     "openButton": "Filtered decks",

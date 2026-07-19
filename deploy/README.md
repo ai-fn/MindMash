@@ -195,6 +195,10 @@ controller — it's rendered and static-checked here but the dev cluster has no 
 - **OpenSearch security**: disabled in the reference deployment (matches local `docker-compose`).
   A real cluster enabling it needs an `externalSecrets` block for `search`
   (`OPENSEARCH_USERNAME`/`PASSWORD`) that no overlay wires up yet.
+- **Search analyzers**: the `cards-v*` index uses only built-in analyzers (`english`/`russian`/
+  `cjk`), so the stock `opensearchproject/opensearch:3` image needs no plugins. Upgrading Chinese
+  to dictionary segmentation (`analysis-smartcn`/`analysis-icu`) would require a custom image (dev)
+  or a managed-service plugin request (prod) plus a reindex behind the `cards` alias — deferred.
 - **Migration DSNs in staging/prod**: `<service>.migrations.databaseUrl` is deliberately blank in
   `values-staging.yaml`/`values-prod.yaml` (the pre-install Job no-ops until it's set). Real
   deployments inject it at deploy time from a CD secret store — see `argocd/README.md` — never by

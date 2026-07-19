@@ -202,9 +202,11 @@ service CollectionInternalService {
 
 // Field definition within a NoteType.
 message Field {
-  string name   = 1;
-  bool   sticky = 2; // persist this field's value across successive note creates
-  bool   rtl    = 3; // render right-to-left
+  string name     = 1;
+  bool   sticky   = 2; // persist this field's value across successive note creates
+  bool   rtl      = 3; // render right-to-left
+  string language = 4; // BCP-47-ish tag (e.g. "en","ru","zh") selecting the search
+                       // analyzer for this field's text; empty = language-agnostic
 }
 
 // Card template within a NoteType.
@@ -658,4 +660,8 @@ message SearchDoc {
   string                    fields_text  = 16; // concatenated note field values
   google.protobuf.Timestamp added_at     = 17; // derived from the card's UUIDv7 id
   int64                     version      = 18;
+  // lang_text maps a language tag (e.g. "en", "zh") to the concatenated text of
+  // the note's fields tagged that language, so Search indexes each language under
+  // the matching analyzer. Untagged fields are absent (searchable via fields_text).
+  map<string, string>       lang_text    = 19;
 }

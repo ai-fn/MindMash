@@ -76,9 +76,16 @@ func boolClause(occur string, children []searchdsl.Node, opts Opts) map[string]a
 	return map[string]any{"bool": map[string]any{occur: clauses}}
 }
 
+// textFields are the full-text fields a bare/phrase term matches against: the
+// language-agnostic fields_text (standard analyzer) plus the per-language fields,
+// each of which analyzes the query with its own analyzer (english/russian stemming,
+// cjk bigram). A doc matches if any field matches, so a stemmed or CJK query hits
+// text the standard analyzer alone would miss.
+var textFields = []any{"fields_text", "fields_text_en", "fields_text_ru", "fields_text_zh"}
+
 // termClause maps a Term leaf to a clause based on its field. A bare term (no
-// field) is full-text against fields_text; a wildcard goes against the
-// untokenized keyword subfield; a phrase uses match_phrase.
+// field) is full-text across the language fields; a wildcard goes against the
+// untokenized keyword subfield; a phrase uses a phrase multi_match.
 func termClause(tm searchdsl.Term, opts Opts) map[string]any {
 	switch tm.Field {
 	case "":
@@ -86,9 +93,9 @@ func termClause(tm searchdsl.Term, opts Opts) map[string]any {
 		case tm.Wildcard:
 			return map[string]any{"wildcard": map[string]any{"fields_text.keyword": tm.Value + "*"}}
 		case tm.Phrase:
-			return map[string]any{"match_phrase": map[string]any{"fields_text": tm.Value}}
+			return multiMatch(tm.Value, "phrase")
 		default:
-			return map[string]any{"match": map[string]any{"fields_text": tm.Value}}
+			return multiMatch(tm.Value, "most_fields")
 		}
 	case "deck":
 		// deck:X matches the deck itself and every descendant (X::*).
@@ -113,9 +120,19 @@ func termClause(tm searchdsl.Term, opts Opts) map[string]any {
 		since := opts.Now.AddDate(0, 0, -atoiOr0(tm.Value))
 		return rangeClause("added_at", "gte", since.Format(time.RFC3339))
 	default:
-		// Unknown field name: match against fields_text as a fallback term.
-		return map[string]any{"match": map[string]any{"fields_text": tm.Value}}
+		// Unknown field name: full-text fallback across the language fields.
+		return multiMatch(tm.Value, "most_fields")
 	}
+}
+
+// multiMatch builds a multi_match over the full-text fields with the given type
+// ("most_fields" for bare terms, "phrase" for quoted phrases).
+func multiMatch(value, matchType string) map[string]any {
+	return map[string]any{"multi_match": map[string]any{
+		"query":  value,
+		"type":   matchType,
+		"fields": textFields,
+	}}
 }
 
 // isClause maps is:<state> tokens to the corresponding card filter.

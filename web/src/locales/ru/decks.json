@@ -47,7 +47,15 @@
     "empty": "Пока нет типов заметок.",
     "emptyDescription": "Типы заметок создаются при добавлении первой карточки.",
     "fieldCount": "Полей: {{count}}",
-    "templateCount": "Шаблонов карточек: {{count}}"
+    "templateCount": "Шаблонов карточек: {{count}}",
+    "fieldLanguageHeading": "Язык поиска по полям",
+    "languageSaved": "Язык поля сохранён",
+    "language": {
+      "agnostic": "Авто",
+      "en": "Английский",
+      "ru": "Русский",
+      "zh": "Китайский"
+    }
   },
   "filteredDecks": {
     "openButton": "Фильтрованные колоды",

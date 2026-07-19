@@ -15,13 +15,28 @@ import (
 	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
 )
 
-// IndexName is the concrete OpenSearch index the cards-v1 template materializes.
-// Versioning the index in its name (cards-v1) lets a future mapping change roll
-// forward to cards-v2 behind an alias without a destructive reindex of v1.
-const IndexName = "cards-v1"
+const (
+	// AliasName is the read/write alias every card operation targets. It resolves
+	// to exactly one concrete index at a time (currentIndex); a mapping/analyzer
+	// change rolls a new concrete index in behind the alias without a destructive
+	// in-place reindex — see EnsureIndex.
+	AliasName = "cards"
 
-// templateName is the index-template name (distinct from the index it matches).
-const templateName = "cards"
+	// currentIndex is the concrete index this build's mapping materializes; the
+	// alias is pointed here on boot. It is versioned in the name (cards-v2 adds the
+	// per-language analyzer fields over cards-v1's standard-only mapping) so the next
+	// mapping change bumps to cards-v3 and reindexes behind the alias the same way.
+	currentIndex = "cards-v2"
+
+	// legacyIndex is the pre-alias v1 index that early deployments wrote to directly.
+	// When it exists and the alias does not, EnsureIndex reindexes it into
+	// currentIndex (behavior-parity copy) before pointing the alias at currentIndex.
+	legacyIndex = "cards-v1"
+
+	// templateName is the index-template name; its index_patterns match every
+	// cards-v* concrete index so each rolls up with the same base mapping.
+	templateName = "cards"
+)
 
 // Document is the denormalized card projection stored in OpenSearch. Its JSON
 // field names are the contract the query builder (query.go) filters against, so
@@ -43,9 +58,15 @@ type Document struct {
 	Lapses      int32      `json:"lapses"`
 	Flags       int32      `json:"flags"`
 	Tags        []string   `json:"tags"`
-	FieldsText  string     `json:"fields_text"`
-	AddedAt     time.Time  `json:"added_at"`
-	Version     int64      `json:"version"`
+	FieldsText  string     `json:"fields_text"` // language-agnostic, standard analyzer
+	// FieldsTextEn/Ru/Zh hold the note's field text grouped by language tag, each
+	// indexed under its own analyzer (english/russian/cjk) so stemmed and CJK
+	// queries match. Empty when the note has no field tagged that language.
+	FieldsTextEn string    `json:"fields_text_en,omitempty"`
+	FieldsTextRu string    `json:"fields_text_ru,omitempty"`
+	FieldsTextZh string    `json:"fields_text_zh,omitempty"`
+	AddedAt      time.Time `json:"added_at"`
+	Version      int64     `json:"version"`
 }
 
 // RepoConfig configures the OpenSearch connection.
@@ -95,7 +116,7 @@ func NewRepo(cfg RepoConfig) (*Repo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("search: new opensearch client: %w", err)
 	}
-	return &Repo{client: client, index: IndexName}, nil
+	return &Repo{client: client, index: AliasName}, nil
 }
 
 // Ping reports whether OpenSearch is reachable; used by the service readiness probe.
@@ -106,13 +127,17 @@ func (r *Repo) Ping(ctx context.Context) error {
 	return nil
 }
 
-// templateBody is the cards-v1 index template. Routing is required so every
-// document colocates on its user's shard and no cross-tenant scatter is possible;
-// fields_text is analyzed for full-text plus a keyword subfield for exact/prefix
-// matching. Per-language analyzers are deferred (MVP uses the standard analyzer).
+// templateBody is the shared cards-v* index template. Routing is required so every
+// document colocates on its user's shard and no cross-tenant scatter is possible.
+// fields_text is the language-agnostic full-text field (standard analyzer) plus a
+// keyword subfield for exact/prefix matching; fields_text_{en,ru,zh} index the note's
+// per-language field text under the matching built-in analyzer (english/russian
+// stemming, cjk bigram segmentation) so stemmed and CJK queries match. The analyzers
+// are all built-in (analysis-common) — no plugin/image change. Upgrading zh to
+// dictionary segmentation (smartcn/ICU) needs a plugin and is deferred.
 func templateBody() map[string]any {
 	return map[string]any{
-		"index_patterns": []string{IndexName},
+		"index_patterns": []string{"cards-v*"},
 		"template": map[string]any{
 			"settings": map[string]any{
 				"number_of_shards":   1,
@@ -137,23 +162,68 @@ func templateBody() map[string]any {
 					"flags":        map[string]any{"type": "integer"},
 					"tags":         map[string]any{"type": "keyword"},
 					"fields_text": map[string]any{
-						"type": "text",
+						"type":     "text",
+						"analyzer": "standard",
 						"fields": map[string]any{
 							"keyword": map[string]any{"type": "keyword", "ignore_above": 1024},
 						},
 					},
-					"added_at": map[string]any{"type": "date"},
-					"version":  map[string]any{"type": "long"},
+					"fields_text_en": map[string]any{"type": "text", "analyzer": "english"},
+					"fields_text_ru": map[string]any{"type": "text", "analyzer": "russian"},
+					"fields_text_zh": map[string]any{"type": "text", "analyzer": "cjk"},
+					"added_at":       map[string]any{"type": "date"},
+					"version":        map[string]any{"type": "long"},
 				},
 			},
 		},
 	}
 }
 
-// EnsureTemplate creates (or replaces) the cards-v1 index template. It is
-// idempotent — PUT _index_template is an upsert — so it is safe to call on
-// every boot.
-func (r *Repo) EnsureTemplate(ctx context.Context) error {
+// EnsureIndex idempotently bootstraps the search index on boot: it upserts the
+// cards-v* template, ensures the current concrete index exists, and points the
+// read/write alias at it. On a deployment that predates the alias (a bare
+// cards-v1 index, no alias), it reindexes cards-v1 into the current index for
+// behavior parity before swapping the alias in a single atomic action, so search
+// never regresses across the cutover. Safe to call on every boot.
+func (r *Repo) EnsureIndex(ctx context.Context) error {
+	if err := r.ensureTemplate(ctx); err != nil {
+		return err
+	}
+	// If the alias already resolves, a previous boot completed the bootstrap.
+	aliasExists, err := r.resourceExists(ctx, AliasName)
+	if err != nil {
+		return err
+	}
+	if aliasExists {
+		return nil
+	}
+	currentExists, err := r.resourceExists(ctx, currentIndex)
+	if err != nil {
+		return err
+	}
+	if !currentExists {
+		if err := r.createIndex(ctx, currentIndex); err != nil {
+			return err
+		}
+		// Only reindex into a freshly created current index, and only from a
+		// pre-alias legacy index — this copies the language-agnostic fields for
+		// parity; per-language buckets fill in via the forward path / backfill.
+		legacyExists, err := r.resourceExists(ctx, legacyIndex)
+		if err != nil {
+			return err
+		}
+		if legacyExists {
+			if err := r.Reindex(ctx, legacyIndex, currentIndex); err != nil {
+				return err
+			}
+		}
+	}
+	return r.pointAlias(ctx, AliasName, currentIndex)
+}
+
+// ensureTemplate upserts the cards-v* index template (PUT _index_template is
+// idempotent).
+func (r *Repo) ensureTemplate(ctx context.Context) error {
 	body, err := json.Marshal(templateBody())
 	if err != nil {
 		return fmt.Errorf("search: marshal template: %w", err)
@@ -164,6 +234,63 @@ func (r *Repo) EnsureTemplate(ctx context.Context) error {
 	})
 	if err != nil {
 		return fmt.Errorf("search: put index template: %w", err)
+	}
+	return nil
+}
+
+// resourceExists reports whether an index or alias with the given name exists. A
+// HEAD /{name} returns 200 for both indices and aliases; a 404 is reported as a
+// non-error false so callers can branch on it.
+func (r *Repo) resourceExists(ctx context.Context, name string) (bool, error) {
+	resp, err := r.client.Indices.Exists(ctx, opensearchapi.IndicesExistsReq{Indices: []string{name}})
+	if err == nil {
+		return true, nil
+	}
+	if resp != nil && resp.StatusCode == http.StatusNotFound {
+		return false, nil
+	}
+	return false, fmt.Errorf("search: exists %s: %w", name, err)
+}
+
+// createIndex creates a concrete index; the cards-v* template supplies the
+// mapping and settings.
+func (r *Repo) createIndex(ctx context.Context, name string) error {
+	_, err := r.client.Indices.Create(ctx, opensearchapi.IndicesCreateReq{Index: name})
+	if err != nil {
+		return fmt.Errorf("search: create index %s: %w", name, err)
+	}
+	return nil
+}
+
+// pointAlias makes alias resolve to index, adding it in a single _aliases action.
+func (r *Repo) pointAlias(ctx context.Context, alias, index string) error {
+	body, err := json.Marshal(map[string]any{
+		"actions": []any{
+			map[string]any{"add": map[string]any{"index": index, "alias": alias}},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("search: marshal alias action: %w", err)
+	}
+	if _, err := r.client.Aliases(ctx, opensearchapi.AliasesReq{Body: bytes.NewReader(body)}); err != nil {
+		return fmt.Errorf("search: point alias %s->%s: %w", alias, index, err)
+	}
+	return nil
+}
+
+// Reindex synchronously copies every document from src into dst, carrying each
+// doc's external version so external_gte upserts stay monotonic afterward. Used at
+// the alias cutover to give the new index behavior parity with the old one.
+func (r *Repo) Reindex(ctx context.Context, src, dst string) error {
+	body, err := json.Marshal(map[string]any{
+		"source": map[string]any{"index": src},
+		"dest":   map[string]any{"index": dst, "version_type": "external"},
+	})
+	if err != nil {
+		return fmt.Errorf("search: marshal reindex: %w", err)
+	}
+	if _, err := r.client.Reindex(ctx, opensearchapi.ReindexReq{Body: bytes.NewReader(body)}); err != nil {
+		return fmt.Errorf("search: reindex %s->%s: %w", src, dst, err)
 	}
 	return nil
 }

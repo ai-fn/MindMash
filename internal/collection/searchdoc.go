@@ -30,9 +30,14 @@ type SearchDoc struct {
 	Lapses      int
 	Flags       int32 // colour-flag bitmask, carried from the owning note
 	Tags        []string
-	FieldsText  string // all note field values, for full-text search
-	AddedAt     time.Time
-	Version     int64
+	FieldsText  string // all note field values, for full-text search (language-agnostic)
+	// LangText groups field values by their note-type field's language tag (e.g.
+	// "en"→"...", "zh"→"..."), so the Search indexer can index each language's text
+	// under the matching analyzer. Untagged fields are absent here (they live only in
+	// FieldsText). Empty when no field carries a language.
+	LangText map[string]string
+	AddedAt  time.Time
+	Version  int64
 }
 
 // SearchDocSelector chooses which cards GetSearchDocs resolves. Exactly one
@@ -46,7 +51,10 @@ type SearchDocSelector struct {
 }
 
 // newSearchDoc assembles a SearchDoc from a card and its owning note and deck.
-func newSearchDoc(c *Card, n *Note, d *Deck) SearchDoc {
+// descriptors are the note type's field descriptors (in schema order), used to
+// resolve each field's language tag for per-language grouping; pass nil when the
+// note type is unavailable and only the language-agnostic FieldsText is produced.
+func newSearchDoc(c *Card, n *Note, d *Deck, descriptors []Field) SearchDoc {
 	return SearchDoc{
 		CardID:      c.ID,
 		UserID:      c.UserID,
@@ -64,9 +72,38 @@ func newSearchDoc(c *Card, n *Note, d *Deck) SearchDoc {
 		Flags:       n.Flags,
 		Tags:        n.Tags,
 		FieldsText:  fieldsText(n.Fields),
+		LangText:    groupFieldsByLang(n.Fields, descriptors),
 		AddedAt:     addedAtFromID(c.ID),
 		Version:     maxUSN(c.USN, n.USN, d.USN),
 	}
+}
+
+// groupFieldsByLang buckets a note's field values by the language tag of the
+// matching note-type field descriptor. A field whose descriptor carries no
+// language (or has no descriptor) is omitted — its text is still searchable via
+// the language-agnostic FieldsText. Within a language, values are ordered by field
+// name and space-joined so output is deterministic. Returns nil when nothing is
+// tagged, keeping the common single-language-UI note allocation-free.
+func groupFieldsByLang(fields map[string]string, descriptors []Field) map[string]string {
+	lang := make(map[string][]string)
+	// Iterate descriptors in schema order so field grouping is deterministic without
+	// a separate sort, and only tagged fields contribute.
+	for _, f := range descriptors {
+		if f.Language == "" {
+			continue
+		}
+		if v := fields[f.Name]; v != "" {
+			lang[f.Language] = append(lang[f.Language], v)
+		}
+	}
+	if len(lang) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(lang))
+	for code, vals := range lang {
+		out[code] = strings.Join(vals, " ")
+	}
+	return out
 }
 
 // intervalDays is the scheduled interval in whole days between the last review

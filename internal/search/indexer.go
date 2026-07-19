@@ -20,10 +20,16 @@ import (
 var IndexTopics = []string{"card", "note", "deck"}
 
 // enricher is the subset of Collection's internal client the indexer needs:
-// resolving changed ids back into denormalized search documents.
+// resolving changed ids back into denormalized search documents, and (for
+// backfill) enumerating a tenant's card ids.
 type enricher interface {
 	GetSearchDocs(ctx context.Context, in *collectionv1.GetSearchDocsRequest, opts ...grpc.CallOption) (*collectionv1.GetSearchDocsResponse, error)
+	ListCardIDs(ctx context.Context, in *collectionv1.ListCardIDsRequest, opts ...grpc.CallOption) (*collectionv1.ListCardIDsResponse, error)
 }
+
+// backfillBatch bounds how many card ids are resolved per GetSearchDocs call
+// during a backfill, matching the ListCardIDs page size.
+const backfillBatch = 200
 
 // TokenMinter mints a short-lived access token the indexer presents to
 // Collection. The Kafka event has no user request to forward, so the indexer
@@ -124,6 +130,46 @@ func (ix *Indexer) enrichAndUpsert(ctx context.Context, p eventPayload, req *col
 	return nil
 }
 
+// Backfill re-indexes every card of one tenant by paging through the tenant's
+// card ids (ListCardIDs) and re-enriching them via GetSearchDocs, so pre-existing
+// documents pick up the per-language buckets that only the forward path fills for
+// new/edited cards. It is idempotent (upserts use external_gte) and safe to re-run.
+func (ix *Indexer) Backfill(ctx context.Context, userID, profileID string) (int, error) {
+	p := eventPayload{UserID: userID, ProfileID: profileID}
+	authCtx, err := ix.authContext(ctx, p)
+	if err != nil {
+		return 0, err
+	}
+	var indexed int
+	var pageToken string
+	for {
+		page, err := ix.coll.ListCardIDs(authCtx, &collectionv1.ListCardIDsRequest{
+			PageToken: pageToken,
+			PageSize:  backfillBatch,
+		})
+		if err != nil {
+			return indexed, fmt.Errorf("indexer: backfill list card ids: %w", err)
+		}
+		ids := page.GetIds()
+		if len(ids) > 0 {
+			resp, err := ix.coll.GetSearchDocs(authCtx, &collectionv1.GetSearchDocsRequest{CardIds: ids})
+			if err != nil {
+				return indexed, fmt.Errorf("indexer: backfill get search docs: %w", err)
+			}
+			for _, d := range resp.GetDocs() {
+				if err := ix.repo.Upsert(ctx, protoToDocument(d)); err != nil {
+					return indexed, err
+				}
+				indexed++
+			}
+		}
+		pageToken = page.GetNextPageToken()
+		if pageToken == "" {
+			return indexed, nil
+		}
+	}
+}
+
 // authContext returns ctx with a freshly minted access token for the event's
 // user attached as gRPC authorization metadata.
 func (ix *Indexer) authContext(ctx context.Context, p eventPayload) (context.Context, error) {
@@ -154,6 +200,13 @@ func protoToDocument(d *collectionv1.SearchDoc) Document {
 		FieldsText:  d.GetFieldsText(),
 		Version:     d.GetVersion(),
 	}
+	// Route each language bucket to its analyzer-specific field. Languages outside
+	// the indexed set (en/ru/zh) are ignored here — their text is still searchable
+	// via the agnostic fields_text.
+	lang := d.GetLangText()
+	doc.FieldsTextEn = lang["en"]
+	doc.FieldsTextRu = lang["ru"]
+	doc.FieldsTextZh = lang["zh"]
 	if d.GetDue() != nil {
 		due := d.GetDue().AsTime()
 		doc.Due = &due

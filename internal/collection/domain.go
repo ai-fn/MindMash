@@ -42,6 +42,10 @@ type Field struct {
 	Name   string `json:"name"`
 	Sticky bool   `json:"sticky"` // persist value across successive note creates
 	RTL    bool   `json:"rtl"`    // render right-to-left
+	// Language is an optional BCP-47-ish language tag (e.g. "en", "ru", "zh") that
+	// selects the OpenSearch analyzer for this field's text at index time. Empty
+	// means language-agnostic (indexed only under the standard analyzer).
+	Language string `json:"language,omitempty"`
 }
 
 // CardTemplate is one card template within a NoteType (stored in the

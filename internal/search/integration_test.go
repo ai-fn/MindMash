@@ -64,8 +64,8 @@ func setupOpenSearch(t *testing.T) *Repo {
 	if err != nil {
 		t.Fatalf("new repo: %v", err)
 	}
-	if err := repo.EnsureTemplate(ctx); err != nil {
-		t.Fatalf("ensure template: %v", err)
+	if err := repo.EnsureIndex(ctx); err != nil {
+		t.Fatalf("ensure index: %v", err)
 	}
 	return repo
 }
@@ -412,6 +412,116 @@ func TestIndexer_KafkaPipeline(t *testing.T) {
 			t.Fatalf("timed out waiting for the indexed document (last err: %v)", err)
 		}
 		time.Sleep(500 * time.Millisecond)
+	}
+}
+
+// TestSearch_LanguageAnalyzerSelection proves that per-language fields are analyzed
+// by their own analyzer: a Russian/English inflected query matches text in the
+// language field (stemming) but NOT the same word placed only in the agnostic
+// standard field, and a CJK substring matches the cjk-segmented field. Driven
+// through the repo + handler directly.
+func TestSearch_LanguageAnalyzerSelection(t *testing.T) {
+	repo := setupOpenSearch(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	docs := []Document{
+		// Russian: inflected "книги" in the ru field should match the lemma "книга".
+		{CardID: "ru-lang", UserID: userA, ProfileID: profA, State: "new", FieldsTextRu: "книги", AddedAt: now, Version: 1},
+		// Control: same word only in the agnostic standard field — no stemming.
+		{CardID: "ru-std", UserID: userA, ProfileID: profA, State: "new", FieldsText: "книги", AddedAt: now.Add(-time.Minute), Version: 1},
+		// English: "running" in the en field should match the stem "run".
+		{CardID: "en-lang", UserID: userA, ProfileID: profA, State: "new", FieldsTextEn: "running", AddedAt: now.Add(-2 * time.Minute), Version: 1},
+		{CardID: "en-std", UserID: userA, ProfileID: profA, State: "new", FieldsText: "running", AddedAt: now.Add(-3 * time.Minute), Version: 1},
+		// Chinese: a mid-string bigram must match the cjk-segmented field.
+		{CardID: "zh-lang", UserID: userA, ProfileID: profA, State: "new", FieldsTextZh: "你好世界", AddedAt: now.Add(-4 * time.Minute), Version: 1},
+		// A second tenant's doc to prove isolation survives the multi_match.
+		{CardID: "b-ru", UserID: userB, ProfileID: profB, State: "new", FieldsTextRu: "книги", AddedAt: now, Version: 1},
+	}
+	for _, d := range docs {
+		if err := repo.Upsert(ctx, d); err != nil {
+			t.Fatalf("upsert %s: %v", d.CardID, err)
+		}
+	}
+	if err := repo.Refresh(ctx); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	h := NewHandler(repo)
+
+	// Russian lemma matches the stemmed field only, not the standard control.
+	got := queryAs(t, h, userA, profA, "книга")
+	if !containsID(got, "ru-lang") {
+		t.Errorf("книга did not match ru-lang (russian stemming); got %v", got)
+	}
+	if containsID(got, "ru-std") {
+		t.Errorf("книга matched ru-std (standard field should not stem); got %v", got)
+	}
+	if containsID(got, "b-ru") {
+		t.Errorf("cross-tenant leak: user A saw user B's card; got %v", got)
+	}
+
+	// English stem matches the en field only, not the standard control.
+	got = queryAs(t, h, userA, profA, "run")
+	if !containsID(got, "en-lang") {
+		t.Errorf("run did not match en-lang (english stemming); got %v", got)
+	}
+	if containsID(got, "en-std") {
+		t.Errorf("run matched en-std (standard field should not stem); got %v", got)
+	}
+
+	// A mid-string CJK bigram matches the cjk-segmented field.
+	if got := queryAs(t, h, userA, profA, "好世"); !containsID(got, "zh-lang") {
+		t.Errorf("好世 did not match zh-lang (cjk segmentation); got %v", got)
+	}
+}
+
+// TestIndexer_LanguageBuckets exercises the full per-language path: a note type
+// with language-tagged fields → Collection groups field text by language into
+// lang_text → the indexer routes each bucket to its analyzer field → language
+// queries match. Proves the Collection→proto→indexer→mapping wiring end to end.
+func TestIndexer_LanguageBuckets(t *testing.T) {
+	repo := setupOpenSearch(t)
+	coll := setupCollection(t)
+	ctx := context.Background()
+
+	nt, err := coll.svc.CreateNoteType(ctx, userA, profA, "CN", "",
+		[]collection.Field{{Name: "Hanzi", Language: "zh"}, {Name: "Gloss", Language: "en"}},
+		[]collection.CardTemplate{{Name: "Card 1", Front: "{{Hanzi}}", Back: "{{Gloss}}"}})
+	if err != nil {
+		t.Fatalf("CreateNoteType: %v", err)
+	}
+	deck, err := coll.svc.CreateDeck(ctx, userA, profA, "Chinese", "", "")
+	if err != nil {
+		t.Fatalf("CreateDeck: %v", err)
+	}
+	note, err := coll.svc.CreateNote(ctx, userA, profA, nt.ID, deck.ID,
+		map[string]string{"Hanzi": "你好世界", "Gloss": "running"}, nil, 0)
+	if err != nil {
+		t.Fatalf("CreateNote: %v", err)
+	}
+	cards, err := coll.repo.ListCardsByNote(ctx, userA, note.ID)
+	if err != nil || len(cards) != 1 {
+		t.Fatalf("ListCardsByNote: %v (n=%d)", err, len(cards))
+	}
+	cardID := cards[0].ID
+
+	indexer := NewIndexer(repo, coll.client, coll.signer, zap.NewNop())
+	h := NewHandler(repo)
+
+	if err := indexer.Handle(ctx, noteEvent(t, "note.created", note.ID)); err != nil {
+		t.Fatalf("handle note.created: %v", err)
+	}
+	if err := repo.Refresh(ctx); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+
+	// English gloss "running" is queryable by its stem via the en-tagged field.
+	if got := queryAs(t, h, userA, profA, "run"); len(got) != 1 || got[0] != cardID {
+		t.Fatalf("run = %v, want [%s] (english-tagged Gloss)", got, cardID)
+	}
+	// The Chinese field is queryable by a mid-string bigram via the zh-tagged field.
+	if got := queryAs(t, h, userA, profA, "好世"); len(got) != 1 || got[0] != cardID {
+		t.Fatalf("好世 = %v, want [%s] (zh-tagged Hanzi)", got, cardID)
 	}
 }
 

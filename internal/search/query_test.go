@@ -64,7 +64,13 @@ func clause(t *testing.T, q string) map[string]any {
 
 func TestBuildQuery_BareTerm(t *testing.T) {
 	got := clause(t, "hola")
-	want := map[string]any{"match": map[string]any{"fields_text": "hola"}}
+	// A bare term is a most_fields multi_match across the agnostic + per-language
+	// fields so stemmed/CJK analysis applies.
+	want := map[string]any{"multi_match": map[string]any{
+		"query":  "hola",
+		"type":   "most_fields",
+		"fields": []any{"fields_text", "fields_text_en", "fields_text_ru", "fields_text_zh"},
+	}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("bare term = %#v, want %#v", got, want)
 	}
@@ -72,9 +78,26 @@ func TestBuildQuery_BareTerm(t *testing.T) {
 
 func TestBuildQuery_Phrase(t *testing.T) {
 	got := clause(t, `"two words"`)
-	want := map[string]any{"match_phrase": map[string]any{"fields_text": "two words"}}
+	want := map[string]any{"multi_match": map[string]any{
+		"query":  "two words",
+		"type":   "phrase",
+		"fields": []any{"fields_text", "fields_text_en", "fields_text_ru", "fields_text_zh"},
+	}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("phrase = %#v, want %#v", got, want)
+	}
+}
+
+func TestBuildQuery_UnknownFieldFallback(t *testing.T) {
+	// An unrecognized field name falls back to a full-text multi_match on its value.
+	got := clause(t, "zzz:hola")
+	want := map[string]any{"multi_match": map[string]any{
+		"query":  "hola",
+		"type":   "most_fields",
+		"fields": []any{"fields_text", "fields_text_en", "fields_text_ru", "fields_text_zh"},
+	}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("unknown field = %#v, want %#v", got, want)
 	}
 }
 

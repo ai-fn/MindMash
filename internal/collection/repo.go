@@ -464,15 +464,19 @@ func (r *PostgresRepository) GetSearchDocs(ctx context.Context, userID string, s
 	// internal ltree id-path: the Search service's `deck:` token matches by name
 	// and a deck rename must change it (which is why deck.updated reindexes the
 	// subtree). It is assembled from the deck's ltree ancestors, ordered root→leaf.
+	// nt.fields carries the note type's field descriptors so per-field language tags
+	// reach the SearchDoc (for per-language search analyzers); nt.fields is never
+	// null (note types always define their fields), so an INNER join is safe.
 	rows, err := r.db.Query(ctx, `
 		SELECT c.id, c.user_id, c.profile_id, c.note_id, c.deck_id, c.template_ord,
 		       c.state, c.queue, c.due, c.reps, c.lapses, c.last_review, c.usn,
-		       n.fields, n.tags, n.flags, n.usn,
+		       n.fields, n.tags, n.flags, n.usn, nt.fields,
 		       (SELECT string_agg(a.name, '::' ORDER BY nlevel(a.path))
 		        FROM decks a
 		        WHERE a.user_id = c.user_id AND a.path @> d.path), d.usn
 		FROM cards c
 		JOIN notes n ON n.user_id = c.user_id AND n.id = c.note_id
+		JOIN note_types nt ON nt.user_id = c.user_id AND nt.id = n.note_type_id
 		JOIN decks d ON d.user_id = c.user_id AND d.id = c.deck_id
 		WHERE c.user_id = $1 AND `+pred+`
 		ORDER BY c.id ASC`, userID, arg)
@@ -487,11 +491,11 @@ func (r *PostgresRepository) GetSearchDocs(ctx context.Context, userID string, s
 		n := Note{}
 		d := Deck{}
 		var ord, state, queue, flags int16
-		var fields []byte
+		var fields, noteTypeFields []byte
 		if err := rows.Scan(
 			&c.ID, &c.UserID, &c.ProfileID, &c.NoteID, &c.DeckID, &ord,
 			&state, &queue, &c.Due, &c.Reps, &c.Lapses, &c.LastReview, &c.USN,
-			&fields, &n.Tags, &flags, &n.USN,
+			&fields, &n.Tags, &flags, &n.USN, &noteTypeFields,
 			&d.Path, &d.USN,
 		); err != nil {
 			return nil, fmt.Errorf("collection: get search docs scan: %w", err)
@@ -502,8 +506,12 @@ func (r *PostgresRepository) GetSearchDocs(ctx context.Context, userID string, s
 		if err := json.Unmarshal(fields, &n.Fields); err != nil {
 			return nil, fmt.Errorf("collection: get search docs decode fields: %w", err)
 		}
+		var descriptors []Field
+		if err := json.Unmarshal(noteTypeFields, &descriptors); err != nil {
+			return nil, fmt.Errorf("collection: get search docs decode note type fields: %w", err)
+		}
 		n.Flags = int32(flags)
-		docs = append(docs, newSearchDoc(&c, &n, &d))
+		docs = append(docs, newSearchDoc(&c, &n, &d, descriptors))
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("collection: get search docs rows: %w", err)

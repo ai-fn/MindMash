@@ -61,7 +61,7 @@ func noteTypeToProto(nt *NoteType) *collectionv1.NoteType {
 		Mtime: timestamppb.New(nt.Mtime),
 	}
 	for _, f := range nt.Fields {
-		p.Fields = append(p.Fields, &collectionv1.Field{Name: f.Name, Sticky: f.Sticky, Rtl: f.RTL})
+		p.Fields = append(p.Fields, &collectionv1.Field{Name: f.Name, Sticky: f.Sticky, Rtl: f.RTL, Language: f.Language})
 	}
 	for _, t := range nt.CardTemplates {
 		p.CardTemplates = append(p.CardTemplates, &collectionv1.CardTemplate{Name: t.Name, Front: t.Front, Back: t.Back})
@@ -72,7 +72,7 @@ func noteTypeToProto(nt *NoteType) *collectionv1.NoteType {
 func fieldsFromProto(pf []*collectionv1.Field) []Field {
 	out := make([]Field, 0, len(pf))
 	for _, f := range pf {
-		out = append(out, Field{Name: f.GetName(), Sticky: f.GetSticky(), RTL: f.GetRtl()})
+		out = append(out, Field{Name: f.GetName(), Sticky: f.GetSticky(), RTL: f.GetRtl(), Language: f.GetLanguage()})
 	}
 	return out
 }
@@ -646,6 +646,7 @@ func searchDocToProto(d *SearchDoc) *collectionv1.SearchDoc {
 		Flags:       d.Flags,
 		Tags:        d.Tags,
 		FieldsText:  d.FieldsText,
+		LangText:    d.LangText,
 		AddedAt:     timestamppb.New(d.AddedAt),
 		Version:     d.Version,
 	}

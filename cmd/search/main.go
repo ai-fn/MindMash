@@ -6,9 +6,11 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
@@ -36,6 +38,11 @@ func main() {
 }
 
 func run() error {
+	// --backfill "userID:profileID,..." runs a one-off tenant-scoped reindex (fills
+	// per-language buckets on pre-existing cards) and exits instead of serving.
+	backfillTenants := flag.String("backfill", "", "comma-separated userID:profileID tenants to reindex, then exit")
+	flag.Parse()
+
 	base, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("search: load config: %w", err)
@@ -64,13 +71,14 @@ func run() error {
 		}
 	}()
 
-	// OpenSearch repo + index template bootstrap.
+	// OpenSearch repo + index/alias bootstrap (template, current index, alias, and
+	// a one-time reindex from a pre-alias cards-v1 index if present).
 	repo, err := search.NewRepo(search.LoadRepoConfig())
 	if err != nil {
 		return fmt.Errorf("search: init opensearch: %w", err)
 	}
-	if err := repo.EnsureTemplate(ctx); err != nil {
-		return fmt.Errorf("search: ensure index template: %w", err)
+	if err := repo.EnsureIndex(ctx); err != nil {
+		return fmt.Errorf("search: ensure index: %w", err)
 	}
 
 	// The signer mints the per-user tokens the indexer presents to Collection,
@@ -124,6 +132,12 @@ func run() error {
 	defer func() { _ = consumer.Close() }()
 
 	indexer := search.NewIndexer(repo, collClient, signer, logger)
+
+	// Backfill mode: reindex the named tenants and exit (no servers, no consumer).
+	if *backfillTenants != "" {
+		return runBackfill(ctx, indexer, logger, *backfillTenants)
+	}
+
 	handler := search.NewHandler(repo)
 
 	grpcSrv := grpcx.New(grpcx.DefaultConfig(base.GRPCAddr), grpcx.Options{
@@ -167,6 +181,28 @@ func run() error {
 		return fmt.Errorf("search: server: %w", err)
 	}
 	logger.Info("search: stopped")
+	return nil
+}
+
+// runBackfill reindexes each "userID:profileID" tenant in spec, then returns. It
+// is the operator entrypoint for populating per-language buckets on cards that
+// predate the analyzer rollout (new/edited cards get them via the forward path).
+func runBackfill(ctx context.Context, indexer *search.Indexer, logger *zap.Logger, spec string) error {
+	for _, t := range strings.Split(spec, ",") {
+		t = strings.TrimSpace(t)
+		if t == "" {
+			continue
+		}
+		userID, profileID, ok := strings.Cut(t, ":")
+		if !ok || userID == "" || profileID == "" {
+			return fmt.Errorf("search: backfill tenant %q must be userID:profileID", t)
+		}
+		n, err := indexer.Backfill(ctx, userID, profileID)
+		if err != nil {
+			return fmt.Errorf("search: backfill %s: %w", userID, err)
+		}
+		logger.Info("search: backfilled tenant", zap.String("user_id", userID), zap.Int("cards", n))
+	}
 	return nil
 }
 

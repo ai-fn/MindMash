@@ -1419,6 +1419,10 @@
         "rtl": {
           "type": "boolean",
           "title": "render right-to-left"
+        },
+        "language": {
+          "type": "string",
+          "title": "BCP-47-ish tag (e.g. \"en\",\"ru\",\"zh\") selecting the search"
         }
       },
       "description": "Field definition within a NoteType."

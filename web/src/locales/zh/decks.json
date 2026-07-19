@@ -47,7 +47,15 @@
     "empty": "还没有笔记类型。",
     "emptyDescription": "添加第一张卡片时会创建笔记类型。",
     "fieldCount": "字段数：{{count}}",
-    "templateCount": "卡片模板数：{{count}}"
+    "templateCount": "卡片模板数：{{count}}",
+    "fieldLanguageHeading": "各字段的搜索语言",
+    "languageSaved": "字段语言已保存",
+    "language": {
+      "agnostic": "自动",
+      "en": "英语",
+      "ru": "俄语",
+      "zh": "中文"
+    }
   },
   "filteredDecks": {
     "openButton": "筛选牌组",
