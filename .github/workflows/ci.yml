@@ -43,7 +43,7 @@ jobs:
           go-version: "1.26"
           cache: true
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v1.64.8   # pinned for reproducible CI (compatible with the Go 1.26 toolchain)
 
@@ -59,7 +59,13 @@ jobs:
       # A real gate now (spec 18 mandates buf breaking-change in CI). Contract-first means
       # the generated TS client must never silently drift — a breaking proto change fails CI.
       - name: buf breaking
-        run: cd api && buf breaking --against "https://github.com/mindmesh/mindmesh.git#branch=main,subdir=api"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # buf clones --against itself (outside actions/checkout's credential helper), and
+          # the repo is private, so it needs its own auth via the run token.
+          git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+          cd api && buf breaking --against "https://github.com/ai-fn/MindMash.git#branch=main,subdir=api"
 
   web:
     runs-on: ubuntu-latest

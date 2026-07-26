@@ -36,7 +36,7 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
       - name: Scan ${{ matrix.service }} image (Trivy)
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ghcr.io/mindmesh/${{ matrix.service }}:${{ github.sha }}
           severity: HIGH,CRITICAL
@@ -69,7 +69,7 @@ jobs:
           cache-from: type=gha,scope=migrate
           cache-to: type=gha,mode=max,scope=migrate
       - name: Scan migrate image (Trivy)
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ghcr.io/mindmesh/migrate:${{ github.sha }}
           severity: HIGH,CRITICAL
@@ -104,7 +104,7 @@ jobs:
           cache-from: type=gha,scope=web
           cache-to: type=gha,mode=max,scope=web
       - name: Scan web image (Trivy)
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ghcr.io/mindmesh/web:${{ github.sha }}
           severity: HIGH,CRITICAL
