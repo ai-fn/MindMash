@@ -1,9 +1,9 @@
 name: Deploy
 
+# Temporarily disabled (auto-triggers off) — re-enable by restoring the push/pull_request
+# triggers below once the workflow is fixed and ready to run again.
 on:
-  push:
-    branches: [main, feat/**]
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   images:
