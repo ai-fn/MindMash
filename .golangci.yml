@@ -1,3 +1,5 @@
+version: "2"
+
 run:
   timeout: 5m
   tests: true
@@ -9,30 +11,30 @@ linters:
     - ineffassign
     - staticcheck
     - unused
-    - gosimple
-    - gofmt
-    - goimports
     - misspell
     - revive
     - bodyclose
     - nakedret
     - unconvert
-
-issues:
-  exclude-rules:
-    - path: \.pb\.go$
-      linters:
-        - all
-    - path: \.pb\.gw\.go$
-      linters:
-        - all
-    - path: _test\.go$
-      linters:
-        - errcheck
-        - bodyclose
-
-linters-settings:
-  revive:
+  settings:
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+  exclusions:
     rules:
-      - name: exported
-        disabled: true
+      - path: \.pb\.go$
+        linters:
+          - all
+      - path: \.pb\.gw\.go$
+        linters:
+          - all
+      - path: _test\.go$
+        linters:
+          - errcheck
+          - bodyclose
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
