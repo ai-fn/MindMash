@@ -173,7 +173,7 @@ func (rv *RemoteVerifier) fetchKeysRaw(ctx context.Context) (map[string]ed25519.
 	if err != nil {
 		return nil, fmt.Errorf("auth: fetch JWKS: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("auth: JWKS endpoint returned status %d", resp.StatusCode)

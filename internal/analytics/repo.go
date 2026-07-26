@@ -58,7 +58,7 @@ func (r *Repo) StudyDays(ctx context.Context, t Tenant) ([]time.Time, error) {
 	if err != nil {
 		return nil, fmt.Errorf("analytics: study days: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var days []time.Time
 	for rows.Next() {
 		var d time.Time
@@ -86,7 +86,7 @@ func (r *Repo) Heatmap(ctx context.Context, t Tenant, start, end time.Time) ([]H
 	if err != nil {
 		return nil, fmt.Errorf("analytics: heatmap: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []HeatmapDay
 	for rows.Next() {
 		var d HeatmapDay
@@ -158,7 +158,7 @@ func (r *Repo) Breakdown(ctx context.Context, t Tenant, by string, since time.Ti
 	if err != nil {
 		return nil, fmt.Errorf("analytics: breakdown: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []Bucket
 	for rows.Next() {
 		var b Bucket

@@ -33,8 +33,13 @@ linters:
         linters:
           - errcheck
           - bodyclose
+    paths:
+      - web/node_modules
 
 formatters:
   enable:
     - gofmt
     - goimports
+  exclusions:
+    paths:
+      - web/node_modules
