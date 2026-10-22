@@ -3,6 +3,8 @@ package sync
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -971,6 +973,101 @@ func TestApply_NoteTypeUpdate_KeepsFieldLanguage(t *testing.T) {
 	}
 	if nt := results[0].NoteType; nt == nil || len(nt.Fields) != 1 || nt.Fields[0].Language != "ru" {
 		t.Fatalf("want language ru in the resolved note type, got %+v", results[0].NoteType)
+	}
+}
+
+func TestApply_RejectsUnkeyableBatch(t *testing.T) {
+	tests := []struct {
+		name      string
+		mutations []Mutation
+	}{
+		{"too many", make([]Mutation, maxMutationsPerApply+1)},
+		{"empty op_id", []Mutation{{Type: MutationNoteDelete, EntityID: "n1"}}},
+		{"long op_id", []Mutation{{OpID: strings.Repeat("x", maxOpIDLen+1), Type: MutationNoteDelete, EntityID: "n1"}}},
+		{"bad op_id after a valid one", []Mutation{{OpID: "op1", Type: MutationNoteDelete, EntityID: "n1"}, {Type: MutationNoteDelete, EntityID: "n2"}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo, coll := &fakeRepository{}, &fakeCollectionClient{}
+			_, _, err := newApplyTestService(repo, coll).Apply(context.Background(), "u1", tt.mutations)
+			if status.Code(err) != codes.InvalidArgument {
+				t.Fatalf("want InvalidArgument, got %v", err)
+			}
+			if len(coll.calls) != 0 || len(repo.recordedOps) != 0 {
+				t.Fatalf("want no side effects, got calls %v, recorded %v", coll.calls, repo.recordedOps)
+			}
+		})
+	}
+}
+
+func TestApply_AcceptsLimits(t *testing.T) {
+	ms := make([]Mutation, maxMutationsPerApply)
+	for i := range ms {
+		ms[i] = Mutation{OpID: fmt.Sprintf("%0*d", maxOpIDLen, i), Type: MutationNoteDelete, EntityID: "n1"}
+	}
+	coll := &fakeCollectionClient{getNote: func(context.Context, *collectionv1.GetNoteRequest) (*collectionv1.GetNoteResponse, error) {
+		return nil, status.Error(codes.NotFound, "gone")
+	}}
+	results, _, err := newApplyTestService(&fakeRepository{}, coll).Apply(context.Background(), "u1", ms)
+	if err != nil || len(results) != maxMutationsPerApply || results[0].Outcome != OutcomeApplied {
+		t.Fatalf("want %d mutations with %d-byte op_ids applied, got err %v", maxMutationsPerApply, maxOpIDLen, err)
+	}
+}
+
+func TestApply_FailsMalformedMutationAlone(t *testing.T) {
+	ms := []Mutation{
+		{OpID: "nt", Type: MutationNoteTypeUpdate, EntityID: "nt1"},
+		{OpID: "n", Type: MutationNoteUpdate, EntityID: "n1"},
+		{OpID: "d", Type: MutationDeckUpdate, EntityID: "d1"},
+		{OpID: "dc", Type: MutationDeckConfigUpdate, EntityID: "dc1"},
+		{OpID: "no-entity", Type: MutationNoteDelete},
+		{OpID: "ok", Type: MutationNoteDelete, EntityID: "n1"},
+		{OpID: "unknown", Type: MutationType(99)},
+	}
+	repo := &fakeRepository{}
+	coll := &fakeCollectionClient{getNote: func(context.Context, *collectionv1.GetNoteRequest) (*collectionv1.GetNoteResponse, error) {
+		return nil, status.Error(codes.NotFound, "gone")
+	}}
+	results, _, err := newApplyTestService(repo, coll).Apply(context.Background(), "u1", ms)
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	for _, r := range results[:5] {
+		if r.Outcome != OutcomeFailed {
+			t.Fatalf("want %s to fail on its own, got %+v", r.OpID, r)
+		}
+	}
+	if results[5].Outcome != OutcomeApplied || results[6].Outcome != OutcomeFailed {
+		t.Fatalf("want the valid sibling applied and the unknown type failed, got %+v", results[5:])
+	}
+	if len(repo.recordedOps) != len(ms)-1 {
+		t.Fatalf("want every op but the unknown type recorded, got %+v", repo.recordedOps)
+	}
+	if !slices.Equal(coll.calls, []string{"GetNote"}) {
+		t.Fatalf("want only the valid op sent to Collection, got %v", coll.calls)
+	}
+}
+
+func TestApply_ClampsFutureClientMtime(t *testing.T) {
+	// Server mtime ahead of now: an unclamped 2100 mtime would win.
+	server := &collectionv1.NoteType{Id: "nt1", Usn: 5, Mtime: timestamppb.New(time.Now().Add(time.Hour))}
+	coll := &fakeCollectionClient{
+		getNoteType: func(_ context.Context, _ *collectionv1.GetNoteTypeRequest) (*collectionv1.GetNoteTypeResponse, error) {
+			return &collectionv1.GetNoteTypeResponse{NoteType: server}, nil
+		},
+	}
+	svc := newApplyTestService(&fakeRepository{}, coll)
+
+	m := Mutation{
+		OpID: "op1", Type: MutationNoteTypeUpdate, EntityID: "nt1", BaseUSN: 3,
+		ClientMtime: mustTime(t, "2100-01-01T00:00:00Z"), NoteType: &NoteTypePayload{Name: "Basic"},
+	}
+	results, _, err := svc.Apply(context.Background(), "u1", []Mutation{m})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if results[0].Outcome != OutcomeServerWon {
+		t.Fatalf("want OutcomeServerWon once the future mtime is clamped, got %+v", results[0])
 	}
 }
 

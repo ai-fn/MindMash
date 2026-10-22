@@ -3,11 +3,18 @@ package sync
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	collectionv1 "github.com/mindmesh/mindmesh/api/collection/v1"
+	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
+)
+
+const (
+	maxMutationsPerApply = 500
+	maxOpIDLen           = 128
 )
 
 // Apply resolves and forwards a batch of client-submitted mutations to
@@ -17,9 +24,17 @@ import (
 // never aborts or rolls back its siblings in the same batch; this is a plain
 // loop, not a single transaction.
 func (s *Service) Apply(ctx context.Context, userID string, mutations []Mutation) ([]ApplyResult, int64, error) {
+	if err := validateMutations(mutations); err != nil {
+		return nil, 0, err
+	}
 	results := make([]ApplyResult, len(mutations))
 
+	now := time.Now()
 	for i, m := range mutations {
+		// Clamp: a future client mtime must not beat every server write.
+		if m.ClientMtime.After(now) {
+			m.ClientMtime = now
+		}
 		if prior, err := s.repo.GetAppliedOp(ctx, userID, m.OpID); err != nil {
 			return nil, 0, fmt.Errorf("sync: apply: check op_id %s: %w", m.OpID, err)
 		} else if prior != nil {
@@ -44,6 +59,34 @@ func (s *Service) Apply(ctx context.Context, userID string, mutations []Mutation
 	return results, latestUSN, nil
 }
 
+// validateMutations rejects only what can't be keyed by op_id; other bad ops fail alone so they can't wedge a queue.
+func validateMutations(ms []Mutation) error {
+	if len(ms) > maxMutationsPerApply {
+		return platformerrors.InvalidArgument(fmt.Sprintf("at most %d mutations per request", maxMutationsPerApply))
+	}
+	for i, m := range ms {
+		if m.OpID == "" || len(m.OpID) > maxOpIDLen {
+			return platformerrors.InvalidArgument(fmt.Sprintf("mutations[%d]: op_id must be 1-%d bytes", i, maxOpIDLen))
+		}
+	}
+	return nil
+}
+
+func hasPayload(m Mutation) bool {
+	switch m.Type {
+	case MutationNoteTypeUpdate:
+		return m.NoteType != nil
+	case MutationNoteUpdate:
+		return m.Note != nil
+	case MutationDeckUpdate:
+		return m.Deck != nil
+	case MutationDeckConfigUpdate:
+		return m.DeckConfig != nil
+	default:
+		return true
+	}
+}
+
 // dispatchMutation routes m to the resolver matching its type, returning the
 // ApplyResult plus whether to record it even when OutcomeFailed. Per Global
 // Constraint 7, a transient codes.Aborted race is never recorded (so a retry
@@ -51,6 +94,11 @@ func (s *Service) Apply(ctx context.Context, userID string, mutations []Mutation
 // update, or any non-NotFound/Aborted transport error) is recorded so a
 // replay doesn't keep re-attempting a doomed write.
 func (s *Service) dispatchMutation(ctx context.Context, userID string, m Mutation) (ApplyResult, bool) {
+	// Updates replace the entity wholesale, so a missing payload would blank it; unknown types stay unrecorded.
+	known := m.Type >= MutationNoteTypeUpdate && m.Type <= MutationFilteredDeckDelete
+	if known && (m.EntityID == "" || !hasPayload(m)) {
+		return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: "entity_id and the type's payload are required"}, true
+	}
 	switch m.Type {
 	case MutationNoteTypeUpdate:
 		return s.applyNoteTypeUpdate(ctx, m)
@@ -120,19 +168,15 @@ func (s *Service) applyNoteTypeUpdate(ctx context.Context, m Mutation) (ApplyRes
 
 	var fields []*collectionv1.Field
 	var templates []*collectionv1.CardTemplate
-	var name, css string
-	if m.NoteType != nil {
-		name, css = m.NoteType.Name, m.NoteType.CSS
-		for _, f := range m.NoteType.Fields {
-			fields = append(fields, &collectionv1.Field{Name: f.Name, Sticky: f.Sticky, Rtl: f.RTL, Language: f.Language})
-		}
-		for _, ct := range m.NoteType.CardTemplates {
-			templates = append(templates, &collectionv1.CardTemplate{Name: ct.Name, Front: ct.Front, Back: ct.Back})
-		}
+	for _, f := range m.NoteType.Fields {
+		fields = append(fields, &collectionv1.Field{Name: f.Name, Sticky: f.Sticky, Rtl: f.RTL, Language: f.Language})
+	}
+	for _, ct := range m.NoteType.CardTemplates {
+		templates = append(templates, &collectionv1.CardTemplate{Name: ct.Name, Front: ct.Front, Back: ct.Back})
 	}
 
 	updResp, err := s.coll.UpdateNoteType(ctx, &collectionv1.UpdateNoteTypeRequest{
-		Id: m.EntityID, Name: name, Fields: fields, CardTemplates: templates, Css: css,
+		Id: m.EntityID, Name: m.NoteType.Name, Fields: fields, CardTemplates: templates, Css: m.NoteType.CSS,
 		ExpectedUsn: server.GetUsn(),
 	})
 	if err != nil {
@@ -214,15 +258,8 @@ func (s *Service) applyNoteUpdate(ctx context.Context, m Mutation) (ApplyResult,
 		}, true
 	}
 
-	var fields map[string]string
-	var tags []string
-	var flags int32
-	if m.Note != nil {
-		fields, tags, flags = m.Note.Fields, m.Note.Tags, m.Note.Flags
-	}
-
 	updResp, err := s.coll.UpdateNote(ctx, &collectionv1.UpdateNoteRequest{
-		Id: m.EntityID, Fields: fields, Tags: tags, Flags: flags,
+		Id: m.EntityID, Fields: m.Note.Fields, Tags: m.Note.Tags, Flags: m.Note.Flags,
 		ExpectedUsn: server.GetUsn(),
 	})
 	if err != nil {
@@ -308,13 +345,8 @@ func (s *Service) applyDeckUpdate(ctx context.Context, m Mutation) (ApplyResult,
 		}, true
 	}
 
-	var name, parentID, configID string
-	if m.Deck != nil {
-		name, parentID, configID = m.Deck.Name, m.Deck.ParentID, m.Deck.ConfigID
-	}
-
 	updResp, err := s.coll.UpdateDeck(ctx, &collectionv1.UpdateDeckRequest{
-		Id: m.EntityID, Name: name, ParentId: parentID, ConfigId: configID,
+		Id: m.EntityID, Name: m.Deck.Name, ParentId: m.Deck.ParentID, ConfigId: m.Deck.ConfigID,
 		ExpectedUsn: server.GetUsn(),
 	})
 	if err != nil {
@@ -397,15 +429,10 @@ func (s *Service) applyDeckConfigUpdate(ctx context.Context, m Mutation) (ApplyR
 		}, true
 	}
 
-	var p DeckConfigPayload
-	if m.DeckConfig != nil {
-		p = *m.DeckConfig
-	}
-
 	updResp, err := s.coll.UpdateDeckConfig(ctx, &collectionv1.UpdateDeckConfigRequest{
-		Id: m.EntityID, Name: p.Name, NewPerDay: p.NewPerDay, RevPerDay: p.RevPerDay,
-		DesiredRetention: p.DesiredRetention, FsrsWeights: p.FSRSWeights,
-		LearningSteps: p.LearningSteps, RolloverHour: p.RolloverHour, Timezone: p.Timezone,
+		Id: m.EntityID, Name: m.DeckConfig.Name, NewPerDay: m.DeckConfig.NewPerDay, RevPerDay: m.DeckConfig.RevPerDay,
+		DesiredRetention: m.DeckConfig.DesiredRetention, FsrsWeights: m.DeckConfig.FSRSWeights,
+		LearningSteps: m.DeckConfig.LearningSteps, RolloverHour: m.DeckConfig.RolloverHour, Timezone: m.DeckConfig.Timezone,
 		ExpectedUsn: server.GetUsn(),
 	})
 	if err != nil {
