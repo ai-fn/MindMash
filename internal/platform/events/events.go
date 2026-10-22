@@ -20,7 +20,7 @@ import (
 // Config holds Kafka client configuration.
 type Config struct {
 	Brokers      []string      // KAFKA_BROKERS comma-split, default ["localhost:9092"]
-	GroupID      string        // KAFKA_GROUP_ID, default "mindmesh"
+	GroupID      string        // KAFKA_GROUP_ID; no default, NewConsumer requires it
 	ClientID     string        // KAFKA_CLIENT_ID, default "mindmesh-events"
 	ReadTimeout  time.Duration // KAFKA_READ_TIMEOUT, default 10s
 	WriteTimeout time.Duration // KAFKA_WRITE_TIMEOUT, default 10s
@@ -76,7 +76,7 @@ func LoadConfig() (Config, error) {
 
 	return Config{
 		Brokers:      brokers,
-		GroupID:      envStr("KAFKA_GROUP_ID", "mindmesh"),
+		GroupID:      envStr("KAFKA_GROUP_ID", ""),
 		ClientID:     envStr("KAFKA_CLIENT_ID", "mindmesh-events"),
 		ReadTimeout:  readTimeout,
 		WriteTimeout: writeTimeout,
@@ -169,6 +169,10 @@ type KafkaConsumer struct {
 
 // NewConsumer creates a KafkaConsumer that will join the consumer group in cfg.
 func NewConsumer(cfg Config, log *zap.Logger) (*KafkaConsumer, error) {
+	// A shared fallback group would let unrelated services split each other's messages.
+	if cfg.GroupID == "" {
+		return nil, errors.New("events: consumer group id is required")
+	}
 	if cfg.HandlerMaxAttempts < 1 {
 		cfg.HandlerMaxAttempts = defaultHandlerMaxAttempts
 	}

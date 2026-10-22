@@ -5,6 +5,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"flag"
 	"fmt"
@@ -122,9 +123,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("search: load events config: %w", err)
 	}
-	if os.Getenv("KAFKA_GROUP_ID") == "" {
-		eventsCfg.GroupID = "search-indexer"
-	}
+	eventsCfg.GroupID = cmp.Or(eventsCfg.GroupID, "search-indexer")
 	consumer, err := events.NewConsumer(eventsCfg, logger)
 	if err != nil {
 		return fmt.Errorf("search: init kafka consumer: %w", err)

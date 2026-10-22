@@ -29,6 +29,7 @@ global:
     LOG_LEVEL: info
     OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger-collector:4317"
     KAFKA_BROKERS: "redpanda:9092"
+    # Never set KAFKA_GROUP_ID here: consumers sharing one group split each other's messages.
     REDIS_ADDR: "redis:6379"
     # Shared JWT issuer: identity signs with JWT_ISSUER, validators check JWKS_ISSUER.
     JWT_ISSUER: "https://mindmesh.dev"

@@ -29,7 +29,7 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{"localhost:9092"}, cfg.Brokers)
-	assert.Equal(t, "mindmesh", cfg.GroupID)
+	assert.Empty(t, cfg.GroupID, "each consumer must name its own group")
 	assert.Equal(t, "mindmesh-events", cfg.ClientID)
 	assert.Equal(t, 10*time.Second, cfg.ReadTimeout)
 	assert.Equal(t, 10*time.Second, cfg.WriteTimeout)
@@ -155,9 +155,15 @@ func TestDLQMessage(t *testing.T) {
 }
 
 func TestNewConsumerDefaults(t *testing.T) {
-	c, err := NewConsumer(Config{Brokers: []string{"localhost:9092"}}, nil)
+	c, err := NewConsumer(Config{Brokers: []string{"localhost:9092"}, GroupID: "g"}, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close() })
 	assert.Equal(t, defaultHandlerMaxAttempts, c.cfg.HandlerMaxAttempts)
 	assert.NotNil(t, c.log)
+}
+
+func TestNewConsumerRequiresGroup(t *testing.T) {
+	_, err := NewConsumer(Config{Brokers: []string{"localhost:9092"}}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "group")
 }

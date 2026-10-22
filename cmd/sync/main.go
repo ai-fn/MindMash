@@ -7,6 +7,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"net/http"
@@ -130,6 +131,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("sync: load events config: %w", err)
 	}
+	eventsCfg.GroupID = cmp.Or(eventsCfg.GroupID, "sync-notifier")
 	consumer, err := events.NewConsumer(eventsCfg, logger)
 	if err != nil {
 		return fmt.Errorf("sync: init kafka consumer: %w", err)

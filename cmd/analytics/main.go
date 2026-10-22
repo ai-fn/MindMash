@@ -6,6 +6,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -106,9 +107,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("analytics: load events config: %w", err)
 	}
-	if os.Getenv("KAFKA_GROUP_ID") == "" {
-		eventsCfg.GroupID = "stats-aggregator"
-	}
+	eventsCfg.GroupID = cmp.Or(eventsCfg.GroupID, "stats-aggregator")
 	consumer, err := events.NewConsumer(eventsCfg, logger)
 	if err != nil {
 		return fmt.Errorf("analytics: init kafka consumer: %w", err)

@@ -5,6 +5,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -131,9 +132,7 @@ func run() error {
 	defer func() { _ = producer.Close() }()
 
 	workerCfg := eventsCfg
-	if os.Getenv("KAFKA_GROUP_ID") == "" {
-		workerCfg.GroupID = "media-processor"
-	}
+	workerCfg.GroupID = cmp.Or(workerCfg.GroupID, "media-processor")
 	consumer, err := events.NewConsumer(workerCfg, logger)
 	if err != nil {
 		return fmt.Errorf("media: init kafka consumer: %w", err)
