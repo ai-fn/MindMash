@@ -4,7 +4,6 @@ package scheduler
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -23,25 +22,13 @@ import (
 	"github.com/mindmesh/mindmesh/internal/platform/ids"
 )
 
-// stubCollectionClient implements collectionv1.CollectionInternalServiceClient.
-// Only RenderCard is exercised by the scheduler; the rest are unused by these
-// tests and simply error out.
-type stubCollectionClient struct{}
-
-func (stubCollectionClient) GetCardsByIDs(ctx context.Context, in *collectionv1.GetCardsByIDsRequest, opts ...grpc.CallOption) (*collectionv1.GetCardsByIDsResponse, error) {
-	return nil, errors.New("stubCollectionClient: GetCardsByIDs not implemented")
-}
-
-func (stubCollectionClient) GetNote(ctx context.Context, in *collectionv1.CollectionInternalServiceGetNoteRequest, opts ...grpc.CallOption) (*collectionv1.CollectionInternalServiceGetNoteResponse, error) {
-	return nil, errors.New("stubCollectionClient: GetNote not implemented")
+// stubCollectionClient embeds the interface so unused methods need no stubs.
+type stubCollectionClient struct {
+	collectionv1.CollectionInternalServiceClient
 }
 
 func (stubCollectionClient) RenderCard(ctx context.Context, in *collectionv1.RenderCardRequest, opts ...grpc.CallOption) (*collectionv1.RenderCardResponse, error) {
 	return &collectionv1.RenderCardResponse{FrontHtml: "<div>front:" + in.GetCardId() + "</div>"}, nil
-}
-
-func (stubCollectionClient) ListCardIDs(ctx context.Context, in *collectionv1.ListCardIDsRequest, opts ...grpc.CallOption) (*collectionv1.ListCardIDsResponse, error) {
-	return nil, errors.New("stubCollectionClient: ListCardIDs not implemented")
 }
 
 type integrationComponents struct {

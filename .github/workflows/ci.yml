@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, feat/**]
+    branches: [main, feat/**, fix/**]
   pull_request:
 
 jobs:
@@ -33,6 +33,30 @@ jobs:
           echo "total coverage: ${total}% (floor ${COVERAGE_MIN}%)"
           awk -v t="$total" -v m="$COVERAGE_MIN" 'BEGIN { exit (t+0 >= m+0) ? 0 : 1 }' \
             || { echo "::error::coverage ${total}% is below the floor ${COVERAGE_MIN}%"; exit 1; }
+
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+      - name: Integration tests (testcontainers)
+        run: go test -tags integration -race -count=1 -p 2 -timeout 25m $(go list ./... | grep -v '/web/node_modules/')
+
+  vuln:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          check-latest: true
+          cache: true
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
   lint:
     runs-on: ubuntu-latest
