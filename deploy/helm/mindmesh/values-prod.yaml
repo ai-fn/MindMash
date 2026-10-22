@@ -27,6 +27,9 @@ global:
   # So `:main` is never actually synced to prod — the promote pins an immutable SHA first.
   image:
     tag: main
+  env:
+    # Services create missing topics (and *.dlq) at startup; prod needs >= 3 brokers.
+    KAFKA_TOPIC_REPLICATION: "3"
 
 identity:
   secret: { create: false }

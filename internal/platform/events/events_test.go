@@ -23,6 +23,9 @@ func TestLoadConfig_Defaults(t *testing.T) {
 		"KAFKA_WRITE_TIMEOUT",
 		"KAFKA_MAX_RETRIES",
 		"KAFKA_HANDLER_MAX_ATTEMPTS",
+		"KAFKA_CREATE_TOPICS",
+		"KAFKA_TOPIC_PARTITIONS",
+		"KAFKA_TOPIC_REPLICATION",
 	)
 
 	cfg, err := LoadConfig()
@@ -35,6 +38,9 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	assert.Equal(t, 10*time.Second, cfg.WriteTimeout)
 	assert.Equal(t, 3, cfg.MaxRetries)
 	assert.Equal(t, 10, cfg.HandlerMaxAttempts)
+	assert.True(t, cfg.CreateTopics)
+	assert.Equal(t, 12, cfg.TopicPartitions)
+	assert.Equal(t, 1, cfg.TopicReplication)
 }
 
 func TestLoadConfig_BrokerSplit(t *testing.T) {
@@ -88,6 +94,24 @@ func TestLoadConfig_InvalidEnvVars(t *testing.T) {
 			envKey:  "KAFKA_MAX_RETRIES",
 			envVal:  "notanint",
 			wantErr: "KAFKA_MAX_RETRIES",
+		},
+		{
+			name:    "KAFKA_CREATE_TOPICS not a bool",
+			envKey:  "KAFKA_CREATE_TOPICS",
+			envVal:  "maybe",
+			wantErr: "KAFKA_CREATE_TOPICS",
+		},
+		{
+			name:    "KAFKA_TOPIC_PARTITIONS zero",
+			envKey:  "KAFKA_TOPIC_PARTITIONS",
+			envVal:  "0",
+			wantErr: "KAFKA_TOPIC_PARTITIONS",
+		},
+		{
+			name:    "KAFKA_TOPIC_REPLICATION zero",
+			envKey:  "KAFKA_TOPIC_REPLICATION",
+			envVal:  "0",
+			wantErr: "KAFKA_TOPIC_REPLICATION",
 		},
 		{
 			name:    "KAFKA_HANDLER_MAX_ATTEMPTS zero",
@@ -166,4 +190,18 @@ func TestNewConsumerRequiresGroup(t *testing.T) {
 	_, err := NewConsumer(Config{Brokers: []string{"localhost:9092"}}, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "group")
+}
+
+func TestTopicConfig(t *testing.T) {
+	single := topicConfig(Config{TopicPartitions: 6, TopicReplication: 1}, "card")
+	assert.Equal(t, kafka.TopicConfig{Topic: "card", NumPartitions: 6, ReplicationFactor: 1}, single)
+
+	assert.Empty(t, topicConfig(Config{TopicPartitions: 6, TopicReplication: 2}, "card").ConfigEntries,
+		"RF=2 keeps the broker default so one broker can be lost")
+
+	replicated := topicConfig(Config{TopicPartitions: 6, TopicReplication: 3}, "card")
+	assert.Equal(t, []kafka.ConfigEntry{{ConfigName: "min.insync.replicas", ConfigValue: "2"}}, replicated.ConfigEntries)
+
+	dlq := topicConfig(Config{TopicPartitions: 6, TopicReplication: 1}, "card.dlq")
+	assert.Equal(t, []kafka.ConfigEntry{{ConfigName: "retention.ms", ConfigValue: "2592000000"}}, dlq.ConfigEntries)
 }

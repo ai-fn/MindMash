@@ -18,6 +18,13 @@ import (
 
 func startBroker(t *testing.T, ctx context.Context, topic string, partitions int) string {
 	t.Helper()
+	broker := startRedpanda(t, ctx)
+	createTopic(t, broker, topic, partitions)
+	return broker
+}
+
+func startRedpanda(t *testing.T, ctx context.Context) string {
+	t.Helper()
 	rp, err := redpanda.Run(ctx, "docker.redpanda.com/redpandadata/redpanda:v24.1.1")
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -27,7 +34,6 @@ func startBroker(t *testing.T, ctx context.Context, topic string, partitions int
 	})
 	broker, err := rp.KafkaSeedBroker(ctx)
 	require.NoError(t, err)
-	createTopic(t, broker, topic, partitions)
 	return broker
 }
 

@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -27,6 +28,10 @@ type Config struct {
 	MaxRetries   int           // KAFKA_MAX_RETRIES, default 3
 
 	HandlerMaxAttempts int // KAFKA_HANDLER_MAX_ATTEMPTS, default 10; then the message is dead-lettered
+
+	CreateTopics     bool // KAFKA_CREATE_TOPICS, default true; false when infra provisions topics
+	TopicPartitions  int  // KAFKA_TOPIC_PARTITIONS, default 12
+	TopicReplication int  // KAFKA_TOPIC_REPLICATION, default 1
 }
 
 const defaultHandlerMaxAttempts = 10
@@ -74,6 +79,19 @@ func LoadConfig() (Config, error) {
 		return Config{}, errors.New("events: invalid KAFKA_HANDLER_MAX_ATTEMPTS: must be >= 1")
 	}
 
+	createTopics, err := envBool("KAFKA_CREATE_TOPICS", true)
+	if err != nil {
+		return Config{}, fmt.Errorf("events: invalid KAFKA_CREATE_TOPICS: %w", err)
+	}
+	partitions, err := envInt("KAFKA_TOPIC_PARTITIONS", 12)
+	if err != nil || partitions < 1 {
+		return Config{}, errors.New("events: invalid KAFKA_TOPIC_PARTITIONS: must be an integer >= 1")
+	}
+	replication, err := envInt("KAFKA_TOPIC_REPLICATION", 1)
+	if err != nil || replication < 1 {
+		return Config{}, errors.New("events: invalid KAFKA_TOPIC_REPLICATION: must be an integer >= 1")
+	}
+
 	return Config{
 		Brokers:      brokers,
 		GroupID:      envStr("KAFKA_GROUP_ID", ""),
@@ -83,6 +101,10 @@ func LoadConfig() (Config, error) {
 		MaxRetries:   maxRetries,
 
 		HandlerMaxAttempts: handlerAttempts,
+
+		CreateTopics:     createTopics,
+		TopicPartitions:  partitions,
+		TopicReplication: replication,
 	}, nil
 }
 
@@ -109,11 +131,37 @@ type Consumer interface {
 // KafkaProducer wraps a kafka-go Writer and implements Producer.
 type KafkaProducer struct {
 	writer *kafka.Writer
+	cfg    Config
+
+	mu    sync.Mutex
+	known map[string]bool // topics already ensured
 }
 
 // NewProducer creates a KafkaProducer connected to the brokers in cfg.
 func NewProducer(cfg Config) (*KafkaProducer, error) {
-	return &KafkaProducer{writer: newWriter(cfg)}, nil
+	return &KafkaProducer{writer: newWriter(cfg), cfg: cfg, known: map[string]bool{}}, nil
+}
+
+// ensure creates topics this producer hasn't written to yet: a missing topic fails the whole batch.
+func (p *KafkaProducer) ensure(ctx context.Context, msgs []Message) error {
+	if !p.cfg.CreateTopics {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var missing []string
+	for _, m := range msgs {
+		if !p.known[m.Topic] && !slices.Contains(missing, m.Topic) {
+			missing = append(missing, m.Topic)
+		}
+	}
+	if err := EnsureTopics(ctx, p.cfg, missing...); err != nil {
+		return err
+	}
+	for _, t := range missing {
+		p.known[t] = true
+	}
+	return nil
 }
 
 func newWriter(cfg Config) *kafka.Writer {
@@ -131,6 +179,9 @@ func newWriter(cfg Config) *kafka.Writer {
 
 // Publish sends one or more messages to their respective topics.
 func (p *KafkaProducer) Publish(ctx context.Context, msgs ...Message) error {
+	if err := p.ensure(ctx, msgs); err != nil {
+		return fmt.Errorf("events: publish: %w", err)
+	}
 	km := make([]kafka.Message, 0, len(msgs))
 	for _, m := range msgs {
 		headers := make([]kafka.Header, 0, len(m.Headers))
@@ -201,6 +252,27 @@ func NewConsumer(cfg Config, log *zap.Logger) (*KafkaConsumer, error) {
 func (c *KafkaConsumer) Subscribe(ctx context.Context, topics []string, handler func(ctx context.Context, msg Message) error) (retErr error) {
 	if len(topics) == 0 {
 		return fmt.Errorf("events: subscribe: topics must not be empty")
+	}
+	toEnsure := slices.Clone(topics)
+	for _, t := range topics {
+		toEnsure = append(toEnsure, dlqTopic(t))
+	}
+	for attempt, backoff := 1, c.retryBase; ; attempt, backoff = attempt+1, min(backoff*2, c.retryMax) {
+		err := EnsureTopics(ctx, c.cfg, toEnsure...)
+		if err == nil {
+			break
+		}
+		if errors.Is(err, ErrTopicsMisconfigured) {
+			return fmt.Errorf("events: subscribe: %w", err)
+		}
+		level := zap.WarnLevel
+		if attempt >= 10 {
+			level = zap.ErrorLevel
+		}
+		c.log.Log(level, "events: ensure topics failed, retrying", zap.Strings("topics", toEnsure), zap.Int("attempt", attempt), zap.Error(err))
+		if !relaySleep(ctx, backoff) {
+			return nil
+		}
 	}
 
 	readerCfg := kafka.ReaderConfig{
@@ -301,7 +373,7 @@ func dlqMessage(km kafka.Message, cause error, group string) kafka.Message {
 		kafka.Header{Key: "dlq_offset", Value: []byte(strconv.FormatInt(km.Offset, 10))},
 		kafka.Header{Key: "dlq_group", Value: []byte(group)},
 	)
-	return kafka.Message{Topic: km.Topic + ".dlq", Key: km.Key, Value: km.Value, Headers: headers}
+	return kafka.Message{Topic: dlqTopic(km.Topic), Key: km.Key, Value: km.Value, Headers: headers}
 }
 
 // deadLetter retries until the DLQ write lands: committing without it would lose the message.
@@ -391,6 +463,14 @@ func envInt(key string, def int) (int, error) {
 		return 0, fmt.Errorf("events: %s must be an integer, got %q: %w", key, v, err)
 	}
 	return n, nil
+}
+
+func envBool(key string, def bool) (bool, error) {
+	v, ok := os.LookupEnv(key)
+	if !ok || v == "" {
+		return def, nil
+	}
+	return strconv.ParseBool(v)
 }
 
 // envDuration reads a duration string from the environment variable key.
