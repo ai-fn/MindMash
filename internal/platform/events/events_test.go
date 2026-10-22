@@ -1,6 +1,7 @@
 package events
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -26,6 +27,7 @@ func TestLoadConfig_Defaults(t *testing.T) {
 		"KAFKA_CREATE_TOPICS",
 		"KAFKA_TOPIC_PARTITIONS",
 		"KAFKA_TOPIC_REPLICATION",
+		"KAFKA_HANDLER_TIMEOUT",
 	)
 
 	cfg, err := LoadConfig()
@@ -41,6 +43,7 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	assert.True(t, cfg.CreateTopics)
 	assert.Equal(t, 12, cfg.TopicPartitions)
 	assert.Equal(t, 1, cfg.TopicReplication)
+	assert.Equal(t, 30*time.Second, cfg.HandlerTimeout)
 }
 
 func TestLoadConfig_BrokerSplit(t *testing.T) {
@@ -94,6 +97,12 @@ func TestLoadConfig_InvalidEnvVars(t *testing.T) {
 			envKey:  "KAFKA_MAX_RETRIES",
 			envVal:  "notanint",
 			wantErr: "KAFKA_MAX_RETRIES",
+		},
+		{
+			name:    "KAFKA_HANDLER_TIMEOUT zero",
+			envKey:  "KAFKA_HANDLER_TIMEOUT",
+			envVal:  "0s",
+			wantErr: "KAFKA_HANDLER_TIMEOUT",
 		},
 		{
 			name:    "KAFKA_CREATE_TOPICS not a bool",
@@ -204,4 +213,45 @@ func TestTopicConfig(t *testing.T) {
 
 	dlq := topicConfig(Config{TopicPartitions: 6, TopicReplication: 1}, "card.dlq")
 	assert.Equal(t, []kafka.ConfigEntry{{ConfigName: "retention.ms", ConfigValue: "2592000000"}}, dlq.ConfigEntries)
+}
+
+func newUnitConsumer(t *testing.T, timeout time.Duration) *KafkaConsumer {
+	t.Helper()
+	c, err := NewConsumer(Config{Brokers: []string{"localhost:9092"}, GroupID: "g", HandlerTimeout: timeout, HandlerMaxAttempts: 5}, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+	c.retryBase, c.retryMax = time.Millisecond, time.Millisecond
+	return c
+}
+
+func TestProcessTimesOutHungAttempt(t *testing.T) {
+	c := newUnitConsumer(t, 50*time.Millisecond)
+	var calls int
+	var firstErr error
+	err := c.process(context.Background(), kafka.Message{Topic: "card"}, Message{}, func(ctx context.Context, _ Message) error {
+		calls++
+		if calls == 1 {
+			<-ctx.Done()
+			firstErr = ctx.Err()
+			return firstErr
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 2, calls, "a timed-out attempt is retried")
+	assert.ErrorIs(t, firstErr, context.DeadlineExceeded)
+}
+
+func TestProcessStopsOnShutdown(t *testing.T) {
+	c := newUnitConsumer(t, time.Minute)
+	ctx, cancel := context.WithCancel(context.Background())
+	var calls int
+	err := c.process(ctx, kafka.Message{Topic: "card"}, Message{}, func(ctx context.Context, _ Message) error {
+		calls++
+		cancel()
+		<-ctx.Done()
+		return ctx.Err()
+	})
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, 1, calls, "shutdown must not be retried")
 }

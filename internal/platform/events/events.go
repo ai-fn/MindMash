@@ -27,14 +27,18 @@ type Config struct {
 	WriteTimeout time.Duration // KAFKA_WRITE_TIMEOUT, default 10s
 	MaxRetries   int           // KAFKA_MAX_RETRIES, default 3
 
-	HandlerMaxAttempts int // KAFKA_HANDLER_MAX_ATTEMPTS, default 10; then the message is dead-lettered
+	HandlerMaxAttempts int           // KAFKA_HANDLER_MAX_ATTEMPTS, default 10; then the message is dead-lettered
+	HandlerTimeout     time.Duration // KAFKA_HANDLER_TIMEOUT per attempt, default 30s; handlers must honor ctx
 
 	CreateTopics     bool // KAFKA_CREATE_TOPICS, default true; false when infra provisions topics
 	TopicPartitions  int  // KAFKA_TOPIC_PARTITIONS, default 12
 	TopicReplication int  // KAFKA_TOPIC_REPLICATION, default 1
 }
 
-const defaultHandlerMaxAttempts = 10
+const (
+	defaultHandlerMaxAttempts = 10
+	defaultHandlerTimeout     = 30 * time.Second
+)
 
 // LoadConfig reads Kafka configuration from environment variables.
 // It returns an error when KAFKA_BROKERS is explicitly set to an empty string,
@@ -79,6 +83,14 @@ func LoadConfig() (Config, error) {
 		return Config{}, errors.New("events: invalid KAFKA_HANDLER_MAX_ATTEMPTS: must be >= 1")
 	}
 
+	handlerTimeout, err := envDuration("KAFKA_HANDLER_TIMEOUT", defaultHandlerTimeout)
+	if err != nil {
+		return Config{}, fmt.Errorf("events: invalid KAFKA_HANDLER_TIMEOUT: %w", err)
+	}
+	if handlerTimeout <= 0 {
+		return Config{}, errors.New("events: invalid KAFKA_HANDLER_TIMEOUT: must be a positive duration")
+	}
+
 	createTopics, err := envBool("KAFKA_CREATE_TOPICS", true)
 	if err != nil {
 		return Config{}, fmt.Errorf("events: invalid KAFKA_CREATE_TOPICS: %w", err)
@@ -101,6 +113,7 @@ func LoadConfig() (Config, error) {
 		MaxRetries:   maxRetries,
 
 		HandlerMaxAttempts: handlerAttempts,
+		HandlerTimeout:     handlerTimeout,
 
 		CreateTopics:     createTopics,
 		TopicPartitions:  partitions,
@@ -227,6 +240,9 @@ func NewConsumer(cfg Config, log *zap.Logger) (*KafkaConsumer, error) {
 	if cfg.HandlerMaxAttempts < 1 {
 		cfg.HandlerMaxAttempts = defaultHandlerMaxAttempts
 	}
+	if cfg.HandlerTimeout <= 0 {
+		cfg.HandlerTimeout = defaultHandlerTimeout
+	}
 	if log == nil {
 		log = zap.NewNop()
 	}
@@ -242,7 +258,8 @@ func NewConsumer(cfg Config, log *zap.Logger) (*KafkaConsumer, error) {
 // Subscribe starts a blocking read loop over topics, calling handler for each
 // message. A failing message is retried in place with backoff (keeping per-key
 // order), then dead-lettered to "<topic>.dlq"; its offset is committed only after
-// one of those succeeds. The loop exits when ctx is cancelled or a fatal read error occurs.
+// one of those succeeds. Each attempt is bounded by HandlerTimeout, so handlers
+// must honor ctx. The loop exits when ctx is cancelled or a fatal read error occurs.
 //
 // A single topic uses kafka-go's plain Topic field; two or more use
 // GroupTopics, which makes one Reader (one consumer-group member, one set of
@@ -331,7 +348,9 @@ func (c *KafkaConsumer) Subscribe(ctx context.Context, topics []string, handler 
 func (c *KafkaConsumer) process(ctx context.Context, km kafka.Message, msg Message, handler func(context.Context, Message) error) error {
 	backoff := c.retryBase
 	for attempt := 1; ; attempt++ {
-		err := handler(ctx, msg)
+		actx, cancel := context.WithTimeout(ctx, c.cfg.HandlerTimeout)
+		err := handler(actx, msg)
+		cancel()
 		if err == nil {
 			return nil
 		}
@@ -341,7 +360,8 @@ func (c *KafkaConsumer) process(ctx context.Context, km kafka.Message, msg Messa
 		consumerHandlerFailures.WithLabelValues(km.Topic, c.cfg.GroupID).Inc()
 		fields := []zap.Field{
 			zap.String("topic", km.Topic), zap.Int("partition", km.Partition), zap.Int64("offset", km.Offset),
-			zap.String("event_id", msg.Headers["event_id"]), zap.Int("attempt", attempt), zap.Error(err),
+			zap.String("event_id", msg.Headers["event_id"]), zap.Int("attempt", attempt),
+			zap.Bool("timeout", errors.Is(err, context.DeadlineExceeded)), zap.Error(err),
 		}
 		if attempt >= c.cfg.HandlerMaxAttempts {
 			c.log.Error("events: handler failed, dead-lettering", fields...)
