@@ -160,7 +160,7 @@ func (r *Relay) poll(ctx context.Context) (int, error) {
 	// its shard without a scatter-gather.
 	const mark = `
 		UPDATE outbox SET published_at = now()
-		FROM (SELECT unnest($1::text[]) AS uid, unnest($2::text[]) AS eid) AS t
+		FROM (SELECT unnest($1::uuid[]) AS uid, unnest($2::uuid[]) AS eid) AS t
 		WHERE outbox.user_id = t.uid AND outbox.id = t.eid`
 	if _, err := tx.Exec(ctx, mark, userIDs, ids); err != nil {
 		r.log.Error("relay: mark published failed — messages may duplicate on retry",
