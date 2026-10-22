@@ -167,14 +167,14 @@ type Repository interface {
 	// user has never written anything yet).
 	LatestUSN(ctx context.Context, userID string) (int64, error)
 
-	ListNoteTypesSince(ctx context.Context, userID string, after Cursor, limit int) ([]NoteType, error)
-	ListNotesSince(ctx context.Context, userID string, after Cursor, limit int) ([]Note, error)
-	ListCardsSince(ctx context.Context, userID string, after Cursor, limit int) ([]Card, error)
-	ListDecksSince(ctx context.Context, userID string, after Cursor, limit int) ([]Deck, error)
-	ListDeckConfigsSince(ctx context.Context, userID string, after Cursor, limit int) ([]DeckConfig, error)
-	ListFilteredDecksSince(ctx context.Context, userID string, after Cursor, limit int) ([]FilteredDeck, error)
-	ListTagsSince(ctx context.Context, userID string, after Cursor, limit int) ([]Tag, error)
-	ListTombstonesSince(ctx context.Context, userID string, after Cursor, limit int) ([]Tombstone, error)
+	ListNoteTypesSince(ctx context.Context, userID string, after Cursor, upTo int64, limit int) ([]NoteType, error)
+	ListNotesSince(ctx context.Context, userID string, after Cursor, upTo int64, limit int) ([]Note, error)
+	ListCardsSince(ctx context.Context, userID string, after Cursor, upTo int64, limit int) ([]Card, error)
+	ListDecksSince(ctx context.Context, userID string, after Cursor, upTo int64, limit int) ([]Deck, error)
+	ListDeckConfigsSince(ctx context.Context, userID string, after Cursor, upTo int64, limit int) ([]DeckConfig, error)
+	ListFilteredDecksSince(ctx context.Context, userID string, after Cursor, upTo int64, limit int) ([]FilteredDeck, error)
+	ListTagsSince(ctx context.Context, userID string, after Cursor, upTo int64, limit int) ([]Tag, error)
+	ListTombstonesSince(ctx context.Context, userID string, after Cursor, upTo int64, limit int) ([]Tombstone, error)
 
 	// GetAppliedOp returns the previously recorded outcome for (userID, opID),
 	// or (nil, nil) if this op_id has never been applied — the push-path

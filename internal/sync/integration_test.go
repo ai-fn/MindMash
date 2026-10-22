@@ -747,3 +747,30 @@ func TestGetChanges_PaginatesRowsSharingOneUSN_Postgres(t *testing.T) {
 		t.Fatalf("want all %d tombstones sharing usn %d, got %d", len(wantDeleted), usn, len(gotDeleted))
 	}
 }
+
+func TestListSince_HonorsUSNCeiling_Postgres(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+	repo := NewPostgresRepository(c.pool)
+
+	nt := insertNoteType(t, c, bumpUSN(t, c))
+	below := insertNote(t, c, nt, bumpUSN(t, c))
+	ceiling := bumpUSN(t, c)
+	insertNote(t, c, nt, bumpUSN(t, c))
+	insertTombstone(t, c, EntityCard, ids.NewUUID(), bumpUSN(t, c))
+
+	notes, err := repo.ListNotesSince(ctx, testUserID, Cursor{}, ceiling, 10)
+	if err != nil {
+		t.Fatalf("ListNotesSince: %v", err)
+	}
+	if len(notes) != 1 || notes[0].ID != below {
+		t.Fatalf("want only the note at or below usn %d, got %+v", ceiling, notes)
+	}
+	deleted, err := repo.ListTombstonesSince(ctx, testUserID, Cursor{}, ceiling, 10)
+	if err != nil {
+		t.Fatalf("ListTombstonesSince: %v", err)
+	}
+	if len(deleted) != 0 {
+		t.Fatalf("want no tombstones above usn %d, got %+v", ceiling, deleted)
+	}
+}

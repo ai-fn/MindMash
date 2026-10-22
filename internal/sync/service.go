@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -18,6 +19,9 @@ import (
 // GetChanges call. Kept small relative to a typical collection so a single
 // page comfortably fits in one gRPC/HTTP response.
 const defaultPageSize = 500
+
+// maxConcurrentReads caps pool connections one GetChanges call holds at once.
+const maxConcurrentReads = 4
 
 // Service is the Sync domain service: read-only USN delta assembly plus a
 // Redis-backed pub/sub used by the SSE notifier to nudge open tabs. Redis
@@ -43,9 +47,22 @@ func NewService(repo Repository, coll CollectionClient, rdb *redis.Client, log *
 // usn > sinceUSN (on the first page) or beyond the per-type cursor encoded in
 // pageToken (on subsequent pages), plus the user's latest known usn.
 func (s *Service) GetChanges(ctx context.Context, userID string, sinceUSN int64, pageToken string) (ChangeSet, int64, string, error) {
-	cursors, err := decodePageToken(pageToken)
+	cursors, pinned, err := decodePageToken(pageToken)
 	if err != nil {
 		return ChangeSet{}, 0, "", platformerrors.InvalidArgument("invalid page_token", err)
+	}
+	// Read the ceiling before any rows: usn is allocated under a per-user row lock held to commit,
+	// so everything <= latest is already visible and nothing newer can sneak under it.
+	latestUSN, err := s.repo.LatestUSN(ctx, userID)
+	if err != nil {
+		return ChangeSet{}, 0, "", fmt.Errorf("sync: get changes: %w", err)
+	}
+	if pageToken == "" && latestUSN <= sinceUSN {
+		return ChangeSet{}, latestUSN, "", nil
+	}
+	// Keep the pass's ceiling, but never above the real counter (stale token after a restore, or forged).
+	if pinned > 0 {
+		latestUSN = min(latestUSN, pinned)
 	}
 
 	cursorFor := func(entityType string) Cursor {
@@ -57,8 +74,8 @@ func (s *Service) GetChanges(ctx context.Context, userID string, sinceUSN int64,
 
 	fetchLimit := s.pageSize + 1 // fetch one extra to detect "more rows exist"
 
-	// The 9 reads below are independent — different tables, same userID — so
-	// run them concurrently rather than paying their latency 9 times over on
+	// The 8 reads below are independent — different tables, same userID — so
+	// run them concurrently rather than paying their latency 8 times over on
 	// a path the client calls on every page load, focus regain, post-write,
 	// and heartbeat.
 	var (
@@ -70,43 +87,39 @@ func (s *Service) GetChanges(ctx context.Context, userID string, sinceUSN int64,
 		filteredDecks []FilteredDeck
 		tags          []Tag
 		deleted       []Tombstone
-		latestUSN     int64
 	)
 	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(maxConcurrentReads)
 	g.Go(func() (err error) {
-		noteTypes, err = s.repo.ListNoteTypesSince(gctx, userID, cursorFor(EntityNoteType), fetchLimit)
+		noteTypes, err = s.repo.ListNoteTypesSince(gctx, userID, cursorFor(EntityNoteType), latestUSN, fetchLimit)
 		return err
 	})
 	g.Go(func() (err error) {
-		notes, err = s.repo.ListNotesSince(gctx, userID, cursorFor(EntityNote), fetchLimit)
+		notes, err = s.repo.ListNotesSince(gctx, userID, cursorFor(EntityNote), latestUSN, fetchLimit)
 		return err
 	})
 	g.Go(func() (err error) {
-		cards, err = s.repo.ListCardsSince(gctx, userID, cursorFor(EntityCard), fetchLimit)
+		cards, err = s.repo.ListCardsSince(gctx, userID, cursorFor(EntityCard), latestUSN, fetchLimit)
 		return err
 	})
 	g.Go(func() (err error) {
-		decks, err = s.repo.ListDecksSince(gctx, userID, cursorFor(EntityDeck), fetchLimit)
+		decks, err = s.repo.ListDecksSince(gctx, userID, cursorFor(EntityDeck), latestUSN, fetchLimit)
 		return err
 	})
 	g.Go(func() (err error) {
-		deckConfigs, err = s.repo.ListDeckConfigsSince(gctx, userID, cursorFor(EntityDeckConfig), fetchLimit)
+		deckConfigs, err = s.repo.ListDeckConfigsSince(gctx, userID, cursorFor(EntityDeckConfig), latestUSN, fetchLimit)
 		return err
 	})
 	g.Go(func() (err error) {
-		filteredDecks, err = s.repo.ListFilteredDecksSince(gctx, userID, cursorFor(EntityFilteredDeck), fetchLimit)
+		filteredDecks, err = s.repo.ListFilteredDecksSince(gctx, userID, cursorFor(EntityFilteredDeck), latestUSN, fetchLimit)
 		return err
 	})
 	g.Go(func() (err error) {
-		tags, err = s.repo.ListTagsSince(gctx, userID, cursorFor(EntityTag), fetchLimit)
+		tags, err = s.repo.ListTagsSince(gctx, userID, cursorFor(EntityTag), latestUSN, fetchLimit)
 		return err
 	})
 	g.Go(func() (err error) {
-		deleted, err = s.repo.ListTombstonesSince(gctx, userID, cursorFor(tombstoneCursorKey), fetchLimit)
-		return err
-	})
-	g.Go(func() (err error) {
-		latestUSN, err = s.repo.LatestUSN(gctx, userID)
+		deleted, err = s.repo.ListTombstonesSince(gctx, userID, cursorFor(tombstoneCursorKey), latestUSN, fetchLimit)
 		return err
 	})
 	if err := g.Wait(); err != nil {
@@ -184,7 +197,7 @@ func (s *Service) GetChanges(ctx context.Context, userID string, sinceUSN int64,
 				next[k] = v
 			}
 		}
-		token, err := encodePageToken(next)
+		token, err := encodePageToken(next, latestUSN)
 		if err != nil {
 			return ChangeSet{}, 0, "", fmt.Errorf("sync: encode page token: %w", err)
 		}
@@ -245,38 +258,45 @@ func validCursors(c Cursors) (Cursors, error) {
 type pageToken struct {
 	V int     `json:"v"`
 	C Cursors `json:"c"`
+	L int64   `json:"l,omitempty"` // latest_usn pinned for the whole pass
 }
 
-func encodePageToken(c Cursors) (string, error) {
-	b, err := json.Marshal(pageToken{V: pageTokenVersion, C: c})
+func encodePageToken(c Cursors, latest int64) (string, error) {
+	b, err := json.Marshal(pageToken{V: pageTokenVersion, C: c, L: latest})
 	if err != nil {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
-func decodePageToken(token string) (Cursors, error) {
+// decodePageToken returns the cursors and the pinned latest_usn (0 when the token carries none).
+func decodePageToken(token string) (Cursors, int64, error) {
 	if token == "" {
-		return Cursors{}, nil
+		return Cursors{}, 0, nil
 	}
 	b, err := base64.RawURLEncoding.DecodeString(token)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	var pt pageToken
 	if err := json.Unmarshal(b, &pt); err == nil && pt.V == pageTokenVersion {
-		return validCursors(pt.C)
+		if pt.L < 0 {
+			return nil, 0, errors.New("negative latest_usn")
+		}
+		c, err := validCursors(pt.C)
+		return c, pt.L, err
 	}
 	// v1 tokens ({type: usn}) predate keyset cursors; resume them after their whole usn.
 	var v1 map[string]int64
 	if err := json.Unmarshal(b, &v1); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	c := make(Cursors, len(v1))
 	for k, usn := range v1 {
 		c[k] = Cursor{USN: usn}
 	}
-	return validCursors(c)
+	c, err = validCursors(c)
+	return c, 0, err
 }
 
 // ─── Realtime notifier pub/sub ──────────────────────────────────────────────
