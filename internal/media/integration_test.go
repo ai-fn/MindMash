@@ -62,7 +62,7 @@ func setup(t *testing.T) components {
 	require.NoError(t, err, "start postgres")
 	t.Cleanup(func() { _ = pgCtr.Terminate(ctx) })
 
-	minioCtr, err := minio.Run(ctx, "minio/minio:RELEASE.2025-04-22T22-12-26Z")
+	minioCtr, err := minio.Run(ctx, "pgsty/minio:RELEASE.2026-08-04T00-00-00Z@sha256:b6bfe7239bfc83fb90d31612d9704d86039dd714f7904b3f1ad68f211e602372")
 	require.NoError(t, err, "start minio")
 	t.Cleanup(func() { _ = minioCtr.Terminate(ctx) })
 

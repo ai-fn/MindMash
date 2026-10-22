@@ -77,7 +77,7 @@ services:
         hard: 262144
 
   minio:
-    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z@sha256:b6bfe7239bfc83fb90d31612d9704d86039dd714f7904b3f1ad68f211e602372
     # S3 API endpoint for apps: http://localhost:9002
     command: server /data --console-address ":9001"
     environment:
