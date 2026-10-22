@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -64,16 +65,20 @@ func startOutboxDB(t *testing.T, ctx context.Context, image string, citus bool) 
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
 
-	ddl, err := os.ReadFile("../../../migrations/collection/000011_outbox.up.sql")
-	require.NoError(t, err)
-	_, err = pool.Exec(ctx, string(ddl))
-	require.NoError(t, err)
+	apply := func(f string) {
+		ddl, err := os.ReadFile("../../../migrations/collection/" + f)
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, string(ddl))
+		require.NoError(t, err)
+	}
+	apply("000011_outbox.up.sql")
 	if citus {
 		_, err = pool.Exec(ctx, `CREATE EXTENSION IF NOT EXISTS citus`)
 		require.NoError(t, err)
 		_, err = pool.Exec(ctx, `SELECT create_distributed_table('outbox', 'user_id')`)
 		require.NoError(t, err)
 	}
+	apply("000014_outbox_published.up.sql")
 	return pool
 }
 
@@ -224,6 +229,61 @@ func TestRelay(t *testing.T) {
 
 				cancel()
 				wg.Wait()
+			})
+
+			t.Run("purge deletes only old published rows in windows", func(t *testing.T) {
+				reset(t)
+				entries := seedOutbox(t, ctx, pool, 6)
+				for i, age := range []string{"5 hours", "3 hours", "2 hours", "10 minutes", "0"} {
+					_, err := pool.Exec(ctx, `UPDATE outbox SET published_at = now() - $2::interval WHERE id = $1`, entries[i].ID, age)
+					require.NoError(t, err)
+				}
+				store := "purge-" + db.name
+				r := NewRelay(pool, &recordingProducer{}, zap.NewNop(), RelayConfig{Store: store, Retention: time.Hour})
+				before := testutil.ToFloat64(outboxPurged.WithLabelValues(store))
+
+				n, err := r.purge(ctx)
+				require.NoError(t, err)
+				assert.EqualValues(t, 3, n)
+				rows, err := pool.Query(ctx, `SELECT id::text FROM outbox ORDER BY created_at`)
+				require.NoError(t, err)
+				left, err := pgx.CollectRows(rows, pgx.RowTo[string])
+				require.NoError(t, err)
+				assert.Equal(t, []string{entries[3].ID, entries[4].ID, entries[5].ID}, left)
+				assert.InDelta(t, 3, testutil.ToFloat64(outboxPurged.WithLabelValues(store))-before, 0)
+			})
+
+			t.Run("leader purges in background", func(t *testing.T) {
+				reset(t)
+				entries := seedOutbox(t, ctx, pool, 1)
+				_, err := pool.Exec(ctx, `UPDATE outbox SET published_at = now() - interval '2 hours' WHERE id = $1`, entries[0].ID)
+				require.NoError(t, err)
+				rctx, cancel := context.WithCancel(ctx)
+				t.Cleanup(cancel)
+				done := make(chan struct{})
+				cfg := RelayConfig{Store: "test", Interval: 20 * time.Millisecond, Backoff: 50 * time.Millisecond, Retention: time.Hour, PurgeEvery: 50 * time.Millisecond}
+				go func() { defer close(done); _ = NewRelay(pool, &recordingProducer{}, zap.NewNop(), cfg).Run(rctx) }()
+
+				require.Eventually(t, func() bool {
+					var n int
+					return pool.QueryRow(ctx, `SELECT count(*) FROM outbox`).Scan(&n) == nil && n == 0
+				}, 10*time.Second, 20*time.Millisecond)
+				cancel()
+				<-done
+			})
+
+			t.Run("poll reports backlog age", func(t *testing.T) {
+				reset(t)
+				store := "age-" + db.name
+				entries := seedOutbox(t, ctx, pool, 1)
+				_, err := pool.Exec(ctx, `UPDATE outbox SET created_at = now() - interval '90 seconds' WHERE id = $1`, entries[0].ID)
+				require.NoError(t, err)
+				r := NewRelay(pool, &recordingProducer{err: errors.New("kafka down")}, zap.NewNop(), RelayConfig{Store: store})
+
+				_, err = r.poll(ctx, connect(t, ctx, pool))
+				require.Error(t, err)
+				assert.GreaterOrEqual(t, testutil.ToFloat64(outboxOldestAge.WithLabelValues(store)), 90.0)
+				assert.Zero(t, testutil.ToFloat64(outboxPublished.WithLabelValues(store)), "failed publish must not count")
 			})
 
 			t.Run("mark failure re-sends batch", func(t *testing.T) {

@@ -21,6 +21,10 @@ type Relay struct {
 	batch    int           // rows per poll cycle
 	interval time.Duration // normal poll interval (no work)
 	backoff  time.Duration // backoff interval after an error
+
+	retention   time.Duration
+	purgeEvery  time.Duration
+	purgeWindow time.Duration
 }
 
 // RelayConfig holds tuning parameters for the relay. Zero values fall back to
@@ -30,6 +34,9 @@ type RelayConfig struct {
 	Batch    int           // max rows per poll; default 100, capped at maxRelayBatch
 	Interval time.Duration // idle poll interval; default 1s
 	Backoff  time.Duration // post-error backoff; default 5s
+
+	Retention  time.Duration // published rows older than this are deleted; default 24h
+	PurgeEvery time.Duration // default 5m
 }
 
 // NewRelay creates a Relay. pool and producer must be non-nil.
@@ -44,6 +51,13 @@ func NewRelay(pool *pgxpool.Pool, producer Producer, log *zap.Logger, cfg RelayC
 	if cfg.Backoff <= 0 {
 		cfg.Backoff = 5 * time.Second
 	}
+	if cfg.Retention <= 0 {
+		cfg.Retention = 24 * time.Hour
+	}
+	if cfg.PurgeEvery <= 0 {
+		cfg.PurgeEvery = 5 * time.Minute
+	}
+	relayLeader.WithLabelValues(cfg.Store).Set(0)
 	return &Relay{
 		db:       pool,
 		producer: producer,
@@ -52,6 +66,10 @@ func NewRelay(pool *pgxpool.Pool, producer Producer, log *zap.Logger, cfg RelayC
 		batch:    cfg.Batch,
 		interval: cfg.Interval,
 		backoff:  cfg.Backoff,
+
+		retention:   cfg.Retention,
+		purgeEvery:  cfg.PurgeEvery,
+		purgeWindow: time.Minute,
 	}
 }
 
@@ -119,6 +137,17 @@ func (r *Relay) lead(ctx context.Context) error {
 		}
 	}
 	r.log.Info("relay: acquired leadership", zap.String("store", r.store))
+	relayLeader.WithLabelValues(r.store).Set(1)
+	defer func() {
+		relayLeader.WithLabelValues(r.store).Set(0)
+		outboxOldestAge.DeleteLabelValues(r.store)
+	}()
+
+	// Purge runs on pool conns: a timed-out DELETE must not close the lock session.
+	purgeCtx, stopPurge := context.WithCancel(ctx)
+	purgeDone := make(chan struct{})
+	go func() { defer close(purgeDone); r.purgeLoop(purgeCtx) }()
+	defer func() { stopPurge(); <-purgeDone }()
 
 	for {
 		var n int
@@ -158,7 +187,8 @@ func (r *Relay) withTimeout(ctx context.Context, fn func(context.Context) error)
 // at-least-once: a failed mark re-sends the batch, consumers dedupe by event_id.
 func (r *Relay) poll(ctx context.Context, conn *pgx.Conn) (int, error) {
 	const q = `
-		SELECT id, user_id, aggregate_type, aggregate_id, event_type, payload
+		SELECT id, user_id, aggregate_type, aggregate_id, event_type, payload,
+		       EXTRACT(EPOCH FROM now() - created_at)::float8
 		FROM outbox
 		WHERE published_at IS NULL
 		ORDER BY created_at
@@ -171,6 +201,7 @@ func (r *Relay) poll(ctx context.Context, conn *pgx.Conn) (int, error) {
 		aggregateID   string
 		eventType     string
 		payload       []byte
+		ageSeconds    float64
 	}
 
 	rows, err := conn.Query(ctx, q, r.batch)
@@ -179,15 +210,17 @@ func (r *Relay) poll(ctx context.Context, conn *pgx.Conn) (int, error) {
 	}
 	pending, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (outboxRow, error) {
 		var ro outboxRow
-		err := row.Scan(&ro.id, &ro.userID, &ro.aggregateType, &ro.aggregateID, &ro.eventType, &ro.payload)
+		err := row.Scan(&ro.id, &ro.userID, &ro.aggregateType, &ro.aggregateID, &ro.eventType, &ro.payload, &ro.ageSeconds)
 		return ro, err
 	})
 	if err != nil {
 		return 0, fmt.Errorf("relay: scan outbox rows: %w", err)
 	}
 	if len(pending) == 0 {
+		outboxOldestAge.WithLabelValues(r.store).Set(0)
 		return 0, nil
 	}
+	outboxOldestAge.WithLabelValues(r.store).Set(max(0, pending[0].ageSeconds))
 
 	msgs := make([]Message, 0, len(pending))
 	userIDs := make([]string, len(pending))
@@ -227,8 +260,68 @@ func (r *Relay) poll(ctx context.Context, conn *pgx.Conn) (int, error) {
 		return 0, fmt.Errorf("relay: marked %d of %d published rows (will re-send)", tag.RowsAffected(), len(ids))
 	}
 
+	outboxPublished.WithLabelValues(r.store).Add(float64(len(pending)))
 	r.log.Debug("relay: published", zap.String("store", r.store), zap.Int("count", len(pending)))
 	return len(pending), nil
+}
+
+func (r *Relay) purgeLoop(ctx context.Context) {
+	t := time.NewTicker(r.purgeEvery)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		if _, err := r.purge(ctx); err != nil && ctx.Err() == nil {
+			r.log.Error("relay: purge failed", zap.String("store", r.store), zap.Error(err))
+		}
+	}
+}
+
+// purge deletes expired published rows in published_at windows, since Citus has no DELETE ... LIMIT.
+func (r *Relay) purge(ctx context.Context) (int64, error) {
+	var cutoff time.Time
+	if err := r.withTimeout(ctx, func(ctx context.Context) error {
+		return r.db.QueryRow(ctx, `SELECT now() - make_interval(secs => $1)`, r.retention.Seconds()).Scan(&cutoff)
+	}); err != nil {
+		return 0, fmt.Errorf("relay: purge cutoff: %w", err)
+	}
+
+	var total int64
+	window := r.purgeWindow
+	for {
+		var oldest *time.Time
+		if err := r.withTimeout(ctx, func(ctx context.Context) error {
+			return r.db.QueryRow(ctx, `SELECT min(published_at) FROM outbox WHERE published_at IS NOT NULL`).Scan(&oldest)
+		}); err != nil {
+			return total, fmt.Errorf("relay: purge oldest: %w", err)
+		}
+		if oldest == nil || !oldest.Before(cutoff) {
+			return total, nil
+		}
+		upper := oldest.Add(window)
+		if upper.After(cutoff) {
+			upper = cutoff
+		}
+
+		var n int64
+		if err := r.withTimeout(ctx, func(ctx context.Context) error {
+			tag, err := r.db.Exec(ctx, `DELETE FROM outbox WHERE published_at < $1`, upper)
+			n = tag.RowsAffected()
+			return err
+		}); err != nil {
+			// A burst can pack too many rows into one window; shrink it instead of stalling on it forever.
+			if ctx.Err() != nil || window <= time.Second {
+				return total, fmt.Errorf("relay: purge outbox: %w", err)
+			}
+			window /= 2
+			continue
+		}
+		total += n
+		outboxPurged.WithLabelValues(r.store).Add(float64(n))
+	}
 }
 
 // relaySleep blocks for d or until ctx is cancelled. Returns false when cancelled.
