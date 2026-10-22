@@ -27,7 +27,12 @@ func startBroker(t *testing.T, ctx context.Context, topic string, partitions int
 	})
 	broker, err := rp.KafkaSeedBroker(ctx)
 	require.NoError(t, err)
+	createTopic(t, broker, topic, partitions)
+	return broker
+}
 
+func createTopic(t *testing.T, broker, topic string, partitions int) {
+	t.Helper()
 	conn, err := kafka.Dial("tcp", broker)
 	require.NoError(t, err)
 	defer func() { _ = conn.Close() }()
@@ -37,7 +42,6 @@ func startBroker(t *testing.T, ctx context.Context, topic string, partitions int
 	require.NoError(t, err)
 	defer func() { _ = cc.Close() }()
 	require.NoError(t, cc.CreateTopics(kafka.TopicConfig{Topic: topic, NumPartitions: partitions, ReplicationFactor: 1}))
-	return broker
 }
 
 func readPartition(t *testing.T, ctx context.Context, broker, topic string, partition int) []kafka.Message {

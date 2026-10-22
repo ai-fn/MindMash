@@ -386,7 +386,7 @@ func TestIndexer_KafkaPipeline(t *testing.T) {
 		t.Fatalf("publish: %v", err)
 	}
 
-	consumer, err := events.NewConsumer(cfg)
+	consumer, err := events.NewConsumer(cfg, zap.NewNop())
 	if err != nil {
 		t.Fatalf("new consumer: %v", err)
 	}

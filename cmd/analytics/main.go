@@ -109,7 +109,7 @@ func run() error {
 	if os.Getenv("KAFKA_GROUP_ID") == "" {
 		eventsCfg.GroupID = "stats-aggregator"
 	}
-	consumer, err := events.NewConsumer(eventsCfg)
+	consumer, err := events.NewConsumer(eventsCfg, logger)
 	if err != nil {
 		return fmt.Errorf("analytics: init kafka consumer: %w", err)
 	}

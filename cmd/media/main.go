@@ -134,7 +134,7 @@ func run() error {
 	if os.Getenv("KAFKA_GROUP_ID") == "" {
 		workerCfg.GroupID = "media-processor"
 	}
-	consumer, err := events.NewConsumer(workerCfg)
+	consumer, err := events.NewConsumer(workerCfg, logger)
 	if err != nil {
 		return fmt.Errorf("media: init kafka consumer: %w", err)
 	}

@@ -4,14 +4,17 @@ package events
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/segmentio/kafka-go"
+	"go.uber.org/zap"
 )
 
 // Config holds Kafka client configuration.
@@ -22,7 +25,11 @@ type Config struct {
 	ReadTimeout  time.Duration // KAFKA_READ_TIMEOUT, default 10s
 	WriteTimeout time.Duration // KAFKA_WRITE_TIMEOUT, default 10s
 	MaxRetries   int           // KAFKA_MAX_RETRIES, default 3
+
+	HandlerMaxAttempts int // KAFKA_HANDLER_MAX_ATTEMPTS, default 10; then the message is dead-lettered
 }
+
+const defaultHandlerMaxAttempts = 10
 
 // LoadConfig reads Kafka configuration from environment variables.
 // It returns an error when KAFKA_BROKERS is explicitly set to an empty string,
@@ -59,6 +66,14 @@ func LoadConfig() (Config, error) {
 		return Config{}, fmt.Errorf("events: invalid KAFKA_MAX_RETRIES: %w", err)
 	}
 
+	handlerAttempts, err := envInt("KAFKA_HANDLER_MAX_ATTEMPTS", defaultHandlerMaxAttempts)
+	if err != nil {
+		return Config{}, fmt.Errorf("events: invalid KAFKA_HANDLER_MAX_ATTEMPTS: %w", err)
+	}
+	if handlerAttempts < 1 {
+		return Config{}, errors.New("events: invalid KAFKA_HANDLER_MAX_ATTEMPTS: must be >= 1")
+	}
+
 	return Config{
 		Brokers:      brokers,
 		GroupID:      envStr("KAFKA_GROUP_ID", "mindmesh"),
@@ -66,6 +81,8 @@ func LoadConfig() (Config, error) {
 		ReadTimeout:  readTimeout,
 		WriteTimeout: writeTimeout,
 		MaxRetries:   maxRetries,
+
+		HandlerMaxAttempts: handlerAttempts,
 	}, nil
 }
 
@@ -96,7 +113,11 @@ type KafkaProducer struct {
 
 // NewProducer creates a KafkaProducer connected to the brokers in cfg.
 func NewProducer(cfg Config) (*KafkaProducer, error) {
-	w := &kafka.Writer{
+	return &KafkaProducer{writer: newWriter(cfg)}, nil
+}
+
+func newWriter(cfg Config) *kafka.Writer {
+	return &kafka.Writer{
 		Addr: kafka.TCP(cfg.Brokers...),
 		// key = user_id: one partition per user keeps their events ordered; murmur2 matches Java clients.
 		Balancer:     &kafka.Murmur2Balancer{},
@@ -106,7 +127,6 @@ func NewProducer(cfg Config) (*KafkaProducer, error) {
 		WriteTimeout: cfg.WriteTimeout,
 		MaxAttempts:  cfg.MaxRetries,
 	}
-	return &KafkaProducer{writer: w}, nil
 }
 
 // Publish sends one or more messages to their respective topics.
@@ -140,17 +160,34 @@ func (p *KafkaProducer) Close() error {
 
 // KafkaConsumer wraps a kafka-go Reader and implements Consumer.
 type KafkaConsumer struct {
-	cfg Config
+	cfg       Config
+	log       *zap.Logger
+	dlq       *kafka.Writer
+	retryBase time.Duration
+	retryMax  time.Duration
 }
 
 // NewConsumer creates a KafkaConsumer that will join the consumer group in cfg.
-func NewConsumer(cfg Config) (*KafkaConsumer, error) {
-	return &KafkaConsumer{cfg: cfg}, nil
+func NewConsumer(cfg Config, log *zap.Logger) (*KafkaConsumer, error) {
+	if cfg.HandlerMaxAttempts < 1 {
+		cfg.HandlerMaxAttempts = defaultHandlerMaxAttempts
+	}
+	if log == nil {
+		log = zap.NewNop()
+	}
+	return &KafkaConsumer{
+		cfg:       cfg,
+		log:       log,
+		dlq:       newWriter(cfg),
+		retryBase: 200 * time.Millisecond,
+		retryMax:  30 * time.Second,
+	}, nil
 }
 
 // Subscribe starts a blocking read loop over topics, calling handler for each
-// message. It commits the offset only after handler returns nil.  The loop
-// exits when ctx is cancelled or a fatal read error occurs.
+// message. A failing message is retried in place with backoff (keeping per-key
+// order), then dead-lettered to "<topic>.dlq"; its offset is committed only after
+// one of those succeeds. The loop exits when ctx is cancelled or a fatal read error occurs.
 //
 // A single topic uses kafka-go's plain Topic field; two or more use
 // GroupTopics, which makes one Reader (one consumer-group member, one set of
@@ -201,19 +238,95 @@ func (c *KafkaConsumer) Subscribe(ctx context.Context, topics []string, handler 
 			Headers: headers,
 		}
 
-		if err := handler(ctx, msg); err != nil {
-			// Do not commit; kafka-go will redeliver on next fetch.
-			continue
+		// process only fails on shutdown; the uncommitted message is redelivered after restart.
+		if err := c.process(ctx, km, msg, handler); err != nil {
+			return nil
 		}
 
 		if err := r.CommitMessages(ctx, km); err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
 			return fmt.Errorf("events: commit offset: %w", err)
 		}
 	}
 }
 
-// Close is a no-op because each Subscribe call owns its own reader lifetime.
+func (c *KafkaConsumer) process(ctx context.Context, km kafka.Message, msg Message, handler func(context.Context, Message) error) error {
+	backoff := c.retryBase
+	for attempt := 1; ; attempt++ {
+		err := handler(ctx, msg)
+		if err == nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		consumerHandlerFailures.WithLabelValues(km.Topic, c.cfg.GroupID).Inc()
+		fields := []zap.Field{
+			zap.String("topic", km.Topic), zap.Int("partition", km.Partition), zap.Int64("offset", km.Offset),
+			zap.String("event_id", msg.Headers["event_id"]), zap.Int("attempt", attempt), zap.Error(err),
+		}
+		if attempt >= c.cfg.HandlerMaxAttempts {
+			c.log.Error("events: handler failed, dead-lettering", fields...)
+			return c.deadLetter(ctx, km, err)
+		}
+		c.log.Warn("events: handler failed, retrying", fields...)
+		if !relaySleep(ctx, backoff) {
+			return ctx.Err()
+		}
+		backoff = min(backoff*2, c.retryMax)
+	}
+}
+
+const maxDLQErrorLen = 1024
+
+func dlqMessage(km kafka.Message, cause error, group string) kafka.Message {
+	headers := slices.DeleteFunc(slices.Clone(km.Headers), func(h kafka.Header) bool {
+		return strings.HasPrefix(h.Key, "dlq_")
+	})
+	errText := cause.Error()
+	if len(errText) > maxDLQErrorLen {
+		// An oversized header would make the DLQ write fail forever.
+		errText = strings.ToValidUTF8(errText[:maxDLQErrorLen], "")
+	}
+	headers = append(headers,
+		kafka.Header{Key: "dlq_error", Value: []byte(errText)},
+		kafka.Header{Key: "dlq_topic", Value: []byte(km.Topic)},
+		kafka.Header{Key: "dlq_partition", Value: []byte(strconv.Itoa(km.Partition))},
+		kafka.Header{Key: "dlq_offset", Value: []byte(strconv.FormatInt(km.Offset, 10))},
+		kafka.Header{Key: "dlq_group", Value: []byte(group)},
+	)
+	return kafka.Message{Topic: km.Topic + ".dlq", Key: km.Key, Value: km.Value, Headers: headers}
+}
+
+// deadLetter retries until the DLQ write lands: committing without it would lose the message.
+func (c *KafkaConsumer) deadLetter(ctx context.Context, km kafka.Message, cause error) error {
+	dm := dlqMessage(km, cause, c.cfg.GroupID)
+	backoff := c.retryBase
+	for {
+		err := c.dlq.WriteMessages(ctx, dm)
+		if err == nil {
+			consumerDeadLettered.WithLabelValues(km.Topic, c.cfg.GroupID).Inc()
+			return nil
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		consumerDLQWriteFailures.WithLabelValues(km.Topic, c.cfg.GroupID).Inc()
+		c.log.Error("events: dead-letter publish failed", zap.String("topic", dm.Topic), zap.Int64("offset", km.Offset), zap.Error(err))
+		if !relaySleep(ctx, backoff) {
+			return ctx.Err()
+		}
+		backoff = min(backoff*2, c.retryMax)
+	}
+}
+
+// Close releases the dead-letter writer; each Subscribe owns its reader.
 func (c *KafkaConsumer) Close() error {
+	if err := c.dlq.Close(); err != nil {
+		return fmt.Errorf("events: close dlq writer: %w", err)
+	}
 	return nil
 }
 

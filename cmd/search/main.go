@@ -125,7 +125,7 @@ func run() error {
 	if os.Getenv("KAFKA_GROUP_ID") == "" {
 		eventsCfg.GroupID = "search-indexer"
 	}
-	consumer, err := events.NewConsumer(eventsCfg)
+	consumer, err := events.NewConsumer(eventsCfg, logger)
 	if err != nil {
 		return fmt.Errorf("search: init kafka consumer: %w", err)
 	}

@@ -1,8 +1,11 @@
 package events
 
 import (
+	"errors"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/segmentio/kafka-go"
 	"github.com/stretchr/testify/assert"
@@ -19,6 +22,7 @@ func TestLoadConfig_Defaults(t *testing.T) {
 		"KAFKA_READ_TIMEOUT",
 		"KAFKA_WRITE_TIMEOUT",
 		"KAFKA_MAX_RETRIES",
+		"KAFKA_HANDLER_MAX_ATTEMPTS",
 	)
 
 	cfg, err := LoadConfig()
@@ -30,6 +34,7 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	assert.Equal(t, 10*time.Second, cfg.ReadTimeout)
 	assert.Equal(t, 10*time.Second, cfg.WriteTimeout)
 	assert.Equal(t, 3, cfg.MaxRetries)
+	assert.Equal(t, 10, cfg.HandlerMaxAttempts)
 }
 
 func TestLoadConfig_BrokerSplit(t *testing.T) {
@@ -57,6 +62,7 @@ func TestLoadConfig_InvalidEnvVars(t *testing.T) {
 		"KAFKA_READ_TIMEOUT",
 		"KAFKA_WRITE_TIMEOUT",
 		"KAFKA_MAX_RETRIES",
+		"KAFKA_HANDLER_MAX_ATTEMPTS",
 	)
 
 	tests := []struct {
@@ -82,6 +88,12 @@ func TestLoadConfig_InvalidEnvVars(t *testing.T) {
 			envKey:  "KAFKA_MAX_RETRIES",
 			envVal:  "notanint",
 			wantErr: "KAFKA_MAX_RETRIES",
+		},
+		{
+			name:    "KAFKA_HANDLER_MAX_ATTEMPTS zero",
+			envKey:  "KAFKA_HANDLER_MAX_ATTEMPTS",
+			envVal:  "0",
+			wantErr: "KAFKA_HANDLER_MAX_ATTEMPTS",
 		},
 	}
 
@@ -109,4 +121,43 @@ func TestNewProducerWriterConfig(t *testing.T) {
 	assert.Equal(t, kafka.RequireAll, p.writer.RequiredAcks)
 	assert.IsType(t, &kafka.Murmur2Balancer{}, p.writer.Balancer)
 	assert.Equal(t, 10*time.Millisecond, p.writer.BatchTimeout)
+}
+
+func TestDLQMessage(t *testing.T) {
+	km := kafka.Message{
+		Topic: "card", Partition: 2, Offset: 41, Key: []byte("u1"), Value: []byte("v"),
+		Headers: []kafka.Header{{Key: "event_id", Value: []byte("e1")}, {Key: "dlq_error", Value: []byte("old")}},
+	}
+	dm := dlqMessage(km, errors.New(strings.Repeat("x", 5000)), "search")
+
+	got := map[string]string{}
+	for _, h := range dm.Headers {
+		_, dup := got[h.Key]
+		assert.False(t, dup, "duplicate header %s", h.Key)
+		got[h.Key] = string(h.Value)
+	}
+	assert.Equal(t, "card.dlq", dm.Topic)
+	assert.Equal(t, []byte("u1"), dm.Key)
+	assert.Equal(t, "e1", got["event_id"])
+	assert.Len(t, got["dlq_error"], maxDLQErrorLen)
+
+	multi := dlqMessage(km, errors.New(strings.Repeat("я", maxDLQErrorLen)), "search")
+	for _, h := range multi.Headers {
+		if h.Key == "dlq_error" {
+			assert.True(t, utf8.Valid(h.Value), "truncation must not split a rune")
+		}
+	}
+	assert.Equal(t, "card", got["dlq_topic"])
+	assert.Equal(t, "2", got["dlq_partition"])
+	assert.Equal(t, "41", got["dlq_offset"])
+	assert.Equal(t, "search", got["dlq_group"])
+	assert.Len(t, km.Headers, 2, "source headers must not be mutated")
+}
+
+func TestNewConsumerDefaults(t *testing.T) {
+	c, err := NewConsumer(Config{Brokers: []string{"localhost:9092"}}, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+	assert.Equal(t, defaultHandlerMaxAttempts, c.cfg.HandlerMaxAttempts)
+	assert.NotNil(t, c.log)
 }

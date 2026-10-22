@@ -130,7 +130,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("sync: load events config: %w", err)
 	}
-	consumer, err := events.NewConsumer(eventsCfg)
+	consumer, err := events.NewConsumer(eventsCfg, logger)
 	if err != nil {
 		return fmt.Errorf("sync: init kafka consumer: %w", err)
 	}
