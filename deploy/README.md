@@ -168,6 +168,28 @@ guarding voluntary disruptions. Because migrations run in a **pre-upgrade Job be
 pods roll, schema changes must be **backward-compatible (expand-contract)** — the old pods keep
 serving against the migrated schema during the rollout. Tune via `<svc>.strategy` in values.
 
+### Kafka topics and dead letters
+
+Services create missing topics at startup (`KAFKA_CREATE_TOPICS`, `KAFKA_TOPIC_PARTITIONS`,
+`KAFKA_TOPIC_REPLICATION`; prod uses RF 3). Set `KAFKA_CREATE_TOPICS=false` if the services
+lack create ACLs and topics are provisioned elsewhere — including every consumed `<topic>.dlq`.
+
+A message whose handler keeps failing ends up in `<topic>.dlq` (30-day retention) with
+`dlq_error`/`dlq_group`/`dlq_offset` headers. After fixing the cause, replay it with the
+`dlq-replay` image (`docker build --build-arg SERVICE=dlq-replay`), e.g. as a one-off Job:
+
+```bash
+dlq-replay -topic card -only-group search-indexer -dry-run   # inspect
+dlq-replay -topic card -only-group search-indexer            # republish to `card`
+```
+
+A run replays what was in the DLQ when it started and stops there. Progress is committed per
+target (`dlq-replay.<topic>.<only-group|all>`, override with `-group`), so reruns resume and
+replaying one group never hides another group's dead letters. Replayed messages reach **every**
+consumer group of the topic again, after newer events for the same key — handlers must be
+idempotent (`event_id`) and tolerate that reordering. Don't mix filtered and unfiltered runs on
+one topic: their progress is separate, so the unfiltered run replays the filtered messages again.
+
 ### Edge routing
 
 The frontend and API share **one host** so the SPA's relative `/v1/*` fetches are same-origin (no

@@ -378,9 +378,7 @@ func (c *KafkaConsumer) process(ctx context.Context, km kafka.Message, msg Messa
 const maxDLQErrorLen = 1024
 
 func dlqMessage(km kafka.Message, cause error, group string) kafka.Message {
-	headers := slices.DeleteFunc(slices.Clone(km.Headers), func(h kafka.Header) bool {
-		return strings.HasPrefix(h.Key, "dlq_")
-	})
+	headers := stripDLQHeaders(km.Headers)
 	errText := cause.Error()
 	if len(errText) > maxDLQErrorLen {
 		// An oversized header would make the DLQ write fail forever.
