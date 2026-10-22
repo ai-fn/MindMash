@@ -94,3 +94,8 @@ func TestLoadConfig_InvalidEnvVars(t *testing.T) {
 		})
 	}
 }
+
+func TestNewRelayCapsBatch(t *testing.T) {
+	r := NewRelay(nil, nil, nil, RelayConfig{Batch: 10_000})
+	assert.Equal(t, maxRelayBatch, r.batch)
+}

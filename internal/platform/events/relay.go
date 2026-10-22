@@ -2,6 +2,7 @@ package events
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -10,13 +11,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// Relay polls the outbox table for unpublished entries, publishes them to Kafka
-// via a Producer, and marks them published.  It is designed to be run as a
-// long-lived goroutine under an errgroup; it exits when ctx is cancelled.
-//
-// Kafka unavailability is non-fatal: the relay logs the error and backs off,
-// so in-flight requests are never slowed by messaging downtime. Postgres
-// unavailability causes the relay to back off the same way.
+// Relay publishes unpublished outbox rows to Kafka and marks them published.
+// Only the instance holding relayLockKey polls; the others stand by.
 type Relay struct {
 	db       *pgxpool.Pool
 	producer Producer
@@ -31,7 +27,7 @@ type Relay struct {
 // sensible defaults.
 type RelayConfig struct {
 	Store    string        // identifies which service's outbox this relay polls (e.g. "collection")
-	Batch    int           // max rows per poll; default 100
+	Batch    int           // max rows per poll; default 100, capped at maxRelayBatch
 	Interval time.Duration // idle poll interval; default 1s
 	Backoff  time.Duration // post-error backoff; default 5s
 }
@@ -41,6 +37,7 @@ func NewRelay(pool *pgxpool.Pool, producer Producer, log *zap.Logger, cfg RelayC
 	if cfg.Batch <= 0 {
 		cfg.Batch = 100
 	}
+	cfg.Batch = min(cfg.Batch, maxRelayBatch)
 	if cfg.Interval <= 0 {
 		cfg.Interval = time.Second
 	}
@@ -58,15 +55,83 @@ func NewRelay(pool *pgxpool.Pool, producer Producer, log *zap.Logger, cfg RelayC
 	}
 }
 
-// Run starts the relay loop. It returns nil on clean context cancellation and a
-// non-nil error only on an unrecoverable internal fault.
+const (
+	// relayLockKey is DB-wide: services sharing one outbox table elect a single relay.
+	relayLockKey int64 = 0x48644b466c502486
+	// maxRelayBatch bounds the mark UPDATE, whose ANY x ANY index probe grows quadratically.
+	maxRelayBatch  = 500
+	relayOpTimeout = 30 * time.Second
+)
+
+// relayKeepalive makes the server drop a half-open leader session (and its lock) in ~1m, not hours.
+var relayKeepalive = map[string]string{
+	"tcp_keepalives_idle":     "30",
+	"tcp_keepalives_interval": "10",
+	"tcp_keepalives_count":    "3",
+	"tcp_user_timeout":        "60000",
+}
+
+// Run competes for leadership and relays until ctx is cancelled; it always returns nil.
 func (r *Relay) Run(ctx context.Context) error {
 	r.log.Info("relay: starting", zap.String("store", r.store))
 	for {
-		n, err := r.poll(ctx)
+		if err := r.lead(ctx); err != nil && ctx.Err() == nil {
+			r.log.Error("relay: leader loop failed", zap.String("store", r.store), zap.Error(err))
+		}
+		if !relaySleep(ctx, r.backoff) {
+			return nil
+		}
+	}
+}
+
+// lead waits for the relay lock, then polls while holding it. The lock is session-scoped on a
+// dedicated connection (DB_DSN must be direct, not via PgBouncer), so it dies with the session.
+func (r *Relay) lead(ctx context.Context) error {
+	cfg := r.db.Config().ConnConfig
+	if cfg.RuntimeParams == nil {
+		cfg.RuntimeParams = map[string]string{}
+	}
+	for k, v := range relayKeepalive {
+		cfg.RuntimeParams[k] = v
+	}
+	var conn *pgx.Conn
+	err := r.withTimeout(ctx, func(ctx context.Context) (err error) {
+		conn, err = pgx.ConnectConfig(ctx, cfg)
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("relay: connect: %w", err)
+	}
+	defer conn.Close(context.WithoutCancel(ctx)) //nolint:errcheck
+
+	for {
+		var leader bool
+		if err := r.withTimeout(ctx, func(ctx context.Context) error {
+			return conn.QueryRow(ctx, `SELECT pg_try_advisory_lock($1)`, relayLockKey).Scan(&leader)
+		}); err != nil {
+			return fmt.Errorf("relay: try lock: %w", err)
+		}
+		if leader {
+			break
+		}
+		if !relaySleep(ctx, r.backoff) {
+			return nil
+		}
+	}
+	r.log.Info("relay: acquired leadership", zap.String("store", r.store))
+
+	for {
+		var n int
+		err := r.withTimeout(ctx, func(ctx context.Context) (err error) {
+			n, err = r.poll(ctx, conn)
+			return err
+		})
 		if err != nil {
 			if ctx.Err() != nil {
-				return nil // clean shutdown
+				return nil
+			}
+			if pingErr := r.withTimeout(ctx, conn.Ping); pingErr != nil {
+				return errors.Join(err, pingErr)
 			}
 			r.log.Error("relay: poll error", zap.String("store", r.store), zap.Error(err))
 			if !relaySleep(ctx, r.backoff) {
@@ -75,7 +140,6 @@ func (r *Relay) Run(ctx context.Context) error {
 			continue
 		}
 		if n > 0 {
-			// More work may be waiting; skip the sleep to keep throughput high.
 			continue
 		}
 		if !relaySleep(ctx, r.interval) {
@@ -84,27 +148,21 @@ func (r *Relay) Run(ctx context.Context) error {
 	}
 }
 
-// poll fetches one batch of unpublished outbox entries, publishes them, and
-// marks them published.  Returns the number of entries processed.
-//
-// The SELECT FOR UPDATE SKIP LOCKED and the mark UPDATE both run inside the
-// same Postgres transaction so that advisory row locks are held across the
-// Publish call.  This prevents a concurrent relay instance from picking the
-// same batch before the first one marks it published.
-func (r *Relay) poll(ctx context.Context) (int, error) {
-	tx, err := r.db.Begin(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("relay: begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+func (r *Relay) withTimeout(ctx context.Context, fn func(context.Context) error) error {
+	ctx, cancel := context.WithTimeout(ctx, relayOpTimeout)
+	defer cancel()
+	return fn(ctx)
+}
 
+// poll publishes one batch of unpublished entries and marks them. Delivery is
+// at-least-once: a failed mark re-sends the batch, consumers dedupe by event_id.
+func (r *Relay) poll(ctx context.Context, conn *pgx.Conn) (int, error) {
 	const q = `
 		SELECT id, user_id, aggregate_type, aggregate_id, event_type, payload
 		FROM outbox
 		WHERE published_at IS NULL
 		ORDER BY created_at
-		LIMIT $1
-		FOR UPDATE SKIP LOCKED`
+		LIMIT $1`
 
 	type outboxRow struct {
 		id            string
@@ -115,7 +173,7 @@ func (r *Relay) poll(ctx context.Context) (int, error) {
 		payload       []byte
 	}
 
-	rows, err := tx.Query(ctx, q, r.batch)
+	rows, err := conn.Query(ctx, q, r.batch)
 	if err != nil {
 		return 0, fmt.Errorf("relay: query outbox: %w", err)
 	}
@@ -150,28 +208,23 @@ func (r *Relay) poll(ctx context.Context) (int, error) {
 		})
 	}
 
-	// Publish while the tx holds the row locks, preventing concurrent relay
-	// instances from picking the same batch.
 	if err := r.producer.Publish(ctx, msgs...); err != nil {
 		return 0, fmt.Errorf("relay: publish %d messages: %w", len(msgs), err)
 	}
 
-	// Mark published with (user_id, id) pairs so Citus can route each row to
-	// its shard without a scatter-gather.
+	// ANY on user_id lets Citus prune shards; published_at guards the cross product if ids ever collide.
 	const mark = `
 		UPDATE outbox SET published_at = now()
-		FROM (SELECT unnest($1::uuid[]) AS uid, unnest($2::uuid[]) AS eid) AS t
-		WHERE outbox.user_id = t.uid AND outbox.id = t.eid`
-	if _, err := tx.Exec(ctx, mark, userIDs, ids); err != nil {
-		r.log.Error("relay: mark published failed — messages may duplicate on retry",
-			zap.String("store", r.store),
-			zap.Error(err),
-		)
-		return 0, fmt.Errorf("relay: mark published: %w", err)
+		WHERE user_id = ANY($1::uuid[]) AND id = ANY($2::uuid[]) AND published_at IS NULL`
+	// Mark even on shutdown: the batch is already in Kafka.
+	mctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), relayOpTimeout)
+	defer cancel()
+	tag, err := conn.Exec(mctx, mark, userIDs, ids)
+	if err != nil {
+		return 0, fmt.Errorf("relay: mark %d published (will re-send): %w", len(ids), err)
 	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return 0, fmt.Errorf("relay: commit: %w", err)
+	if tag.RowsAffected() != int64(len(ids)) {
+		return 0, fmt.Errorf("relay: marked %d of %d published rows (will re-send)", tag.RowsAffected(), len(ids))
 	}
 
 	r.log.Debug("relay: published", zap.String("store", r.store), zap.Int("count", len(pending)))
