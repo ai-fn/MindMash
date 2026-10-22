@@ -9,23 +9,17 @@ tasks:
       - task --list
 
   tools:
-    desc: Install dev tools (buf, protoc plugins, migrate, golangci-lint, goimports)
+    desc: Install non-module dev tools (codegen tools are pinned in go.mod, run via `go tool`)
     cmds:
-      - go install github.com/bufbuild/buf/cmd/buf@latest
-      - go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-      - go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-      - go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@latest
-      - go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2@latest
-      - go install github.com/golang-migrate/migrate/v4/cmd/migrate@latest
-      - go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-      - go install golang.org/x/tools/cmd/goimports@latest
+      - go install -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.1
+      - go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
 
   gen:
     desc: Generate Go stubs + OpenAPI from protos (buf)
     dir: api
     cmds:
-      - buf lint
-      - buf generate
+      - go tool buf lint
+      - go tool buf generate
 
   gen-web:
     desc: Generate the web TS API client from OpenAPI (orval)
@@ -53,7 +47,7 @@ tasks:
     cmds:
       - go vet {{.PKG}}
       - golangci-lint run
-      - cd api && buf lint
+      - cd api && go tool buf lint
 
   migrate:
     desc: Apply all migrations — identity, collection, scheduler (override DB_URL as needed)

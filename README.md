@@ -112,9 +112,9 @@ Vite + i18next (frontend).
 - Docker (for the local dependency stack)
 - Node 22+ (for the `web/` SPA)
 - [`task`](https://taskfile.dev) (Taskfile runner)
-- Dev-only Go tools (not vendored): `buf`, `protoc-gen-go`, `protoc-gen-go-grpc`,
-  `protoc-gen-grpc-gateway`, `protoc-gen-openapiv2`, `golang-migrate` — install with
-  `task tools`.
+- Dev-only Go tools: `buf` and the protoc plugins are pinned as `tool` directives in
+  `go.mod` (run via `go tool`, nothing to install); `golang-migrate` and `golangci-lint`
+  install with `task tools`.
 
 ## Getting started
 
@@ -122,7 +122,7 @@ Vite + i18next (frontend).
 git clone https://github.com/ai-fn/MindMash.git
 cd MindMash
 
-task tools          # install buf, protoc plugins, migrate, golangci-lint, goimports
+task tools          # install migrate + golangci-lint (buf/protoc plugins run via `go tool`)
 task gen            # buf generate: proto -> Go stubs + OpenAPI
 task build           # build all service binaries
 ```

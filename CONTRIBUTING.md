@@ -16,7 +16,7 @@ documentation improvements, and code. See [`CLAUDE.md`](./CLAUDE.md) for a repo 
 ```bash
 git clone https://github.com/ai-fn/MindMash.git
 cd MindMash
-task tools     # install buf, protoc plugins, migrate, golangci-lint, goimports
+task tools     # install migrate + golangci-lint (buf/protoc plugins run via `go tool`)
 task gen       # buf generate: proto -> Go stubs + OpenAPI
 task build     # build all services
 ```
