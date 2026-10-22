@@ -27,6 +27,9 @@ var errBadImage = errors.New("media: undecodable image")
 // jpegQuality is the encode quality for thumbnails without alpha.
 const jpegQuality = 85
 
+// maxDecodePixels bounds a decode to ~800 MB worst case (progressive JPEG): a tiny file can declare huge dimensions.
+const maxDecodePixels = 50_000_000
+
 // Worker consumes media.uploaded events and produces derived renditions. This
 // slice handles images only (a 256px-longest-edge thumbnail); other kinds are
 // acknowledged as no-ops. The original is always served unprocessed, so a
@@ -102,9 +105,19 @@ func (w *Worker) renderThumb(ctx context.Context, m *Media) (data []byte, mime, 
 	}
 	defer func() { _ = rc.Close() }()
 
-	raw, err := io.ReadAll(rc)
+	raw, err := io.ReadAll(io.LimitReader(rc, m.Bytes+1))
 	if err != nil {
 		return nil, "", "", 0, 0, err
+	}
+	if int64(len(raw)) > m.Bytes {
+		return nil, "", "", 0, 0, fmt.Errorf("%w: object larger than its confirmed %d bytes", errBadImage, m.Bytes)
+	}
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(raw))
+	if err != nil {
+		return nil, "", "", 0, 0, fmt.Errorf("%w: %v", errBadImage, err)
+	}
+	if int64(cfg.Width)*int64(cfg.Height) > maxDecodePixels {
+		return nil, "", "", 0, 0, fmt.Errorf("%w: %dx%d exceeds %d pixels", errBadImage, cfg.Width, cfg.Height, maxDecodePixels)
 	}
 	src, format, err := image.Decode(bytes.NewReader(raw))
 	if err != nil {
