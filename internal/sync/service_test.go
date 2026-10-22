@@ -2,6 +2,8 @@ package sync
 
 import (
 	"context"
+	"encoding/base64"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,8 +16,8 @@ import (
 )
 
 // fakeRepository is an in-memory Repository for unit-testing Service without
-// a real Postgres connection. It emulates "WHERE usn > since ORDER BY usn ASC
-// LIMIT limit" over fixed, pre-sorted fixture slices.
+// a real Postgres connection. It emulates the keyset "WHERE (usn, id) > cursor
+// ORDER BY usn, id LIMIT limit" over fixture slices pre-sorted by (usn, id).
 type fakeRepository struct {
 	latestUSN     int64
 	noteTypes     []NoteType
@@ -36,10 +38,13 @@ type fakeRepository struct {
 
 func (f *fakeRepository) LatestUSN(context.Context, string) (int64, error) { return f.latestUSN, nil }
 
-func sinceLimit[T any](items []T, since int64, limit int, usnOf func(T) int64) []T {
+func sinceLimit[T interface{ cursor() Cursor }](items []T, after Cursor, limit int) []T {
 	var out []T
 	for _, it := range items {
-		if usnOf(it) > since {
+		c := it.cursor()
+		sameUSNAfter := after.ID != "" && c.USN == after.USN &&
+			(c.Type > after.Type || (c.Type == after.Type && c.ID > after.ID))
+		if c.USN > after.USN || sameUSNAfter {
 			out = append(out, it)
 		}
 	}
@@ -49,29 +54,29 @@ func sinceLimit[T any](items []T, since int64, limit int, usnOf func(T) int64) [
 	return out
 }
 
-func (f *fakeRepository) ListNoteTypesSince(_ context.Context, _ string, since int64, limit int) ([]NoteType, error) {
-	return sinceLimit(f.noteTypes, since, limit, func(nt NoteType) int64 { return nt.USN }), nil
+func (f *fakeRepository) ListNoteTypesSince(_ context.Context, _ string, after Cursor, limit int) ([]NoteType, error) {
+	return sinceLimit(f.noteTypes, after, limit), nil
 }
-func (f *fakeRepository) ListNotesSince(_ context.Context, _ string, since int64, limit int) ([]Note, error) {
-	return sinceLimit(f.notes, since, limit, func(n Note) int64 { return n.USN }), nil
+func (f *fakeRepository) ListNotesSince(_ context.Context, _ string, after Cursor, limit int) ([]Note, error) {
+	return sinceLimit(f.notes, after, limit), nil
 }
-func (f *fakeRepository) ListCardsSince(_ context.Context, _ string, since int64, limit int) ([]Card, error) {
-	return sinceLimit(f.cards, since, limit, func(c Card) int64 { return c.USN }), nil
+func (f *fakeRepository) ListCardsSince(_ context.Context, _ string, after Cursor, limit int) ([]Card, error) {
+	return sinceLimit(f.cards, after, limit), nil
 }
-func (f *fakeRepository) ListDecksSince(_ context.Context, _ string, since int64, limit int) ([]Deck, error) {
-	return sinceLimit(f.decks, since, limit, func(d Deck) int64 { return d.USN }), nil
+func (f *fakeRepository) ListDecksSince(_ context.Context, _ string, after Cursor, limit int) ([]Deck, error) {
+	return sinceLimit(f.decks, after, limit), nil
 }
-func (f *fakeRepository) ListDeckConfigsSince(_ context.Context, _ string, since int64, limit int) ([]DeckConfig, error) {
-	return sinceLimit(f.deckConfigs, since, limit, func(dc DeckConfig) int64 { return dc.USN }), nil
+func (f *fakeRepository) ListDeckConfigsSince(_ context.Context, _ string, after Cursor, limit int) ([]DeckConfig, error) {
+	return sinceLimit(f.deckConfigs, after, limit), nil
 }
-func (f *fakeRepository) ListFilteredDecksSince(_ context.Context, _ string, since int64, limit int) ([]FilteredDeck, error) {
-	return sinceLimit(f.filteredDecks, since, limit, func(fd FilteredDeck) int64 { return fd.USN }), nil
+func (f *fakeRepository) ListFilteredDecksSince(_ context.Context, _ string, after Cursor, limit int) ([]FilteredDeck, error) {
+	return sinceLimit(f.filteredDecks, after, limit), nil
 }
-func (f *fakeRepository) ListTagsSince(_ context.Context, _ string, since int64, limit int) ([]Tag, error) {
-	return sinceLimit(f.tags, since, limit, func(t Tag) int64 { return t.USN }), nil
+func (f *fakeRepository) ListTagsSince(_ context.Context, _ string, after Cursor, limit int) ([]Tag, error) {
+	return sinceLimit(f.tags, after, limit), nil
 }
-func (f *fakeRepository) ListTombstonesSince(_ context.Context, _ string, since int64, limit int) ([]Tombstone, error) {
-	return sinceLimit(f.tombstones, since, limit, func(t Tombstone) int64 { return t.USN }), nil
+func (f *fakeRepository) ListTombstonesSince(_ context.Context, _ string, after Cursor, limit int) ([]Tombstone, error) {
+	return sinceLimit(f.tombstones, after, limit), nil
 }
 
 // GetAppliedOp/RecordAppliedOp are not exercised by Service's existing
@@ -103,6 +108,13 @@ type recordedOp struct {
 	Outcome ApplyOutcome
 	NewUSN  int64
 }
+
+// Delta-pull fixtures need real UUIDs: page-token cursors validate them.
+const (
+	noteID1 = "00000000-0000-0000-0000-0000000000a1"
+	noteID2 = "00000000-0000-0000-0000-0000000000a2"
+	noteID3 = "00000000-0000-0000-0000-0000000000a3"
+)
 
 func newTestService(repo *fakeRepository, pageSize int) *Service {
 	svc := NewService(repo, nil, nil, zap.NewNop())
@@ -260,9 +272,9 @@ func TestGetChanges_ReturnsOnlyRowsAboveSinceUSN(t *testing.T) {
 	repo := &fakeRepository{
 		latestUSN: 5,
 		notes: []Note{
-			{ID: "n1", USN: 1},
-			{ID: "n2", USN: 3},
-			{ID: "n3", USN: 5},
+			{ID: noteID1, USN: 1},
+			{ID: noteID2, USN: 3},
+			{ID: noteID3, USN: 5},
 		},
 	}
 	svc := newTestService(repo, 500)
@@ -271,7 +283,7 @@ func TestGetChanges_ReturnsOnlyRowsAboveSinceUSN(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetChanges: %v", err)
 	}
-	if len(cs.Notes) != 1 || cs.Notes[0].ID != "n3" {
+	if len(cs.Notes) != 1 || cs.Notes[0].ID != noteID3 {
 		t.Fatalf("want only n3 (usn=5 > since=3), got %+v", cs.Notes)
 	}
 	if latest != 5 {
@@ -287,7 +299,7 @@ func TestGetChanges_ReturnsOnlyRowsAboveSinceUSN(t *testing.T) {
 func TestGetChanges_SinceLatestUSN_ReturnsEmpty(t *testing.T) {
 	repo := &fakeRepository{
 		latestUSN: 5,
-		notes:     []Note{{ID: "n1", USN: 5}},
+		notes:     []Note{{ID: noteID1, USN: 5}},
 	}
 	svc := newTestService(repo, 500)
 
@@ -332,9 +344,9 @@ func TestGetChanges_PaginatesWhenOverPageSize(t *testing.T) {
 	repo := &fakeRepository{
 		latestUSN: 3,
 		notes: []Note{
-			{ID: "n1", USN: 1},
-			{ID: "n2", USN: 2},
-			{ID: "n3", USN: 3},
+			{ID: noteID1, USN: 1},
+			{ID: noteID2, USN: 2},
+			{ID: noteID3, USN: 3},
 		},
 	}
 	svc := newTestService(repo, 1) // force pagination after 1 row
@@ -344,7 +356,7 @@ func TestGetChanges_PaginatesWhenOverPageSize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetChanges page 1: %v", err)
 	}
-	if len(cs1.Notes) != 1 || cs1.Notes[0].ID != "n1" {
+	if len(cs1.Notes) != 1 || cs1.Notes[0].ID != noteID1 {
 		t.Fatalf("want page 1 = [n1], got %+v", cs1.Notes)
 	}
 	if next1 == "" {
@@ -356,7 +368,7 @@ func TestGetChanges_PaginatesWhenOverPageSize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetChanges page 2: %v", err)
 	}
-	if len(cs2.Notes) != 1 || cs2.Notes[0].ID != "n2" {
+	if len(cs2.Notes) != 1 || cs2.Notes[0].ID != noteID2 {
 		t.Fatalf("want page 2 = [n2], got %+v", cs2.Notes)
 	}
 	if next2 == "" {
@@ -368,7 +380,7 @@ func TestGetChanges_PaginatesWhenOverPageSize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetChanges page 3: %v", err)
 	}
-	if len(cs3.Notes) != 1 || cs3.Notes[0].ID != "n3" {
+	if len(cs3.Notes) != 1 || cs3.Notes[0].ID != noteID3 {
 		t.Fatalf("want page 3 = [n3], got %+v", cs3.Notes)
 	}
 	if next3 != "" {
@@ -387,7 +399,10 @@ func TestGetChanges_InvalidPageToken_ReturnsInvalidArgument(t *testing.T) {
 // ─── Page-token round trip ────────────────────────────────────────────────────
 
 func TestPageTokenRoundTrip(t *testing.T) {
-	want := Cursors{EntityNote: 7, EntityCard: 12}
+	want := Cursors{
+		EntityNote:         {USN: 7, ID: "11111111-1111-1111-1111-111111111111"},
+		tombstoneCursorKey: {USN: 12, Type: EntityCard, ID: "22222222-2222-2222-2222-222222222222"},
+	}
 	token, err := encodePageToken(want)
 	if err != nil {
 		t.Fatalf("encodePageToken: %v", err)
@@ -396,8 +411,68 @@ func TestPageTokenRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decodePageToken: %v", err)
 	}
-	if len(got) != len(want) || got[EntityNote] != 7 || got[EntityCard] != 12 {
+	if len(got) != len(want) || got[EntityNote] != want[EntityNote] || got[tombstoneCursorKey] != want[tombstoneCursorKey] {
 		t.Fatalf("round trip mismatch: want %+v, got %+v", want, got)
+	}
+}
+
+func TestDecodePageToken_AcceptsV1(t *testing.T) {
+	v1 := base64.RawURLEncoding.EncodeToString([]byte(`{"note":7,"card":12}`))
+	got, err := decodePageToken(v1)
+	if err != nil {
+		t.Fatalf("decodePageToken(v1): %v", err)
+	}
+	if got[EntityNote] != (Cursor{USN: 7}) || got[EntityCard] != (Cursor{USN: 12}) {
+		t.Fatalf("want v1 usns resumed after their whole usn, got %+v", got)
+	}
+}
+
+func TestDecodePageToken_RejectsForgedCursors(t *testing.T) {
+	for name, raw := range map[string]string{
+		"non-uuid id":  `{"v":2,"c":{"note":{"u":1,"i":"zzz"}}}`,
+		"negative usn": `{"v":2,"c":{"card":{"u":-1}}}`,
+		"unknown v":    `{"v":3,"c":{}}`,
+	} {
+		if _, err := decodePageToken(base64.RawURLEncoding.EncodeToString([]byte(raw))); err == nil {
+			t.Errorf("%s: want error", name)
+		}
+	}
+
+	got, err := decodePageToken(base64.RawURLEncoding.EncodeToString([]byte(`{"v":2,"c":{"bogus":{"u":1},"note":{"u":2}}}`)))
+	if err != nil {
+		t.Fatalf("decodePageToken: %v", err)
+	}
+	if _, ok := got["bogus"]; ok || got[EntityNote] != (Cursor{USN: 2}) {
+		t.Fatalf("want unknown keys dropped and known kept, got %+v", got)
+	}
+}
+
+// ─── Pagination inside one usn ───────────────────────────────────────────────
+
+func TestGetChanges_PaginatesRowsSharingOneUSN(t *testing.T) {
+	repo := &fakeRepository{
+		latestUSN: 5,
+		notes:     []Note{{ID: noteID1, USN: 5}, {ID: noteID2, USN: 5}, {ID: noteID3, USN: 5}},
+	}
+	svc := newTestService(repo, 1)
+
+	var got []string
+	token := ""
+	for page := 0; page < 5; page++ {
+		cs, _, next, err := svc.GetChanges(context.Background(), "u1", 0, token)
+		if err != nil {
+			t.Fatalf("GetChanges page %d: %v", page, err)
+		}
+		for _, n := range cs.Notes {
+			got = append(got, n.ID)
+		}
+		if next == "" {
+			break
+		}
+		token = next
+	}
+	if strings.Join(got, ",") != strings.Join([]string{noteID1, noteID2, noteID3}, ",") {
+		t.Fatalf("want every note sharing usn 5 exactly once, got %v", got)
 	}
 }
 

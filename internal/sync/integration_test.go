@@ -692,3 +692,58 @@ func TestApply_Integration_DeleteProducesTombstone(t *testing.T) {
 		t.Fatalf("want a tombstone for deleted note %s in GetChanges delta, got %+v", noteID, cs.Deleted)
 	}
 }
+
+// ─── Pagination inside one usn ───────────────────────────────────────────────
+
+func TestGetChanges_PaginatesRowsSharingOneUSN_Postgres(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+	c.svc.pageSize = 2
+
+	nt := insertNoteType(t, c, bumpUSN(t, c))
+	usn := bumpUSN(t, c) // one bulk write: every row below shares it
+	want := map[string]bool{}
+	for range 5 {
+		want[insertNote(t, c, nt, usn)] = true
+	}
+	wantDeleted := map[string]bool{}
+	for range 3 {
+		id := ids.NewUUID()
+		insertTombstone(t, c, EntityCard, id, usn)
+		wantDeleted[id] = true
+	}
+
+	got, gotDeleted := map[string]bool{}, map[string]bool{}
+	token := ""
+	for page := 0; ; page++ {
+		if page >= 10 {
+			t.Fatal("pagination did not terminate")
+		}
+		cs, _, next, err := c.svc.GetChanges(ctx, testUserID, 0, token)
+		if err != nil {
+			t.Fatalf("GetChanges page %d: %v", page, err)
+		}
+		for _, n := range cs.Notes {
+			if got[n.ID] {
+				t.Fatalf("note %s returned twice", n.ID)
+			}
+			got[n.ID] = true
+		}
+		for _, d := range cs.Deleted {
+			if gotDeleted[d.ID] {
+				t.Fatalf("tombstone %s returned twice", d.ID)
+			}
+			gotDeleted[d.ID] = true
+		}
+		if next == "" {
+			break
+		}
+		token = next
+	}
+	if len(got) != len(want) {
+		t.Fatalf("want all %d notes sharing usn %d, got %d", len(want), usn, len(got))
+	}
+	if len(gotDeleted) != len(wantDeleted) {
+		t.Fatalf("want all %d tombstones sharing usn %d, got %d", len(wantDeleted), usn, len(gotDeleted))
+	}
+}

@@ -131,10 +131,17 @@ type Tombstone struct {
 	DeletedAt time.Time
 }
 
-// Cursors maps entity type -> the last usn already returned for that type.
-// An empty/nil Cursors means "start from the request's since_usn for every
-// type" (i.e. the first page).
-type Cursors map[string]int64
+// Cursor is the keyset position of the last row returned for one entity type.
+// An empty ID means "after every row with this USN" (the first-page position).
+// Rows written by one transaction share a USN, so the USN alone can't resume mid-group.
+type Cursor struct {
+	USN  int64  `json:"u"`
+	Type string `json:"t,omitempty"` // tombstones only: their key is (type, id)
+	ID   string `json:"i,omitempty"`
+}
+
+// Cursors maps entity type -> its cursor; a missing type starts at the request's since_usn.
+type Cursors map[string]Cursor
 
 // ChangeSet is one page of the delta feed.
 type ChangeSet struct {
@@ -160,14 +167,14 @@ type Repository interface {
 	// user has never written anything yet).
 	LatestUSN(ctx context.Context, userID string) (int64, error)
 
-	ListNoteTypesSince(ctx context.Context, userID string, sinceUSN int64, limit int) ([]NoteType, error)
-	ListNotesSince(ctx context.Context, userID string, sinceUSN int64, limit int) ([]Note, error)
-	ListCardsSince(ctx context.Context, userID string, sinceUSN int64, limit int) ([]Card, error)
-	ListDecksSince(ctx context.Context, userID string, sinceUSN int64, limit int) ([]Deck, error)
-	ListDeckConfigsSince(ctx context.Context, userID string, sinceUSN int64, limit int) ([]DeckConfig, error)
-	ListFilteredDecksSince(ctx context.Context, userID string, sinceUSN int64, limit int) ([]FilteredDeck, error)
-	ListTagsSince(ctx context.Context, userID string, sinceUSN int64, limit int) ([]Tag, error)
-	ListTombstonesSince(ctx context.Context, userID string, sinceUSN int64, limit int) ([]Tombstone, error)
+	ListNoteTypesSince(ctx context.Context, userID string, after Cursor, limit int) ([]NoteType, error)
+	ListNotesSince(ctx context.Context, userID string, after Cursor, limit int) ([]Note, error)
+	ListCardsSince(ctx context.Context, userID string, after Cursor, limit int) ([]Card, error)
+	ListDecksSince(ctx context.Context, userID string, after Cursor, limit int) ([]Deck, error)
+	ListDeckConfigsSince(ctx context.Context, userID string, after Cursor, limit int) ([]DeckConfig, error)
+	ListFilteredDecksSince(ctx context.Context, userID string, after Cursor, limit int) ([]FilteredDeck, error)
+	ListTagsSince(ctx context.Context, userID string, after Cursor, limit int) ([]Tag, error)
+	ListTombstonesSince(ctx context.Context, userID string, after Cursor, limit int) ([]Tombstone, error)
 
 	// GetAppliedOp returns the previously recorded outcome for (userID, opID),
 	// or (nil, nil) if this op_id has never been applied — the push-path

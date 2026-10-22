@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
@@ -47,18 +48,14 @@ func (s *Service) GetChanges(ctx context.Context, userID string, sinceUSN int64,
 		return ChangeSet{}, 0, "", platformerrors.InvalidArgument("invalid page_token", err)
 	}
 
-	cursorFor := func(entityType string) int64 {
+	cursorFor := func(entityType string) Cursor {
 		if c, ok := cursors[entityType]; ok {
 			return c
 		}
-		return sinceUSN
+		return Cursor{USN: sinceUSN}
 	}
 
 	fetchLimit := s.pageSize + 1 // fetch one extra to detect "more rows exist"
-
-	// Tombstones share no entity-type cursor of their own (deletions aren't
-	// re-fetched per-type above); track them under a dedicated key.
-	const tombstoneCursorKey = "_tombstones"
 
 	// The 9 reads below are independent — different tables, same userID — so
 	// run them concurrently rather than paying their latency 9 times over on
@@ -122,49 +119,49 @@ func (s *Service) GetChanges(ctx context.Context, userID string, sinceUSN int64,
 	noteTypes, more := truncate(noteTypes, s.pageSize)
 	hasMore = hasMore || more
 	if len(noteTypes) > 0 {
-		next[EntityNoteType] = noteTypes[len(noteTypes)-1].USN
+		next[EntityNoteType] = noteTypes[len(noteTypes)-1].cursor()
 	}
 
 	notes, more = truncate(notes, s.pageSize)
 	hasMore = hasMore || more
 	if len(notes) > 0 {
-		next[EntityNote] = notes[len(notes)-1].USN
+		next[EntityNote] = notes[len(notes)-1].cursor()
 	}
 
 	cards, more = truncate(cards, s.pageSize)
 	hasMore = hasMore || more
 	if len(cards) > 0 {
-		next[EntityCard] = cards[len(cards)-1].USN
+		next[EntityCard] = cards[len(cards)-1].cursor()
 	}
 
 	decks, more = truncate(decks, s.pageSize)
 	hasMore = hasMore || more
 	if len(decks) > 0 {
-		next[EntityDeck] = decks[len(decks)-1].USN
+		next[EntityDeck] = decks[len(decks)-1].cursor()
 	}
 
 	deckConfigs, more = truncate(deckConfigs, s.pageSize)
 	hasMore = hasMore || more
 	if len(deckConfigs) > 0 {
-		next[EntityDeckConfig] = deckConfigs[len(deckConfigs)-1].USN
+		next[EntityDeckConfig] = deckConfigs[len(deckConfigs)-1].cursor()
 	}
 
 	filteredDecks, more = truncate(filteredDecks, s.pageSize)
 	hasMore = hasMore || more
 	if len(filteredDecks) > 0 {
-		next[EntityFilteredDeck] = filteredDecks[len(filteredDecks)-1].USN
+		next[EntityFilteredDeck] = filteredDecks[len(filteredDecks)-1].cursor()
 	}
 
 	tags, more = truncate(tags, s.pageSize)
 	hasMore = hasMore || more
 	if len(tags) > 0 {
-		next[EntityTag] = tags[len(tags)-1].USN
+		next[EntityTag] = tags[len(tags)-1].cursor()
 	}
 
 	deleted, more = truncate(deleted, s.pageSize)
 	hasMore = hasMore || more
 	if len(deleted) > 0 {
-		next[tombstoneCursorKey] = deleted[len(deleted)-1].USN
+		next[tombstoneCursorKey] = deleted[len(deleted)-1].cursor()
 	}
 
 	cs := ChangeSet{
@@ -197,30 +194,61 @@ func (s *Service) GetChanges(ctx context.Context, userID string, sinceUSN int64,
 	return cs, latestUSN, nextToken, nil
 }
 
-// usn is the common shape every entity projection in this package satisfies;
-// used only to let truncate report the last row's usn generically.
-type usn interface{ usnValue() int64 }
-
-func (nt NoteType) usnValue() int64     { return nt.USN }
-func (n Note) usnValue() int64          { return n.USN }
-func (c Card) usnValue() int64          { return c.USN }
-func (d Deck) usnValue() int64          { return d.USN }
-func (dc DeckConfig) usnValue() int64   { return dc.USN }
-func (fd FilteredDeck) usnValue() int64 { return fd.USN }
-func (t Tag) usnValue() int64           { return t.USN }
-func (t Tombstone) usnValue() int64     { return t.USN }
+func (nt NoteType) cursor() Cursor     { return Cursor{USN: nt.USN, ID: nt.ID} }
+func (n Note) cursor() Cursor          { return Cursor{USN: n.USN, ID: n.ID} }
+func (c Card) cursor() Cursor          { return Cursor{USN: c.USN, ID: c.ID} }
+func (d Deck) cursor() Cursor          { return Cursor{USN: d.USN, ID: d.ID} }
+func (dc DeckConfig) cursor() Cursor   { return Cursor{USN: dc.USN, ID: dc.ID} }
+func (fd FilteredDeck) cursor() Cursor { return Cursor{USN: fd.USN, ID: fd.ID} }
+func (t Tag) cursor() Cursor           { return Cursor{USN: t.USN, ID: t.ID} }
+func (t Tombstone) cursor() Cursor     { return Cursor{USN: t.USN, Type: t.Type, ID: t.ID} }
 
 // truncate trims items to at most pageSize entries and reports whether more
 // rows existed beyond that (i.e. items originally numbered pageSize+1).
-func truncate[T usn](items []T, pageSize int) ([]T, bool) {
+func truncate[T any](items []T, pageSize int) ([]T, bool) {
 	if len(items) > pageSize {
 		return items[:pageSize], true
 	}
 	return items, false
 }
 
+const pageTokenVersion = 2
+
+// tombstoneCursorKey tracks deletions, which have no entity type of their own.
+const tombstoneCursorKey = "_tombstones"
+
+var cursorKeys = map[string]bool{
+	EntityNoteType: true, EntityNote: true, EntityCard: true, EntityDeck: true,
+	EntityDeckConfig: true, EntityFilteredDeck: true, EntityTag: true, tombstoneCursorKey: true,
+}
+
+// validCursors drops unknown keys and rejects values the keyset SQL can't take, so a forged token is a 400, not a 500.
+func validCursors(c Cursors) (Cursors, error) {
+	out := make(Cursors, len(c))
+	for k, cur := range c {
+		if !cursorKeys[k] {
+			continue
+		}
+		if cur.USN < 0 {
+			return nil, fmt.Errorf("cursor %s: negative usn", k)
+		}
+		if cur.ID != "" {
+			if _, err := uuid.Parse(cur.ID); err != nil {
+				return nil, fmt.Errorf("cursor %s: %w", k, err)
+			}
+		}
+		out[k] = cur
+	}
+	return out, nil
+}
+
+type pageToken struct {
+	V int     `json:"v"`
+	C Cursors `json:"c"`
+}
+
 func encodePageToken(c Cursors) (string, error) {
-	b, err := json.Marshal(c)
+	b, err := json.Marshal(pageToken{V: pageTokenVersion, C: c})
 	if err != nil {
 		return "", err
 	}
@@ -235,11 +263,20 @@ func decodePageToken(token string) (Cursors, error) {
 	if err != nil {
 		return nil, err
 	}
-	var c Cursors
-	if err := json.Unmarshal(b, &c); err != nil {
+	var pt pageToken
+	if err := json.Unmarshal(b, &pt); err == nil && pt.V == pageTokenVersion {
+		return validCursors(pt.C)
+	}
+	// v1 tokens ({type: usn}) predate keyset cursors; resume them after their whole usn.
+	var v1 map[string]int64
+	if err := json.Unmarshal(b, &v1); err != nil {
 		return nil, err
 	}
-	return c, nil
+	c := make(Cursors, len(v1))
+	for k, usn := range v1 {
+		c[k] = Cursor{USN: usn}
+	}
+	return validCursors(c)
 }
 
 // ─── Realtime notifier pub/sub ──────────────────────────────────────────────

@@ -43,6 +43,37 @@ func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {
 	return &PostgresRepository{db: pool}
 }
 
+// ─── Keyset pagination ───────────────────────────────────────────────────────
+// $1 is user_id and $2 the limit; the cursor fills $3 onward.
+
+func afterEntity(c Cursor) string {
+	if c.ID == "" {
+		return "usn > $3"
+	}
+	return "(usn, id) > ($3, $4::uuid)"
+}
+
+func entityArgs(userID string, limit int, c Cursor) []any {
+	if c.ID == "" {
+		return []any{userID, limit, c.USN}
+	}
+	return []any{userID, limit, c.USN, c.ID}
+}
+
+func afterTombstone(c Cursor) string {
+	if c.ID == "" {
+		return "usn > $3"
+	}
+	return "(usn, type, id) > ($3, $4, $5::uuid)"
+}
+
+func tombstoneArgs(userID string, limit int, c Cursor) []any {
+	if c.ID == "" {
+		return []any{userID, limit, c.USN}
+	}
+	return []any{userID, limit, c.USN, c.Type, c.ID}
+}
+
 // ─── LatestUSN ───────────────────────────────────────────────────────────────
 
 func (r *PostgresRepository) LatestUSN(ctx context.Context, userID string) (int64, error) {
@@ -59,10 +90,10 @@ func (r *PostgresRepository) LatestUSN(ctx context.Context, userID string) (int6
 
 // ─── NoteType ────────────────────────────────────────────────────────────────
 
-func (r *PostgresRepository) ListNoteTypesSince(ctx context.Context, userID string, sinceUSN int64, limit int) ([]NoteType, error) {
+func (r *PostgresRepository) ListNoteTypesSince(ctx context.Context, userID string, after Cursor, limit int) ([]NoteType, error) {
 	rows, err := r.db.Query(ctx,
-		`SELECT `+noteTypeColumns+` FROM note_types WHERE user_id = $1 AND usn > $2 ORDER BY usn ASC LIMIT $3`,
-		userID, sinceUSN, limit)
+		`SELECT `+noteTypeColumns+` FROM note_types WHERE user_id = $1 AND `+afterEntity(after)+` ORDER BY usn, id LIMIT $2`,
+		entityArgs(userID, limit, after)...)
 	if err != nil {
 		return nil, fmt.Errorf("sync: list note_types since: %w", err)
 	}
@@ -91,10 +122,10 @@ func (r *PostgresRepository) ListNoteTypesSince(ctx context.Context, userID stri
 
 // ─── Note ────────────────────────────────────────────────────────────────────
 
-func (r *PostgresRepository) ListNotesSince(ctx context.Context, userID string, sinceUSN int64, limit int) ([]Note, error) {
+func (r *PostgresRepository) ListNotesSince(ctx context.Context, userID string, after Cursor, limit int) ([]Note, error) {
 	rows, err := r.db.Query(ctx,
-		`SELECT `+noteColumns+` FROM notes WHERE user_id = $1 AND usn > $2 ORDER BY usn ASC LIMIT $3`,
-		userID, sinceUSN, limit)
+		`SELECT `+noteColumns+` FROM notes WHERE user_id = $1 AND `+afterEntity(after)+` ORDER BY usn, id LIMIT $2`,
+		entityArgs(userID, limit, after)...)
 	if err != nil {
 		return nil, fmt.Errorf("sync: list notes since: %w", err)
 	}
@@ -118,10 +149,10 @@ func (r *PostgresRepository) ListNotesSince(ctx context.Context, userID string, 
 
 // ─── Card ────────────────────────────────────────────────────────────────────
 
-func (r *PostgresRepository) ListCardsSince(ctx context.Context, userID string, sinceUSN int64, limit int) ([]Card, error) {
+func (r *PostgresRepository) ListCardsSince(ctx context.Context, userID string, after Cursor, limit int) ([]Card, error) {
 	rows, err := r.db.Query(ctx,
-		`SELECT `+cardColumns+` FROM cards WHERE user_id = $1 AND usn > $2 ORDER BY usn ASC LIMIT $3`,
-		userID, sinceUSN, limit)
+		`SELECT `+cardColumns+` FROM cards WHERE user_id = $1 AND `+afterEntity(after)+` ORDER BY usn, id LIMIT $2`,
+		entityArgs(userID, limit, after)...)
 	if err != nil {
 		return nil, fmt.Errorf("sync: list cards since: %w", err)
 	}
@@ -146,10 +177,10 @@ func (r *PostgresRepository) ListCardsSince(ctx context.Context, userID string, 
 
 // ─── Deck ────────────────────────────────────────────────────────────────────
 
-func (r *PostgresRepository) ListDecksSince(ctx context.Context, userID string, sinceUSN int64, limit int) ([]Deck, error) {
+func (r *PostgresRepository) ListDecksSince(ctx context.Context, userID string, after Cursor, limit int) ([]Deck, error) {
 	rows, err := r.db.Query(ctx,
-		`SELECT `+deckColumns+` FROM decks WHERE user_id = $1 AND usn > $2 ORDER BY usn ASC LIMIT $3`,
-		userID, sinceUSN, limit)
+		`SELECT `+deckColumns+` FROM decks WHERE user_id = $1 AND `+afterEntity(after)+` ORDER BY usn, id LIMIT $2`,
+		entityArgs(userID, limit, after)...)
 	if err != nil {
 		return nil, fmt.Errorf("sync: list decks since: %w", err)
 	}
@@ -171,10 +202,10 @@ func (r *PostgresRepository) ListDecksSince(ctx context.Context, userID string, 
 
 // ─── DeckConfig ──────────────────────────────────────────────────────────────
 
-func (r *PostgresRepository) ListDeckConfigsSince(ctx context.Context, userID string, sinceUSN int64, limit int) ([]DeckConfig, error) {
+func (r *PostgresRepository) ListDeckConfigsSince(ctx context.Context, userID string, after Cursor, limit int) ([]DeckConfig, error) {
 	rows, err := r.db.Query(ctx,
-		`SELECT `+deckConfigColumns+` FROM deck_configs WHERE user_id = $1 AND usn > $2 ORDER BY usn ASC LIMIT $3`,
-		userID, sinceUSN, limit)
+		`SELECT `+deckConfigColumns+` FROM deck_configs WHERE user_id = $1 AND `+afterEntity(after)+` ORDER BY usn, id LIMIT $2`,
+		entityArgs(userID, limit, after)...)
 	if err != nil {
 		return nil, fmt.Errorf("sync: list deck_configs since: %w", err)
 	}
@@ -199,10 +230,10 @@ func (r *PostgresRepository) ListDeckConfigsSince(ctx context.Context, userID st
 
 // ─── FilteredDeck ────────────────────────────────────────────────────────────
 
-func (r *PostgresRepository) ListFilteredDecksSince(ctx context.Context, userID string, sinceUSN int64, limit int) ([]FilteredDeck, error) {
+func (r *PostgresRepository) ListFilteredDecksSince(ctx context.Context, userID string, after Cursor, limit int) ([]FilteredDeck, error) {
 	rows, err := r.db.Query(ctx,
-		`SELECT `+filteredDeckColumns+` FROM filtered_decks WHERE user_id = $1 AND usn > $2 ORDER BY usn ASC LIMIT $3`,
-		userID, sinceUSN, limit)
+		`SELECT `+filteredDeckColumns+` FROM filtered_decks WHERE user_id = $1 AND `+afterEntity(after)+` ORDER BY usn, id LIMIT $2`,
+		entityArgs(userID, limit, after)...)
 	if err != nil {
 		return nil, fmt.Errorf("sync: list filtered_decks since: %w", err)
 	}
@@ -224,10 +255,10 @@ func (r *PostgresRepository) ListFilteredDecksSince(ctx context.Context, userID 
 
 // ─── Tag ─────────────────────────────────────────────────────────────────────
 
-func (r *PostgresRepository) ListTagsSince(ctx context.Context, userID string, sinceUSN int64, limit int) ([]Tag, error) {
+func (r *PostgresRepository) ListTagsSince(ctx context.Context, userID string, after Cursor, limit int) ([]Tag, error) {
 	rows, err := r.db.Query(ctx,
-		`SELECT `+tagColumns+` FROM tags WHERE user_id = $1 AND usn > $2 ORDER BY usn ASC LIMIT $3`,
-		userID, sinceUSN, limit)
+		`SELECT `+tagColumns+` FROM tags WHERE user_id = $1 AND `+afterEntity(after)+` ORDER BY usn, id LIMIT $2`,
+		entityArgs(userID, limit, after)...)
 	if err != nil {
 		return nil, fmt.Errorf("sync: list tags since: %w", err)
 	}
@@ -249,10 +280,10 @@ func (r *PostgresRepository) ListTagsSince(ctx context.Context, userID string, s
 
 // ─── Tombstone ───────────────────────────────────────────────────────────────
 
-func (r *PostgresRepository) ListTombstonesSince(ctx context.Context, userID string, sinceUSN int64, limit int) ([]Tombstone, error) {
+func (r *PostgresRepository) ListTombstonesSince(ctx context.Context, userID string, after Cursor, limit int) ([]Tombstone, error) {
 	rows, err := r.db.Query(ctx,
-		`SELECT type, id, usn, deleted_at FROM tombstones WHERE user_id = $1 AND usn > $2 ORDER BY usn ASC LIMIT $3`,
-		userID, sinceUSN, limit)
+		`SELECT type, id, usn, deleted_at FROM tombstones WHERE user_id = $1 AND `+afterTombstone(after)+` ORDER BY usn, type, id LIMIT $2`,
+		tombstoneArgs(userID, limit, after)...)
 	if err != nil {
 		return nil, fmt.Errorf("sync: list tombstones since: %w", err)
 	}
