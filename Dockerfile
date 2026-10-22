@@ -11,7 +11,8 @@
 # CI/prod pass neither and keep the network defaults below. See scripts/modproxy.sh.
 
 # ---- build stage ---------------------------------------------------------
-FROM golang:1.26-alpine AS build
+# Must match go.mod's toolchain: the image sets GOTOOLCHAIN=local.
+FROM golang:1.26.10-alpine AS build
 
 ARG SERVICE
 ARG GOPROXY=https://proxy.golang.org,direct
