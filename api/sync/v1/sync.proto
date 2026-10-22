@@ -49,9 +49,10 @@ message Tombstone {
 
 // Field definition within a NoteType (mirrors collection.v1.Field).
 message Field {
-  string name   = 1;
-  bool   sticky = 2;
-  bool   rtl    = 3;
+  string name     = 1;
+  bool   sticky   = 2;
+  bool   rtl      = 3;
+  string language = 4;
 }
 
 // Card template within a NoteType (mirrors collection.v1.CardTemplate).

@@ -29,7 +29,7 @@ func identity(ctx context.Context) (auth.IdentityContext, error) {
 // ─── Proto ↔ domain mappers ───────────────────────────────────────────────────
 
 func fieldToProto(f Field) *syncv1.Field {
-	return &syncv1.Field{Name: f.Name, Sticky: f.Sticky, Rtl: f.RTL}
+	return &syncv1.Field{Name: f.Name, Sticky: f.Sticky, Rtl: f.RTL, Language: f.Language}
 }
 
 func cardTemplateToProto(ct CardTemplate) *syncv1.CardTemplate {
@@ -157,7 +157,7 @@ func tombstoneToProto(t Tombstone) *syncv1.Tombstone {
 // ─── Apply (push) path proto ↔ domain mappers ─────────────────────────────────
 
 func fieldFromProto(f *syncv1.Field) Field {
-	return Field{Name: f.GetName(), Sticky: f.GetSticky(), RTL: f.GetRtl()}
+	return Field{Name: f.GetName(), Sticky: f.GetSticky(), RTL: f.GetRtl(), Language: f.GetLanguage()}
 }
 
 func cardTemplateFromProto(ct *syncv1.CardTemplate) CardTemplate {

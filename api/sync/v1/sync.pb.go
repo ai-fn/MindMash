@@ -231,6 +231,7 @@ type Field struct {
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	Sticky        bool                   `protobuf:"varint,2,opt,name=sticky,proto3" json:"sticky,omitempty"`
 	Rtl           bool                   `protobuf:"varint,3,opt,name=rtl,proto3" json:"rtl,omitempty"`
+	Language      string                 `protobuf:"bytes,4,opt,name=language,proto3" json:"language,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -284,6 +285,13 @@ func (x *Field) GetRtl() bool {
 		return x.Rtl
 	}
 	return false
+}
+
+func (x *Field) GetLanguage() string {
+	if x != nil {
+		return x.Language
+	}
+	return ""
 }
 
 // Card template within a NoteType (mirrors collection.v1.CardTemplate).
@@ -1931,11 +1939,12 @@ const file_sync_v1_sync_proto_rawDesc = "" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x10\n" +
 	"\x03usn\x18\x03 \x01(\x03R\x03usn\x129\n" +
 	"\n" +
-	"deleted_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tdeletedAt\"E\n" +
+	"deleted_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tdeletedAt\"a\n" +
 	"\x05Field\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
 	"\x06sticky\x18\x02 \x01(\bR\x06sticky\x12\x10\n" +
-	"\x03rtl\x18\x03 \x01(\bR\x03rtl\"L\n" +
+	"\x03rtl\x18\x03 \x01(\bR\x03rtl\x12\x1a\n" +
+	"\blanguage\x18\x04 \x01(\tR\blanguage\"L\n" +
 	"\fCardTemplate\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05front\x18\x02 \x01(\tR\x05front\x12\x12\n" +

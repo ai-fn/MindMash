@@ -946,6 +946,41 @@ func TestApply_NoteTypeUpdate_HappyPath_WiredToUpdateNoteType(t *testing.T) {
 	}
 }
 
+func TestApply_NoteTypeUpdate_KeepsFieldLanguage(t *testing.T) {
+	server := &collectionv1.NoteType{Id: "nt1", Usn: 3, Mtime: timestamppb.New(mustTime(t, "2024-01-01T00:00:00Z"))}
+	coll := &fakeCollectionClient{
+		getNoteType: func(_ context.Context, _ *collectionv1.GetNoteTypeRequest) (*collectionv1.GetNoteTypeResponse, error) {
+			return &collectionv1.GetNoteTypeResponse{NoteType: server}, nil
+		},
+		updateNoteType: func(_ context.Context, req *collectionv1.UpdateNoteTypeRequest) (*collectionv1.UpdateNoteTypeResponse, error) {
+			if fs := req.GetFields(); len(fs) != 1 || fs[0].GetLanguage() != "ru" {
+				t.Fatalf("want one field with language ru sent to Collection, got %+v", fs)
+			}
+			return &collectionv1.UpdateNoteTypeResponse{NoteType: &collectionv1.NoteType{Id: "nt1", Usn: 4, Fields: req.GetFields()}}, nil
+		},
+	}
+	svc := newApplyTestService(&fakeRepository{}, coll)
+
+	m := Mutation{
+		OpID: "op1", Type: MutationNoteTypeUpdate, EntityID: "nt1", BaseUSN: 3,
+		NoteType: &NoteTypePayload{Name: "Basic", Fields: []Field{{Name: "Front", Language: "ru"}}},
+	}
+	results, _, err := svc.Apply(context.Background(), "u1", []Mutation{m})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if nt := results[0].NoteType; nt == nil || len(nt.Fields) != 1 || nt.Fields[0].Language != "ru" {
+		t.Fatalf("want language ru in the resolved note type, got %+v", results[0].NoteType)
+	}
+}
+
+func TestFieldProtoRoundTrip_KeepsLanguage(t *testing.T) {
+	f := Field{Name: "Front", Sticky: true, RTL: true, Language: "ru"}
+	if got := fieldFromProto(fieldToProto(f)); got != f {
+		t.Fatalf("want %+v after round trip, got %+v", f, got)
+	}
+}
+
 func TestApply_DeckUpdate_HappyPath_WiredToUpdateDeck(t *testing.T) {
 	const serverUSN = int64(3)
 	server := &collectionv1.Deck{Id: "d1", Name: "Old", Usn: serverUSN, Mtime: timestamppb.New(mustTime(t, "2024-01-01T00:00:00Z"))}

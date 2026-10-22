@@ -83,7 +83,7 @@ func protoToNoteType(nt *collectionv1.NoteType) *NoteType {
 	}
 	fields := make([]Field, 0, len(nt.GetFields()))
 	for _, f := range nt.GetFields() {
-		fields = append(fields, Field{Name: f.GetName(), Sticky: f.GetSticky(), RTL: f.GetRtl()})
+		fields = append(fields, Field{Name: f.GetName(), Sticky: f.GetSticky(), RTL: f.GetRtl(), Language: f.GetLanguage()})
 	}
 	templates := make([]CardTemplate, 0, len(nt.GetCardTemplates()))
 	for _, ct := range nt.GetCardTemplates() {
@@ -124,7 +124,7 @@ func (s *Service) applyNoteTypeUpdate(ctx context.Context, m Mutation) (ApplyRes
 	if m.NoteType != nil {
 		name, css = m.NoteType.Name, m.NoteType.CSS
 		for _, f := range m.NoteType.Fields {
-			fields = append(fields, &collectionv1.Field{Name: f.Name, Sticky: f.Sticky, Rtl: f.RTL})
+			fields = append(fields, &collectionv1.Field{Name: f.Name, Sticky: f.Sticky, Rtl: f.RTL, Language: f.Language})
 		}
 		for _, ct := range m.NoteType.CardTemplates {
 			templates = append(templates, &collectionv1.CardTemplate{Name: ct.Name, Front: ct.Front, Back: ct.Back})

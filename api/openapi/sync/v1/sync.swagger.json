@@ -439,6 +439,9 @@
         },
         "rtl": {
           "type": "boolean"
+        },
+        "language": {
+          "type": "string"
         }
       },
       "description": "Field definition within a NoteType (mirrors collection.v1.Field)."

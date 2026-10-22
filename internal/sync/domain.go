@@ -35,9 +35,10 @@ const (
 
 // Field mirrors collection.Field — a single field descriptor within a NoteType.
 type Field struct {
-	Name   string `json:"name"`
-	Sticky bool   `json:"sticky"`
-	RTL    bool   `json:"rtl"`
+	Name     string `json:"name"`
+	Sticky   bool   `json:"sticky"`
+	RTL      bool   `json:"rtl"`
+	Language string `json:"language,omitempty"`
 }
 
 // CardTemplate mirrors collection.CardTemplate.

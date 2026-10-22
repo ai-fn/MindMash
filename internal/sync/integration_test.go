@@ -179,7 +179,7 @@ func insertNoteType(t *testing.T, c integrationComponents, usn int64) string {
 	id := ids.NewUUID()
 	_, err := c.pool.Exec(context.Background(), `
 		INSERT INTO note_types (id, user_id, profile_id, name, fields, card_templates, css, usn)
-		VALUES ($1, $2, $3, 'Basic', '[{"name":"Front"},{"name":"Back"}]', '[{"name":"Card 1","front":"{{Front}}","back":"{{Back}}"}]', '', $4)`,
+		VALUES ($1, $2, $3, 'Basic', '[{"name":"Front","language":"ru"},{"name":"Back"}]', '[{"name":"Card 1","front":"{{Front}}","back":"{{Back}}"}]', '', $4)`,
 		id, testUserID, testProfileID, usn)
 	if err != nil {
 		t.Fatalf("insert note_type: %v", err)
@@ -772,5 +772,20 @@ func TestListSince_HonorsUSNCeiling_Postgres(t *testing.T) {
 	}
 	if len(deleted) != 0 {
 		t.Fatalf("want no tombstones above usn %d, got %+v", ceiling, deleted)
+	}
+}
+
+func TestListNoteTypesSince_ReadsFieldLanguage_Postgres(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+	usn := bumpUSN(t, c)
+	insertNoteType(t, c, usn)
+
+	got, err := NewPostgresRepository(c.pool).ListNoteTypesSince(ctx, testUserID, Cursor{}, usn, 10)
+	if err != nil {
+		t.Fatalf("ListNoteTypesSince: %v", err)
+	}
+	if len(got) != 1 || len(got[0].Fields) != 2 || got[0].Fields[0].Language != "ru" || got[0].Fields[1].Language != "" {
+		t.Fatalf("want Front.language=ru and Back without one, got %+v", got)
 	}
 }

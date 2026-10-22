@@ -66,6 +66,7 @@ export interface V1Field {
   name?: string
   sticky?: boolean
   rtl?: boolean
+  language?: string
 }
 
 /**
