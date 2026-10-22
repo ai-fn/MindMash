@@ -4,10 +4,13 @@ package sync
 
 import (
 	"context"
+	"fmt"
 	"net"
+	"slices"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 	"github.com/testcontainers/testcontainers-go"
@@ -788,4 +791,84 @@ func TestListNoteTypesSince_ReadsFieldLanguage_Postgres(t *testing.T) {
 	if len(got) != 1 || len(got[0].Fields) != 2 || got[0].Fields[0].Language != "ru" || got[0].Fields[1].Language != "" {
 		t.Fatalf("want Front.language=ru and Back without one, got %+v", got)
 	}
+}
+
+func TestPurgeAppliedOps_Postgres(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+	repo := NewPostgresRepository(c.pool)
+
+	if n, err := repo.PurgeAppliedOps(ctx, appliedOpsRetention, appliedOpsPurgeWindow); err != nil || n != 0 {
+		t.Fatalf("want empty table to purge nothing, got %d, %v", n, err)
+	}
+	for _, daysAgo := range []int{40, 35, 31, 29, 1} {
+		insertAppliedOp(t, c, fmt.Sprintf("op-%d", daysAgo), daysAgo)
+	}
+
+	n, err := repo.PurgeAppliedOps(ctx, appliedOpsRetention, appliedOpsPurgeWindow)
+	if err != nil {
+		t.Fatalf("PurgeAppliedOps: %v", err)
+	}
+	if n != 3 {
+		t.Fatalf("want 3 expired ops purged across windows, got %d", n)
+	}
+	if left := appliedOpIDs(t, c); !slices.Equal(left, []string{"op-1", "op-29"}) {
+		t.Fatalf("want ops inside retention kept, got %v", left)
+	}
+}
+
+func TestPurgeAppliedOpsOnce_SkipsWhileLocked_Postgres(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+	insertAppliedOp(t, c, "old", 40)
+
+	holder, err := c.pool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	defer holder.Release()
+	if _, err := holder.Exec(ctx, `SELECT pg_advisory_lock($1)`, appliedOpsPurgeLockKey); err != nil {
+		t.Fatalf("take lock: %v", err)
+	}
+
+	repo := NewPostgresRepository(c.pool)
+	if _, ran, err := purgeAppliedOpsOnce(ctx, c.pool, repo); err != nil || ran {
+		t.Fatalf("want purge skipped while another replica holds the lock, got ran=%v err=%v", ran, err)
+	}
+	if left := appliedOpIDs(t, c); len(left) != 1 {
+		t.Fatalf("want the op untouched, got %v", left)
+	}
+
+	if _, err := holder.Exec(ctx, `SELECT pg_advisory_unlock($1)`, appliedOpsPurgeLockKey); err != nil {
+		t.Fatalf("release lock: %v", err)
+	}
+	if n, ran, err := purgeAppliedOpsOnce(ctx, c.pool, repo); err != nil || !ran || n != 1 {
+		t.Fatalf("want purge to run once the lock is free, got n=%d ran=%v err=%v", n, ran, err)
+	}
+	if _, ran, err := purgeAppliedOpsOnce(ctx, c.pool, repo); err != nil || !ran {
+		t.Fatalf("want the lock released after a run, got ran=%v err=%v", ran, err)
+	}
+}
+
+func insertAppliedOp(t *testing.T, c integrationComponents, opID string, daysAgo int) {
+	t.Helper()
+	if _, err := c.pool.Exec(context.Background(), `
+		INSERT INTO sync_applied_ops (user_id, op_id, outcome, applied_at)
+		VALUES ($1, $2, $3, now() - make_interval(days => $4))`,
+		testUserID, opID, OutcomeApplied, daysAgo); err != nil {
+		t.Fatalf("insert applied op: %v", err)
+	}
+}
+
+func appliedOpIDs(t *testing.T, c integrationComponents) []string {
+	t.Helper()
+	rows, err := c.pool.Query(context.Background(), `SELECT op_id FROM sync_applied_ops WHERE user_id = $1 ORDER BY op_id`, testUserID)
+	if err != nil {
+		t.Fatalf("query applied ops: %v", err)
+	}
+	opIDs, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		t.Fatalf("collect applied ops: %v", err)
+	}
+	return opIDs
 }

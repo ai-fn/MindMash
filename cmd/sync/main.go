@@ -201,6 +201,7 @@ func run() error {
 	g.Go(func() error { return grpcSrv.Start(gctx) })
 	g.Go(func() error { return httpSrv.Start(gctx) })
 	g.Go(func() error { return sync.RunNotifier(gctx, consumer, svc, logger) })
+	g.Go(func() error { return sync.RunAppliedOpsPurge(gctx, pool, logger) })
 	if err := g.Wait(); err != nil {
 		return fmt.Errorf("sync: server: %w", err)
 	}
