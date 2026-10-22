@@ -18,7 +18,8 @@
       "name": "DeckService"
     },
     {
-      "name": "FilteredDeckService"
+      "name": "FilteredDeckService",
+      "description": "FilteredDeck definitions are immutable saved queries: edit = delete + recreate\n(no Update RPC, per spec 02). Execution/queue building lives in Scheduler+Search."
     },
     {
       "name": "CollectionInternalService"
@@ -964,7 +965,7 @@
           "type": "string"
         }
       },
-      "additionalProperties": {}
+      "additionalProperties": true
     },
     "rpcStatus": {
       "type": "object",

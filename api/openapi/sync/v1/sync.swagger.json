@@ -6,7 +6,8 @@
   },
   "tags": [
     {
-      "name": "SyncService"
+      "name": "SyncService",
+      "description": "SyncService serves the server-authoritative USN delta pull. The realtime\n\"new data available\" nudge for multi-tab consistency is a plain SSE route\n(GET /v1/sync/stream), not a proto RPC: grpc-gateway has no clean mapping\nfrom a server-streaming RPC to a real SSE response, and the nudge payload\nonly ever carries a user id, so there's nothing proto buys here."
     }
   ],
   "consumes": [
@@ -96,7 +97,7 @@
           "type": "string"
         }
       },
-      "additionalProperties": {}
+      "additionalProperties": true
     },
     "rpcStatus": {
       "type": "object",

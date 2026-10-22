@@ -6,7 +6,8 @@
   },
   "tags": [
     {
-      "name": "AnalyticsService"
+      "name": "AnalyticsService",
+      "description": "─── Analytics Service ──────────────────────────────────────────────────────\n\nStudy statistics served from the ClickHouse review_events mirror. Every RPC\nis hard-filtered to the caller's user_id/profile_id (from the gateway-injected\nJWT context); tenancy is never supplied by the client. Results are eventually\nconsistent with Scheduler writes (event-driven ingestion)."
     }
   ],
   "consumes": [
@@ -167,7 +168,7 @@
           "type": "string"
         }
       },
-      "additionalProperties": {}
+      "additionalProperties": true
     },
     "rpcStatus": {
       "type": "object",

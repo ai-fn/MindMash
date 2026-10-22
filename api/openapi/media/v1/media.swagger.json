@@ -6,10 +6,12 @@
   },
   "tags": [
     {
-      "name": "MediaService"
+      "name": "MediaService",
+      "description": "─── Media Service ──────────────────────────────────────────────────────────\n\nUpload, dedupe, delivery and (async) processing of media blobs. Blobs travel\nclient → S3 directly via presigned URLs; this service stays off the data path\nand only records metadata. Every RPC is hard-filtered to the caller's\nuser_id/profile_id (from the gateway-injected JWT context); tenancy is never\nsupplied by the client. Dedupe is content-addressed (SHA-256): identical bytes\nare stored once and shared, while each user keeps their own metadata row."
     },
     {
-      "name": "MediaInternalService"
+      "name": "MediaInternalService",
+      "description": "MediaInternalService is gRPC-only (no REST gateway). It is called by trusted\npeer services — notably Sync, which diffs a client's held checksums against\nthe user's media set to drive media reconciliation."
     }
   ],
   "consumes": [
@@ -134,7 +136,7 @@
           "type": "string"
         }
       },
-      "additionalProperties": {}
+      "additionalProperties": true
     },
     "rpcStatus": {
       "type": "object",
