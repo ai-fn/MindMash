@@ -26,11 +26,8 @@ const (
 	KindOther = "other"
 )
 
-// presignTTL / downloadTTL bound how long the presigned upload and download URLs
-// stay valid. Short-lived per the security spec ("presigned URLs scoped &
-// short-lived").
 const (
-	presignTTL  = 15 * time.Minute
+	presignTTL  = 5 * time.Minute
 	downloadTTL = 15 * time.Minute
 )
 
@@ -59,12 +56,10 @@ type Media struct {
 // ChecksumHex returns the lowercase hex encoding of the checksum for the API.
 func (m *Media) ChecksumHex() string { return hex.EncodeToString(m.Checksum) }
 
-// allowedMime maps each accepted content type to its max size in bytes and the
-// file extension used for its content-addressed S3 key. Audio/video are accepted
-// and served this slice but not transcoded (only images are processed).
+// allowedMime maps each accepted content type to its kind and max size in bytes.
+// Audio/video are served but not transcoded (only images are processed).
 type mimeRule struct {
 	kind    string
-	ext     string
 	maxSize int64
 }
 
@@ -73,16 +68,16 @@ const (
 )
 
 var allowedMime = map[string]mimeRule{
-	"image/jpeg": {KindImage, "jpg", 25 * mb},
-	"image/png":  {KindImage, "png", 25 * mb},
-	"image/gif":  {KindImage, "gif", 25 * mb},
-	"image/webp": {KindImage, "webp", 25 * mb},
-	"audio/mpeg": {KindAudio, "mp3", 50 * mb},
-	"audio/ogg":  {KindAudio, "ogg", 50 * mb},
-	"audio/mp4":  {KindAudio, "m4a", 50 * mb},
-	"audio/webm": {KindAudio, "weba", 50 * mb},
-	"video/mp4":  {KindVideo, "mp4", 200 * mb},
-	"video/webm": {KindVideo, "webm", 200 * mb},
+	"image/jpeg": {KindImage, 25 * mb},
+	"image/png":  {KindImage, 25 * mb},
+	"image/gif":  {KindImage, 25 * mb},
+	"image/webp": {KindImage, 25 * mb},
+	"audio/mpeg": {KindAudio, 50 * mb},
+	"audio/ogg":  {KindAudio, 50 * mb},
+	"audio/mp4":  {KindAudio, 50 * mb},
+	"audio/webm": {KindAudio, 50 * mb},
+	"video/mp4":  {KindVideo, 200 * mb},
+	"video/webm": {KindVideo, 200 * mb},
 }
 
 // UploadRequest is the validated form of a presign request.
@@ -91,14 +86,14 @@ type UploadRequest struct {
 	Checksum []byte // raw SHA-256 (32 bytes)
 	Bytes    int64
 	Kind     string
-	Ext      string
 }
 
 // ValidateUpload checks the declared mime against the allowlist and the declared
 // size against the per-kind cap, and decodes the hex checksum. It returns a typed
 // InvalidArgument error on any violation.
 func ValidateUpload(mime, sha256Hex string, bytes int64) (UploadRequest, error) {
-	rule, ok := allowedMime[strings.ToLower(strings.TrimSpace(mime))]
+	mime = strings.ToLower(strings.TrimSpace(mime))
+	rule, ok := allowedMime[mime]
 	if !ok {
 		return UploadRequest{}, platformerrors.InvalidArgument(fmt.Sprintf("unsupported mime type %q", mime))
 	}
@@ -118,18 +113,21 @@ func ValidateUpload(mime, sha256Hex string, bytes int64) (UploadRequest, error) 
 		Checksum: sum,
 		Bytes:    bytes,
 		Kind:     rule.kind,
-		Ext:      rule.ext,
 	}, nil
 }
 
-// s3KeyFor returns the content-addressed original-blob key for a checksum+ext,
-// e.g. "<hex>.jpg".
-func s3KeyFor(checksum []byte, ext string) string {
-	return hex.EncodeToString(checksum) + "." + ext
+// Keys are per user (a shared key would let anyone who knows a hash claim the bytes) and
+// extension-free, so re-presigning with another mime never strands an upload under an old key.
+func blobPrefix(userID string, checksum []byte) string {
+	return "u/" + userID + "/" + hex.EncodeToString(checksum) + "/"
 }
 
-// variantKeyFor returns the content-addressed key for a derived rendition,
-// e.g. "<hex>/thumb.jpg".
-func variantKeyFor(checksum []byte, variant, ext string) string {
-	return hex.EncodeToString(checksum) + "/" + variant + "." + ext
+// s3KeyFor returns the original-blob key, e.g. "u/<user_id>/<hex>/original".
+func s3KeyFor(userID string, checksum []byte) string {
+	return blobPrefix(userID, checksum) + "original"
+}
+
+// variantKeyFor returns a derived rendition's key, e.g. "u/<user_id>/<hex>/thumb.jpg".
+func variantKeyFor(userID string, checksum []byte, variant, ext string) string {
+	return blobPrefix(userID, checksum) + variant + "." + ext
 }

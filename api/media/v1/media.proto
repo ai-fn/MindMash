@@ -10,12 +10,11 @@ import "google/api/annotations.proto";
 // client → S3 directly via presigned URLs; this service stays off the data path
 // and only records metadata. Every RPC is hard-filtered to the caller's
 // user_id/profile_id (from the gateway-injected JWT context); tenancy is never
-// supplied by the client. Dedupe is content-addressed (SHA-256): identical bytes
-// are stored once and shared, while each user keeps their own metadata row.
+// supplied by the client. Dedupe (by SHA-256) never crosses users: knowing a
+// hash must not grant access to someone else's bytes.
 service MediaService {
-  // Presign validates the declared mime/size and returns a presigned upload URL,
-  // or short-circuits with already_exists=true when the checksum is already
-  // stored (this user's prior upload, or another user's — the blob is shared).
+  // Presign validates the declared mime/size and returns an upload URL bound to
+  // the declared bytes, or already_exists=true when this user already stored them.
   rpc Presign(PresignRequest) returns (PresignResponse) {
     option (google.api.http) = {
       post: "/v1/media:presign"
@@ -23,8 +22,8 @@ service MediaService {
     };
   }
 
-  // Confirm finalizes an upload: it HEADs the object to verify it landed and
-  // matches the declared size, flips the row to ready, and emits media.uploaded.
+  // Confirm finalizes an upload: it HEADs the object to verify its size, sha256
+  // and content type, flips the row to ready, and emits media.uploaded.
   rpc Confirm(ConfirmRequest) returns (ConfirmResponse) {
     option (google.api.http) = {
       post: "/v1/media/{media_id}:confirm"
@@ -71,7 +70,9 @@ message PresignRequest {
 message PresignResponse {
   string media_id = 1;
   string upload_url = 2;    // empty when already_exists is true
-  bool already_exists = 3;  // blob already stored; client can skip the PUT
+  bool already_exists = 3;  // the caller already stored these bytes; skip the PUT
+  // The PUT must send these verbatim (signed); browsers set Content-Length themselves, so send the body whole.
+  map<string, string> upload_headers = 4;
 }
 
 message ConfirmRequest {

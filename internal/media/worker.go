@@ -72,7 +72,7 @@ func (w *Worker) Handle(ctx context.Context, msg platformevents.Message) error {
 		return fmt.Errorf("media worker: render thumb for %s: %w", m.ID, err)
 	}
 
-	variantKey := variantKeyFor(m.Checksum, thumbVariant, ext)
+	variantKey := variantKeyFor(m.UserID, m.Checksum, thumbVariant, ext)
 	if err := w.blob.Upload(ctx, w.bucket, variantKey, bytes.NewReader(thumb), mime); err != nil {
 		return fmt.Errorf("media worker: upload thumb %s: %w", variantKey, err)
 	}

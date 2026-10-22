@@ -38,6 +38,7 @@ func (h *Handler) Presign(ctx context.Context, req *mediav1.PresignRequest) (*me
 	return &mediav1.PresignResponse{
 		MediaId:       res.MediaID,
 		UploadUrl:     res.UploadURL,
+		UploadHeaders: res.UploadHeaders,
 		AlreadyExists: res.AlreadyExists,
 	}, nil
 }

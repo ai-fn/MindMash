@@ -12,6 +12,7 @@ import (
 	"image/png"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -109,16 +110,43 @@ func makePNG(t *testing.T, w, h int) ([]byte, string) {
 	return data, hex.EncodeToString(sum[:])
 }
 
-// put uploads data to a presigned PUT URL, as a browser client would.
-func put(t *testing.T, url string, data []byte, contentType string) {
+// putStatus uploads data with the presigned headers, as a browser client would.
+func putStatus(t *testing.T, res PresignResult, data []byte) int {
 	t.Helper()
-	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(data))
+	req, err := http.NewRequest(http.MethodPut, res.UploadURL, bytes.NewReader(data))
 	require.NoError(t, err)
-	req.Header.Set("Content-Type", contentType)
+	for k, v := range res.UploadHeaders {
+		req.Header.Set(k, v)
+	}
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
-	require.Less(t, resp.StatusCode, 300, "PUT to presigned URL should succeed")
+	return resp.StatusCode
+}
+
+func put(t *testing.T, res PresignResult, data []byte) {
+	t.Helper()
+	require.Less(t, putStatus(t, res, data), 300, "PUT to presigned URL should succeed")
+}
+
+// upload presigns, PUTs and confirms data for tn.
+func upload(t *testing.T, c components, tn Tenant, data []byte, sum string) *Media {
+	t.Helper()
+	ctx := context.Background()
+	res, err := c.svc.Presign(ctx, tn, "f.png", "image/png", sum, int64(len(data)))
+	require.NoError(t, err)
+	require.False(t, res.AlreadyExists)
+	put(t, res, data)
+	m, err := c.svc.Confirm(ctx, tn, res.MediaID)
+	require.NoError(t, err)
+	return m
+}
+
+func objectExists(t *testing.T, c components, key string) bool {
+	t.Helper()
+	_, found, err := c.blob.Stat(context.Background(), testBucket, key)
+	require.NoError(t, err)
+	return found
 }
 
 func tA() Tenant { return Tenant{UserID: userA, ProfileID: profA} }
@@ -135,7 +163,7 @@ func TestPresignConfirmWorkerFlow(t *testing.T) {
 	require.NotEmpty(t, res.UploadURL)
 	require.NotEmpty(t, res.MediaID)
 
-	put(t, res.UploadURL, data, "image/png")
+	put(t, res, data)
 
 	m, err := c.svc.Confirm(ctx, tA(), res.MediaID)
 	require.NoError(t, err)
@@ -147,7 +175,7 @@ func TestPresignConfirmWorkerFlow(t *testing.T) {
 	require.NoError(t, c.worker.Handle(ctx, events.Message{Topic: Topic, Value: mediaUploadedEntry(m).Payload}))
 
 	// A thumbnail variant row and object should now exist.
-	variantKey := variantKeyFor(m.Checksum, thumbVariant, "png")
+	variantKey := variantKeyFor(userA, m.Checksum, thumbVariant, "png")
 	_, found, err := c.blob.Stat(ctx, testBucket, variantKey)
 	require.NoError(t, err)
 	assert.True(t, found, "thumbnail object should be uploaded")
@@ -173,63 +201,50 @@ func TestPresignConfirmWorkerFlow(t *testing.T) {
 	assert.Equal(t, data, got)
 }
 
-func TestDedupeAcrossUsers(t *testing.T) {
+func TestDedupeStaysWithinUser(t *testing.T) {
 	c := setup(t)
 	ctx := context.Background()
 	data, sum := makePNG(t, 100, 100)
+	a := upload(t, c, tA(), data, sum)
 
-	// User A uploads and confirms.
-	res, err := c.svc.Presign(ctx, tA(), "a.png", "image/png", sum, int64(len(data)))
-	require.NoError(t, err)
-	put(t, res.UploadURL, data, "image/png")
-	_, err = c.svc.Confirm(ctx, tA(), res.MediaID)
-	require.NoError(t, err)
-
-	// Same user, same checksum → dedupe, no upload URL.
 	again, err := c.svc.Presign(ctx, tA(), "a.png", "image/png", sum, int64(len(data)))
 	require.NoError(t, err)
 	assert.True(t, again.AlreadyExists)
 	assert.Empty(t, again.UploadURL)
 
-	// Different user, same bytes already in S3 → dedupe short-circuit, own ready row.
+	// Knowing A's hash gives B nothing: B must upload the bytes itself, under its own key.
 	resB, err := c.svc.Presign(ctx, tB(), "a.png", "image/png", sum, int64(len(data)))
 	require.NoError(t, err)
-	assert.True(t, resB.AlreadyExists)
-	assert.Empty(t, resB.UploadURL)
-
+	assert.False(t, resB.AlreadyExists)
+	assert.NotEmpty(t, resB.UploadURL)
+	_, err = c.svc.Confirm(ctx, tB(), resB.MediaID)
+	assert.True(t, platformerrors.IsFailedPrecondition(err), "confirm without upload: %v", err)
+	_, err = c.svc.ResolveDownloadURL(ctx, tB(), resB.MediaID)
+	assert.True(t, platformerrors.IsNotFound(err), "resolve before upload: %v", err)
 	bChecks, err := c.svc.ListChecksums(ctx, tB(), 0)
 	require.NoError(t, err)
-	require.Len(t, bChecks, 1)
-	assert.Equal(t, sum, hex.EncodeToString(bChecks[0].Checksum))
-	assert.Equal(t, StatusReady, bChecks[0].Status)
+	assert.Empty(t, bChecks)
+
+	put(t, resB, data)
+	b, err := c.svc.Confirm(ctx, tB(), resB.MediaID)
+	require.NoError(t, err)
+	assert.NotEqual(t, a.S3Key, b.S3Key)
 }
 
-func TestDeleteGarbageCollectsSharedBlob(t *testing.T) {
+func TestDeleteRemovesOnlyOwnBlobs(t *testing.T) {
 	c := setup(t)
 	ctx := context.Background()
 	data, sum := makePNG(t, 120, 90)
-	key := s3KeyFor(mustHex(t, sum), "png")
+	a := upload(t, c, tA(), data, sum)
+	b := upload(t, c, tB(), data, sum)
+	require.NoError(t, c.worker.Handle(ctx, events.Message{Topic: Topic, Value: mediaUploadedEntry(a).Payload}))
+	thumbA := variantKeyFor(userA, a.Checksum, thumbVariant, "png")
+	require.True(t, objectExists(t, c, thumbA))
 
-	// A uploads+confirms; B dedupes onto the same blob.
-	resA, err := c.svc.Presign(ctx, tA(), "s.png", "image/png", sum, int64(len(data)))
-	require.NoError(t, err)
-	put(t, resA.UploadURL, data, "image/png")
-	_, err = c.svc.Confirm(ctx, tA(), resA.MediaID)
-	require.NoError(t, err)
-	resB, err := c.svc.Presign(ctx, tB(), "s.png", "image/png", sum, int64(len(data)))
-	require.NoError(t, err)
-
-	// Deleting A leaves the blob (B still references it).
-	require.NoError(t, c.svc.Delete(ctx, tA(), resA.MediaID))
-	_, found, err := c.blob.Stat(ctx, testBucket, key)
-	require.NoError(t, err)
-	assert.True(t, found, "blob should survive while B references it")
-
-	// Deleting B (the last reference) GCs the blob.
-	require.NoError(t, c.svc.Delete(ctx, tB(), resB.MediaID))
-	_, found, err = c.blob.Stat(ctx, testBucket, key)
-	require.NoError(t, err)
-	assert.False(t, found, "blob should be GC'd once unreferenced")
+	require.NoError(t, c.svc.Delete(ctx, tA(), a.ID))
+	assert.False(t, objectExists(t, c, a.S3Key), "A's original should be removed")
+	assert.False(t, objectExists(t, c, thumbA), "A's thumbnail should be removed")
+	assert.True(t, objectExists(t, c, b.S3Key), "B's copy of the same bytes must survive")
 }
 
 func TestTenantIsolation(t *testing.T) {
@@ -239,7 +254,7 @@ func TestTenantIsolation(t *testing.T) {
 
 	res, err := c.svc.Presign(ctx, tA(), "x.png", "image/png", sum, int64(len(data)))
 	require.NoError(t, err)
-	put(t, res.UploadURL, data, "image/png")
+	put(t, res, data)
 	_, err = c.svc.Confirm(ctx, tA(), res.MediaID)
 	require.NoError(t, err)
 
@@ -256,18 +271,118 @@ func TestTenantIsolation(t *testing.T) {
 	assert.Empty(t, bChecks)
 }
 
-func TestConfirmSizeMismatch(t *testing.T) {
+func TestUploadMustMatchDeclaredBytes(t *testing.T) {
 	c := setup(t)
 	ctx := context.Background()
 	data, sum := makePNG(t, 80, 80)
 
-	// Declare a wrong (larger) size; the object HEAD on confirm must reject it.
-	res, err := c.svc.Presign(ctx, tA(), "m.png", "image/png", sum, int64(len(data)+999))
+	t.Run("store rejects a PUT of other bytes or size", func(t *testing.T) {
+		res, err := c.svc.Presign(ctx, tA(), "m.png", "image/png", sum, int64(len(data)))
+		require.NoError(t, err)
+		swapped := bytes.Clone(data)
+		swapped[len(swapped)-1] ^= 0xff
+		assert.GreaterOrEqual(t, putStatus(t, res, swapped), 400, "substituted bytes")
+		assert.GreaterOrEqual(t, putStatus(t, res, data[:len(data)-1]), 400, "truncated bytes")
+		_, err = c.svc.Confirm(ctx, tA(), res.MediaID)
+		assert.True(t, platformerrors.IsFailedPrecondition(err), "confirm: %v", err)
+	})
+
+	t.Run("confirm rejects an object that bypassed the presigned PUT", func(t *testing.T) {
+		_, sumB := makePNG(t, 81, 81)
+		res, err := c.svc.Presign(ctx, tB(), "m.png", "image/png", sumB, int64(len(data)))
+		require.NoError(t, err)
+		m, err := c.repo.GetByID(ctx, userB, res.MediaID)
+		require.NoError(t, err)
+		require.NoError(t, c.blob.Upload(ctx, testBucket, m.S3Key, bytes.NewReader(data), "image/png"))
+		_, err = c.svc.Confirm(ctx, tB(), res.MediaID)
+		assert.True(t, platformerrors.IsFailedPrecondition(err), "unverified bytes: %v", err)
+	})
+
+	t.Run("confirm rejects another content type", func(t *testing.T) {
+		pngData, pngSum := makePNG(t, 82, 82)
+		res, err := c.svc.Presign(ctx, tA(), "m.png", "image/png", pngSum, int64(len(pngData)))
+		require.NoError(t, err)
+		m, err := c.repo.GetByID(ctx, userA, res.MediaID)
+		require.NoError(t, err)
+		gif, err := c.blob.PresignPut(ctx, testBucket, m.S3Key, time.Minute, blob.PutConstraints{
+			ContentType: "image/gif", ContentLength: m.Bytes, ChecksumSHA256: m.Checksum,
+		})
+		require.NoError(t, err)
+		put(t, PresignResult{UploadURL: gif.URL, UploadHeaders: gif.Headers}, pngData)
+		_, err = c.svc.Confirm(ctx, tA(), res.MediaID)
+		assert.True(t, platformerrors.IsFailedPrecondition(err), "content type: %v", err)
+	})
+}
+
+func TestRepresignPendingUsesNewMime(t *testing.T) {
+	c := setup(t)
+	ctx := context.Background()
+	data, sum := makePNG(t, 40, 40)
+
+	first, err := c.svc.Presign(ctx, tA(), "p", "image/gif", sum, int64(len(data)))
 	require.NoError(t, err)
-	put(t, res.UploadURL, data, "image/png")
-	_, err = c.svc.Confirm(ctx, tA(), res.MediaID)
-	require.Error(t, err)
-	assert.True(t, platformerrors.IsFailedPrecondition(err), "want FailedPrecondition, got %v", err)
+	second, err := c.svc.Presign(ctx, tA(), "p", "image/png", sum, int64(len(data)))
+	require.NoError(t, err)
+	assert.Equal(t, first.MediaID, second.MediaID)
+	assert.Equal(t, first.UploadURL[:strings.Index(first.UploadURL, "?")], second.UploadURL[:strings.Index(second.UploadURL, "?")],
+		"the key must not move, or a PUT to the first URL would be stranded")
+	put(t, second, data)
+	m, err := c.svc.Confirm(ctx, tA(), second.MediaID)
+	require.NoError(t, err)
+	assert.Equal(t, "image/png", m.Mime)
+}
+
+func TestPendingGC(t *testing.T) {
+	c := setup(t)
+	ctx := context.Background()
+	staleData, staleSum := makePNG(t, 50, 50)
+	_, freshSum := makePNG(t, 51, 51)
+	readyData, readySum := makePNG(t, 52, 52)
+
+	stale, err := c.svc.Presign(ctx, tA(), "s", "image/png", staleSum, int64(len(staleData)))
+	require.NoError(t, err)
+	put(t, stale, staleData)
+	fresh, err := c.svc.Presign(ctx, tA(), "f", "image/png", freshSum, 10)
+	require.NoError(t, err)
+	ready := upload(t, c, tA(), readyData, readySum)
+	_, err = c.pool.Exec(ctx, `UPDATE media SET mtime = now() - interval '2 days' WHERE id IN ($1, $2)`, stale.MediaID, ready.ID)
+	require.NoError(t, err)
+	staleRow, err := c.repo.GetByID(ctx, userA, stale.MediaID)
+	require.NoError(t, err)
+
+	n, err := c.svc.purgePending(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 1, n)
+	_, err = c.repo.GetByID(ctx, userA, stale.MediaID)
+	assert.True(t, platformerrors.IsNotFound(err), "stale pending row should be gone: %v", err)
+	assert.False(t, objectExists(t, c, staleRow.S3Key), "stale upload should be deleted")
+	_, err = c.repo.GetByID(ctx, userA, fresh.MediaID)
+	assert.NoError(t, err, "fresh pending row must be kept")
+	_, err = c.repo.GetByID(ctx, userA, ready.ID)
+	assert.NoError(t, err, "ready rows are never collected")
+}
+
+func TestDeleteStalePendingKeepsRowsTouchedSinceListing(t *testing.T) {
+	c := setup(t)
+	ctx := context.Background()
+	_, sum := makePNG(t, 53, 53)
+	res, err := c.svc.Presign(ctx, tA(), "s", "image/png", sum, 10)
+	require.NoError(t, err)
+	_, err = c.pool.Exec(ctx, `UPDATE media SET mtime = now() - interval '2 days' WHERE id = $1`, res.MediaID)
+	require.NoError(t, err)
+	cutoff := time.Now().Add(-pendingTTL)
+	stale, err := c.repo.ListStalePending(ctx, cutoff, pendingGCBatch)
+	require.NoError(t, err)
+	require.Len(t, stale, 1)
+
+	// The client re-presigns after the GC listed the row.
+	_, err = c.svc.Presign(ctx, tA(), "s", "image/png", sum, 10)
+	require.NoError(t, err)
+	key, err := c.repo.DeleteStalePending(ctx, stale[0], cutoff)
+	require.NoError(t, err)
+	assert.Empty(t, key, "a re-presigned row must survive the GC")
+	_, err = c.repo.GetByID(ctx, userA, res.MediaID)
+	assert.NoError(t, err)
 }
 
 func TestWorkerSkipsUndecodableImage(t *testing.T) {
@@ -281,7 +396,7 @@ func TestWorkerSkipsUndecodableImage(t *testing.T) {
 
 	res, err := c.svc.Presign(ctx, tA(), "bad.png", "image/png", sumHex, int64(len(garbage)))
 	require.NoError(t, err)
-	put(t, res.UploadURL, garbage, "image/png")
+	put(t, res, garbage)
 	m, err := c.svc.Confirm(ctx, tA(), res.MediaID)
 	require.NoError(t, err)
 
@@ -293,11 +408,4 @@ func TestWorkerSkipsUndecodableImage(t *testing.T) {
 	require.NoError(t, c.pool.QueryRow(ctx,
 		`SELECT count(*) FROM media_variants WHERE user_id=$1 AND media_id=$2`, userA, m.ID).Scan(&count))
 	assert.Equal(t, 0, count, "no variant should be recorded for an undecodable image")
-}
-
-func mustHex(t *testing.T, s string) []byte {
-	t.Helper()
-	b, err := hex.DecodeString(s)
-	require.NoError(t, err)
-	return b
 }

@@ -21,8 +21,8 @@ type fakeBlob struct{}
 func (fakeBlob) Stat(context.Context, string, string) (blob.ObjectInfo, bool, error) {
 	return blob.ObjectInfo{}, false, nil
 }
-func (fakeBlob) PresignPut(context.Context, string, string, time.Duration) (string, error) {
-	return "", nil
+func (fakeBlob) PresignPut(context.Context, string, string, time.Duration, blob.PutConstraints) (blob.PresignedPut, error) {
+	return blob.PresignedPut{}, nil
 }
 func (fakeBlob) PresignGet(context.Context, string, string, time.Duration) (string, error) {
 	return "", nil

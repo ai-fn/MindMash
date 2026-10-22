@@ -4,14 +4,17 @@ package blob
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -133,24 +136,56 @@ func (c *Client) PresignGet(ctx context.Context, bucket, key string, ttl time.Du
 	return req.URL, nil
 }
 
-// PresignPut returns a pre-signed PUT URL for bucket/key, valid for ttl.
-func (c *Client) PresignPut(ctx context.Context, bucket, key string, ttl time.Duration) (string, error) {
-	pc := s3.NewPresignClient(c.s3)
-	req, err := pc.PresignPutObject(ctx, &s3.PutObjectInput{
-		Bucket: aws.String(bucket),
-		Key:    aws.String(key),
-	}, s3.WithPresignExpires(ttl))
-	if err != nil {
-		return "", fmt.Errorf("blob: presign put %s/%s: %w", bucket, key, err)
+// PutConstraints pins what a presigned PUT may store; zero fields stay unsigned.
+type PutConstraints struct {
+	ContentType    string
+	ContentLength  int64
+	ChecksumSHA256 []byte // raw digest
+}
+
+// PresignedPut is a presigned PUT; the store rejects it unless the client sends Headers verbatim.
+type PresignedPut struct {
+	URL     string
+	Headers map[string]string
+}
+
+// PresignPut returns a pre-signed PUT for bucket/key, valid for ttl and bound to pc.
+func (c *Client) PresignPut(ctx context.Context, bucket, key string, ttl time.Duration, pc PutConstraints) (PresignedPut, error) {
+	in := &s3.PutObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)}
+	if pc.ContentType != "" {
+		in.ContentType = aws.String(pc.ContentType)
 	}
-	return req.URL, nil
+	if pc.ContentLength > 0 {
+		in.ContentLength = aws.Int64(pc.ContentLength)
+	}
+	if len(pc.ChecksumSHA256) > 0 {
+		in.ChecksumSHA256 = aws.String(base64.StdEncoding.EncodeToString(pc.ChecksumSHA256))
+	}
+	req, err := s3.NewPresignClient(c.s3, func(o *s3.PresignOptions) {
+		// MinIO verifies x-amz-checksum-sha256 only as a header, not once hoisted into the query.
+		o.Presigner = v4.NewSigner(func(so *v4.SignerOptions) {
+			so.DisableURIPathEscaping = true
+			so.DisableHeaderHoisting = true
+		})
+	}).PresignPutObject(ctx, in, s3.WithPresignExpires(ttl))
+	if err != nil {
+		return PresignedPut{}, fmt.Errorf("blob: presign put %s/%s: %w", bucket, key, err)
+	}
+	headers := make(map[string]string, len(req.SignedHeader))
+	for k, v := range req.SignedHeader {
+		if !strings.EqualFold(k, "Host") {
+			headers[k] = strings.Join(v, ",")
+		}
+	}
+	return PresignedPut{URL: req.URL, Headers: headers}, nil
 }
 
 // ObjectInfo describes a stored object, as returned by Stat.
 type ObjectInfo struct {
-	Size        int64
-	ContentType string
-	ETag        string
+	Size           int64
+	ContentType    string
+	ETag           string
+	ChecksumSHA256 []byte // nil unless the object was stored with a SHA-256 checksum
 }
 
 // Stat issues a HEAD request for bucket/key. It returns found=false (and a nil
@@ -160,8 +195,9 @@ type ObjectInfo struct {
 // its size before recording metadata.
 func (c *Client) Stat(ctx context.Context, bucket, key string) (ObjectInfo, bool, error) {
 	out, err := c.s3.HeadObject(ctx, &s3.HeadObjectInput{
-		Bucket: aws.String(bucket),
-		Key:    aws.String(key),
+		Bucket:       aws.String(bucket),
+		Key:          aws.String(key),
+		ChecksumMode: types.ChecksumModeEnabled,
 	})
 	if err != nil {
 		if isNotFound(err) {
@@ -179,6 +215,11 @@ func (c *Client) Stat(ctx context.Context, bucket, key string) (ObjectInfo, bool
 	}
 	if out.ETag != nil {
 		info.ETag = *out.ETag
+	}
+	if out.ChecksumSHA256 != nil {
+		if sum, err := base64.StdEncoding.DecodeString(*out.ChecksumSHA256); err == nil {
+			info.ChecksumSHA256 = sum
+		}
 	}
 	return info, true, nil
 }

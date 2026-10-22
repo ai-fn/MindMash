@@ -34,15 +34,14 @@ const (
 // client → S3 directly via presigned URLs; this service stays off the data path
 // and only records metadata. Every RPC is hard-filtered to the caller's
 // user_id/profile_id (from the gateway-injected JWT context); tenancy is never
-// supplied by the client. Dedupe is content-addressed (SHA-256): identical bytes
-// are stored once and shared, while each user keeps their own metadata row.
+// supplied by the client. Dedupe (by SHA-256) never crosses users: knowing a
+// hash must not grant access to someone else's bytes.
 type MediaServiceClient interface {
-	// Presign validates the declared mime/size and returns a presigned upload URL,
-	// or short-circuits with already_exists=true when the checksum is already
-	// stored (this user's prior upload, or another user's — the blob is shared).
+	// Presign validates the declared mime/size and returns an upload URL bound to
+	// the declared bytes, or already_exists=true when this user already stored them.
 	Presign(ctx context.Context, in *PresignRequest, opts ...grpc.CallOption) (*PresignResponse, error)
-	// Confirm finalizes an upload: it HEADs the object to verify it landed and
-	// matches the declared size, flips the row to ready, and emits media.uploaded.
+	// Confirm finalizes an upload: it HEADs the object to verify its size, sha256
+	// and content type, flips the row to ready, and emits media.uploaded.
 	Confirm(ctx context.Context, in *ConfirmRequest, opts ...grpc.CallOption) (*ConfirmResponse, error)
 	// Delete unlinks the caller's media row; the underlying blob is garbage
 	// collected once no user references its checksum any more.
@@ -97,15 +96,14 @@ func (c *mediaServiceClient) Delete(ctx context.Context, in *DeleteRequest, opts
 // client → S3 directly via presigned URLs; this service stays off the data path
 // and only records metadata. Every RPC is hard-filtered to the caller's
 // user_id/profile_id (from the gateway-injected JWT context); tenancy is never
-// supplied by the client. Dedupe is content-addressed (SHA-256): identical bytes
-// are stored once and shared, while each user keeps their own metadata row.
+// supplied by the client. Dedupe (by SHA-256) never crosses users: knowing a
+// hash must not grant access to someone else's bytes.
 type MediaServiceServer interface {
-	// Presign validates the declared mime/size and returns a presigned upload URL,
-	// or short-circuits with already_exists=true when the checksum is already
-	// stored (this user's prior upload, or another user's — the blob is shared).
+	// Presign validates the declared mime/size and returns an upload URL bound to
+	// the declared bytes, or already_exists=true when this user already stored them.
 	Presign(context.Context, *PresignRequest) (*PresignResponse, error)
-	// Confirm finalizes an upload: it HEADs the object to verify it landed and
-	// matches the declared size, flips the row to ready, and emits media.uploaded.
+	// Confirm finalizes an upload: it HEADs the object to verify its size, sha256
+	// and content type, flips the row to ready, and emits media.uploaded.
 	Confirm(context.Context, *ConfirmRequest) (*ConfirmResponse, error)
 	// Delete unlinks the caller's media row; the underlying blob is garbage
 	// collected once no user references its checksum any more.

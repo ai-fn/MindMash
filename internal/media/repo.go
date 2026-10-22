@@ -40,17 +40,14 @@ type Checksum struct {
 	Status   string
 }
 
-// DeleteResult reports what Delete removed and whether the shared blob is now
-// unreferenced and safe to garbage collect.
+// DeleteResult lists the blobs of a deleted row.
 type DeleteResult struct {
 	S3Key       string
 	VariantKeys []string
-	Orphaned    bool // true when no user references the checksum any more
 }
 
 // Repo is the Postgres persistence layer for Media. Every query is scoped by
-// user_id (the Citus shard key); the one deliberate exception is the cross-user
-// reference count on delete, which must scan all shards.
+// user_id (the Citus shard key) except the pending GC scan.
 type Repo struct {
 	pool *pgxpool.Pool
 }
@@ -88,36 +85,19 @@ func (r *Repo) InsertPending(ctx context.Context, m *Media) error {
 	return nil
 }
 
-// InsertReadyLinked writes a ready row that reuses a blob another (or this) user
-// already uploaded — the dedupe short-circuit. It assigns a USN and emits
-// media.uploaded atomically. outboxEntry builds the event from the stored row.
-func (r *Repo) InsertReadyLinked(ctx context.Context, m *Media, outboxEntry func(*Media) events.OutboxEntry) (*Media, error) {
-	err := platformdb.WithTx(ctx, r.pool, func(tx pgx.Tx) error {
-		usn, err := nextUSN(ctx, tx, m.UserID)
-		if err != nil {
-			return err
-		}
-		m.USN = usn
-		m.Status = StatusReady
-		now := time.Now().UTC()
-		m.Mtime, m.CreatedAt = now, now
-		_, err = tx.Exec(ctx, `
-			INSERT INTO media (`+mediaColumns+`)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)`,
-			m.ID, m.UserID, m.ProfileID, m.Checksum, m.Kind, m.Mime, m.S3Key, m.Bytes, StatusReady, usn, now)
-		if err != nil {
-			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) && pgErr.Code == uniqueViolation {
-				return platformerrors.AlreadyExists("media already exists for this checksum")
-			}
-			return fmt.Errorf("media: insert ready: %w", err)
-		}
-		return events.WriteOutbox(ctx, tx, []events.OutboxEntry{outboxEntry(m)})
-	})
+// RefreshPending re-points a pending row at m's mime/size and bumps mtime. NotFound if it is no longer pending.
+func (r *Repo) RefreshPending(ctx context.Context, m *Media) error {
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE media SET kind = $3, mime = $4, bytes = $5, mtime = now()
+		WHERE user_id = $1 AND id = $2 AND status = $6`,
+		m.UserID, m.ID, m.Kind, m.Mime, m.Bytes, StatusPending)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("media: refresh pending: %w", err)
 	}
-	return m, nil
+	if tag.RowsAffected() == 0 {
+		return platformerrors.NotFound("no pending media to refresh")
+	}
+	return nil
 }
 
 // MarkReady transitions a pending row to ready, assigns a USN, and emits
@@ -166,8 +146,7 @@ func (r *Repo) GetByID(ctx context.Context, userID, id string) (*Media, error) {
 	return m, nil
 }
 
-// FindByChecksum returns the caller's ready row for a checksum, or (nil, nil)
-// when none exists.
+// FindByChecksum returns the caller's row (any status) for a checksum, or (nil, nil) when none exists.
 func (r *Repo) FindByChecksum(ctx context.Context, userID string, checksum []byte) (*Media, error) {
 	row := r.pool.QueryRow(ctx,
 		`SELECT `+mediaColumns+` FROM media WHERE user_id = $1 AND checksum = $2`, userID, checksum)
@@ -195,17 +174,13 @@ func (r *Repo) InsertVariant(ctx context.Context, v Variant) error {
 	return nil
 }
 
-// Delete removes the caller's media row and its variants, then reports whether
-// the shared blob is now unreferenced (so the caller can GC S3). The remaining
-// count is a cross-shard scan — acceptable on the rare delete path.
+// Delete removes the caller's media row and its variants; their blobs belong to that row alone.
 func (r *Repo) Delete(ctx context.Context, userID, id string) (DeleteResult, error) {
 	var res DeleteResult
 	err := platformdb.WithTx(ctx, r.pool, func(tx pgx.Tx) error {
 		var s3Key string
-		var checksum []byte
 		err := tx.QueryRow(ctx,
-			`SELECT s3_key, checksum FROM media WHERE user_id = $1 AND id = $2`, userID, id).
-			Scan(&s3Key, &checksum)
+			`SELECT s3_key FROM media WHERE user_id = $1 AND id = $2`, userID, id).Scan(&s3Key)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return platformerrors.NotFound("media not found")
@@ -227,19 +202,46 @@ func (r *Repo) Delete(ctx context.Context, userID, id string) (DeleteResult, err
 			return fmt.Errorf("media: delete row: %w", err)
 		}
 
-		var remaining int64
-		if err := tx.QueryRow(ctx,
-			`SELECT count(*) FROM media WHERE checksum = $1`, checksum).Scan(&remaining); err != nil {
-			return fmt.Errorf("media: count refs: %w", err)
-		}
-
-		res = DeleteResult{S3Key: s3Key, VariantKeys: variantKeys, Orphaned: remaining == 0}
+		res = DeleteResult{S3Key: s3Key, VariantKeys: variantKeys}
 		return nil
 	})
 	if err != nil {
 		return DeleteResult{}, err
 	}
 	return res, nil
+}
+
+type StalePending struct {
+	UserID string
+	ID     string
+}
+
+// ListStalePending returns up to limit pending rows not presigned since cutoff.
+func (r *Repo) ListStalePending(ctx context.Context, cutoff time.Time, limit int) ([]StalePending, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT user_id, id FROM media WHERE status = $1 AND mtime < $2 LIMIT $3`, StatusPending, cutoff, limit)
+	if err != nil {
+		return nil, fmt.Errorf("media: list stale pending: %w", err)
+	}
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (StalePending, error) {
+		var p StalePending
+		return p, row.Scan(&p.UserID, &p.ID)
+	})
+}
+
+// DeleteStalePending removes one pending row unless it was confirmed or re-presigned since cutoff; "" if kept.
+func (r *Repo) DeleteStalePending(ctx context.Context, p StalePending, cutoff time.Time) (string, error) {
+	var key string
+	err := r.pool.QueryRow(ctx, `
+		DELETE FROM media WHERE user_id = $1 AND id = $2 AND status = $3 AND mtime < $4
+		RETURNING s3_key`, p.UserID, p.ID, StatusPending, cutoff).Scan(&key)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("media: delete stale pending: %w", err)
+	}
+	return key, nil
 }
 
 // ListChecksums returns the caller's ready media at or above sinceUSN, ordered

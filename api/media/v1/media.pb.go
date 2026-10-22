@@ -187,7 +187,9 @@ type PresignResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	MediaId       string                 `protobuf:"bytes,1,opt,name=media_id,json=mediaId,proto3" json:"media_id,omitempty"`
 	UploadUrl     string                 `protobuf:"bytes,2,opt,name=upload_url,json=uploadUrl,proto3" json:"upload_url,omitempty"`              // empty when already_exists is true
-	AlreadyExists bool                   `protobuf:"varint,3,opt,name=already_exists,json=alreadyExists,proto3" json:"already_exists,omitempty"` // blob already stored; client can skip the PUT
+	AlreadyExists bool                   `protobuf:"varint,3,opt,name=already_exists,json=alreadyExists,proto3" json:"already_exists,omitempty"` // the caller already stored these bytes; skip the PUT
+	// The PUT must send these verbatim (signed); browsers set Content-Length themselves, so send the body whole.
+	UploadHeaders map[string]string `protobuf:"bytes,4,rep,name=upload_headers,json=uploadHeaders,proto3" json:"upload_headers,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -241,6 +243,13 @@ func (x *PresignResponse) GetAlreadyExists() bool {
 		return x.AlreadyExists
 	}
 	return false
+}
+
+func (x *PresignResponse) GetUploadHeaders() map[string]string {
+	if x != nil {
+		return x.UploadHeaders
+	}
+	return nil
 }
 
 type ConfirmRequest struct {
@@ -584,12 +593,16 @@ const file_media_v1_media_proto_rawDesc = "" +
 	"\bfilename\x18\x01 \x01(\tR\bfilename\x12\x12\n" +
 	"\x04mime\x18\x02 \x01(\tR\x04mime\x12\x16\n" +
 	"\x06sha256\x18\x03 \x01(\tR\x06sha256\x12\x14\n" +
-	"\x05bytes\x18\x04 \x01(\x03R\x05bytes\"r\n" +
+	"\x05bytes\x18\x04 \x01(\x03R\x05bytes\"\x89\x02\n" +
 	"\x0fPresignResponse\x12\x19\n" +
 	"\bmedia_id\x18\x01 \x01(\tR\amediaId\x12\x1d\n" +
 	"\n" +
 	"upload_url\x18\x02 \x01(\tR\tuploadUrl\x12%\n" +
-	"\x0ealready_exists\x18\x03 \x01(\bR\ralreadyExists\"+\n" +
+	"\x0ealready_exists\x18\x03 \x01(\bR\ralreadyExists\x12S\n" +
+	"\x0eupload_headers\x18\x04 \x03(\v2,.media.v1.PresignResponse.UploadHeadersEntryR\ruploadHeaders\x1a@\n" +
+	"\x12UploadHeadersEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"+\n" +
 	"\x0eConfirmRequest\x12\x19\n" +
 	"\bmedia_id\x18\x01 \x01(\tR\amediaId\"8\n" +
 	"\x0fConfirmResponse\x12%\n" +
@@ -627,7 +640,7 @@ func file_media_v1_media_proto_rawDescGZIP() []byte {
 	return file_media_v1_media_proto_rawDescData
 }
 
-var file_media_v1_media_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_media_v1_media_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_media_v1_media_proto_goTypes = []any{
 	(*Media)(nil),                 // 0: media.v1.Media
 	(*PresignRequest)(nil),        // 1: media.v1.PresignRequest
@@ -639,23 +652,25 @@ var file_media_v1_media_proto_goTypes = []any{
 	(*ListChecksumsRequest)(nil),  // 7: media.v1.ListChecksumsRequest
 	(*ListChecksumsResponse)(nil), // 8: media.v1.ListChecksumsResponse
 	(*MediaChecksum)(nil),         // 9: media.v1.MediaChecksum
+	nil,                           // 10: media.v1.PresignResponse.UploadHeadersEntry
 }
 var file_media_v1_media_proto_depIdxs = []int32{
-	0, // 0: media.v1.ConfirmResponse.media:type_name -> media.v1.Media
-	9, // 1: media.v1.ListChecksumsResponse.items:type_name -> media.v1.MediaChecksum
-	1, // 2: media.v1.MediaService.Presign:input_type -> media.v1.PresignRequest
-	3, // 3: media.v1.MediaService.Confirm:input_type -> media.v1.ConfirmRequest
-	5, // 4: media.v1.MediaService.Delete:input_type -> media.v1.DeleteRequest
-	7, // 5: media.v1.MediaInternalService.ListChecksums:input_type -> media.v1.ListChecksumsRequest
-	2, // 6: media.v1.MediaService.Presign:output_type -> media.v1.PresignResponse
-	4, // 7: media.v1.MediaService.Confirm:output_type -> media.v1.ConfirmResponse
-	6, // 8: media.v1.MediaService.Delete:output_type -> media.v1.DeleteResponse
-	8, // 9: media.v1.MediaInternalService.ListChecksums:output_type -> media.v1.ListChecksumsResponse
-	6, // [6:10] is the sub-list for method output_type
-	2, // [2:6] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	10, // 0: media.v1.PresignResponse.upload_headers:type_name -> media.v1.PresignResponse.UploadHeadersEntry
+	0,  // 1: media.v1.ConfirmResponse.media:type_name -> media.v1.Media
+	9,  // 2: media.v1.ListChecksumsResponse.items:type_name -> media.v1.MediaChecksum
+	1,  // 3: media.v1.MediaService.Presign:input_type -> media.v1.PresignRequest
+	3,  // 4: media.v1.MediaService.Confirm:input_type -> media.v1.ConfirmRequest
+	5,  // 5: media.v1.MediaService.Delete:input_type -> media.v1.DeleteRequest
+	7,  // 6: media.v1.MediaInternalService.ListChecksums:input_type -> media.v1.ListChecksumsRequest
+	2,  // 7: media.v1.MediaService.Presign:output_type -> media.v1.PresignResponse
+	4,  // 8: media.v1.MediaService.Confirm:output_type -> media.v1.ConfirmResponse
+	6,  // 9: media.v1.MediaService.Delete:output_type -> media.v1.DeleteResponse
+	8,  // 10: media.v1.MediaInternalService.ListChecksums:output_type -> media.v1.ListChecksumsResponse
+	7,  // [7:11] is the sub-list for method output_type
+	3,  // [3:7] is the sub-list for method input_type
+	3,  // [3:3] is the sub-list for extension type_name
+	3,  // [3:3] is the sub-list for extension extendee
+	0,  // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_media_v1_media_proto_init() }
@@ -669,7 +684,7 @@ func file_media_v1_media_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_media_v1_media_proto_rawDesc), len(file_media_v1_media_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   10,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

@@ -2,7 +2,6 @@ package media
 
 import (
 	"encoding/hex"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -26,14 +25,14 @@ func TestValidateUpload(t *testing.T) {
 		sha      string
 		bytes    int64
 		wantKind string
-		wantExt  string
+		wantMime string
 		wantErr  bool
 	}{
-		{"jpeg ok", "image/jpeg", hexSum(0xab), 1024, KindImage, "jpg", false},
-		{"png ok", "image/png", hexSum(0x01), 500, KindImage, "png", false},
-		{"mp3 audio", "audio/mpeg", hexSum(0x02), 1024, KindAudio, "mp3", false},
-		{"mp4 video", "video/mp4", hexSum(0x03), 1024, KindVideo, "mp4", false},
-		{"mime case-insensitive", "IMAGE/JPEG", hexSum(0x04), 10, KindImage, "jpg", false},
+		{"jpeg ok", "image/jpeg", hexSum(0xab), 1024, KindImage, "image/jpeg", false},
+		{"png ok", "image/png", hexSum(0x01), 500, KindImage, "image/png", false},
+		{"mp3 audio", "audio/mpeg", hexSum(0x02), 1024, KindAudio, "audio/mpeg", false},
+		{"mp4 video", "video/mp4", hexSum(0x03), 1024, KindVideo, "video/mp4", false},
+		{"mime case-insensitive", "IMAGE/JPEG", hexSum(0x04), 10, KindImage, "image/jpeg", false},
 		{"unsupported mime", "application/pdf", hexSum(0x05), 10, "", "", true},
 		{"zero bytes", "image/png", hexSum(0x06), 0, "", "", true},
 		{"negative bytes", "image/png", hexSum(0x06), -1, "", "", true},
@@ -53,7 +52,7 @@ func TestValidateUpload(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantKind, got.Kind)
-			assert.Equal(t, tc.wantExt, got.Ext)
+			assert.Equal(t, tc.wantMime, got.Mime)
 			assert.Len(t, got.Checksum, 32)
 		})
 	}
@@ -62,15 +61,12 @@ func TestValidateUpload(t *testing.T) {
 func TestKeyDerivation(t *testing.T) {
 	sum, err := hex.DecodeString(hexSum(0xcd))
 	require.NoError(t, err)
+	h := hex.EncodeToString(sum)
 
-	orig := s3KeyFor(sum, "jpg")
-	assert.True(t, strings.HasSuffix(orig, ".jpg"))
-	assert.Equal(t, hex.EncodeToString(sum)+".jpg", orig)
-
-	variant := variantKeyFor(sum, thumbVariant, "jpg")
-	assert.Equal(t, hex.EncodeToString(sum)+"/thumb.jpg", variant)
-	// Original and variant share the checksum prefix but differ by separator.
-	assert.True(t, strings.HasPrefix(variant, hex.EncodeToString(sum)+"/"))
+	orig := s3KeyFor("user-1", sum)
+	assert.Equal(t, "u/user-1/"+h+"/original", orig)
+	assert.Equal(t, "u/user-1/"+h+"/thumb.jpg", variantKeyFor("user-1", sum, thumbVariant, "jpg"))
+	assert.NotEqual(t, orig, s3KeyFor("user-2", sum), "keys must not be shared across users")
 }
 
 func TestChecksumHex(t *testing.T) {

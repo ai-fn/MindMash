@@ -7,7 +7,7 @@
   "tags": [
     {
       "name": "MediaService",
-      "description": "─── Media Service ──────────────────────────────────────────────────────────\n\nUpload, dedupe, delivery and (async) processing of media blobs. Blobs travel\nclient → S3 directly via presigned URLs; this service stays off the data path\nand only records metadata. Every RPC is hard-filtered to the caller's\nuser_id/profile_id (from the gateway-injected JWT context); tenancy is never\nsupplied by the client. Dedupe is content-addressed (SHA-256): identical bytes\nare stored once and shared, while each user keeps their own metadata row."
+      "description": "─── Media Service ──────────────────────────────────────────────────────────\n\nUpload, dedupe, delivery and (async) processing of media blobs. Blobs travel\nclient → S3 directly via presigned URLs; this service stays off the data path\nand only records metadata. Every RPC is hard-filtered to the caller's\nuser_id/profile_id (from the gateway-injected JWT context); tenancy is never\nsupplied by the client. Dedupe (by SHA-256) never crosses users: knowing a\nhash must not grant access to someone else's bytes."
     },
     {
       "name": "MediaInternalService",
@@ -54,7 +54,7 @@
     },
     "/v1/media/{mediaId}:confirm": {
       "post": {
-        "summary": "Confirm finalizes an upload: it HEADs the object to verify it landed and\nmatches the declared size, flips the row to ready, and emits media.uploaded.",
+        "summary": "Confirm finalizes an upload: it HEADs the object to verify its size, sha256\nand content type, flips the row to ready, and emits media.uploaded.",
         "operationId": "MediaService_Confirm",
         "responses": {
           "200": {
@@ -93,7 +93,7 @@
     },
     "/v1/media:presign": {
       "post": {
-        "summary": "Presign validates the declared mime/size and returns a presigned upload URL,\nor short-circuits with already_exists=true when the checksum is already\nstored (this user's prior upload, or another user's — the blob is shared).",
+        "summary": "Presign validates the declared mime/size and returns an upload URL bound to\nthe declared bytes, or already_exists=true when this user already stored them.",
         "operationId": "MediaService_Presign",
         "responses": {
           "200": {
@@ -234,7 +234,14 @@
         },
         "alreadyExists": {
           "type": "boolean",
-          "title": "blob already stored; client can skip the PUT"
+          "title": "the caller already stored these bytes; skip the PUT"
+        },
+        "uploadHeaders": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "The PUT must send these verbatim (signed); browsers set Content-Length themselves, so send the body whole."
         }
       }
     }

@@ -196,6 +196,7 @@ func run() error {
 	g.Go(func() error { return httpSrv.Start(gctx) })
 	g.Go(func() error { return relay.Run(gctx) })
 	g.Go(func() error { return consumer.Subscribe(gctx, []string{media.Topic}, worker.Handle) })
+	g.Go(func() error { return svc.RunPendingGC(gctx) })
 	if err := g.Wait(); err != nil {
 		return fmt.Errorf("media: server: %w", err)
 	}
