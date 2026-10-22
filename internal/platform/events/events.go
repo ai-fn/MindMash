@@ -97,8 +97,12 @@ type KafkaProducer struct {
 // NewProducer creates a KafkaProducer connected to the brokers in cfg.
 func NewProducer(cfg Config) (*KafkaProducer, error) {
 	w := &kafka.Writer{
-		Addr:         kafka.TCP(cfg.Brokers...),
-		Balancer:     &kafka.LeastBytes{},
+		Addr: kafka.TCP(cfg.Brokers...),
+		// key = user_id: one partition per user keeps their events ordered; murmur2 matches Java clients.
+		Balancer:     &kafka.Murmur2Balancer{},
+		RequiredAcks: kafka.RequireAll,
+		// Publish is synchronous; the 1s default would stall every relay batch.
+		BatchTimeout: 10 * time.Millisecond,
 		WriteTimeout: cfg.WriteTimeout,
 		MaxAttempts:  cfg.MaxRetries,
 	}

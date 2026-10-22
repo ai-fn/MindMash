@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/segmentio/kafka-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -98,4 +99,14 @@ func TestLoadConfig_InvalidEnvVars(t *testing.T) {
 func TestNewRelayCapsBatch(t *testing.T) {
 	r := NewRelay(nil, nil, nil, RelayConfig{Batch: 10_000})
 	assert.Equal(t, maxRelayBatch, r.batch)
+}
+
+func TestNewProducerWriterConfig(t *testing.T) {
+	p, err := NewProducer(Config{Brokers: []string{"localhost:9092"}, WriteTimeout: time.Second, MaxRetries: 3})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = p.Close() })
+
+	assert.Equal(t, kafka.RequireAll, p.writer.RequiredAcks)
+	assert.IsType(t, &kafka.Murmur2Balancer{}, p.writer.Balancer)
+	assert.Equal(t, 10*time.Millisecond, p.writer.BatchTimeout)
 }
