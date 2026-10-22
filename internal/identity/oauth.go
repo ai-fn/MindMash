@@ -73,9 +73,9 @@ func (e *OIDCExchanger) Exchange(ctx context.Context, provider, code, redirectUR
 	}
 
 	var claims struct {
-		Sub           string `json:"sub"`
-		Email         string `json:"email"`
-		EmailVerified bool   `json:"email_verified"`
+		Sub           string    `json:"sub"`
+		Email         string    `json:"email"`
+		EmailVerified claimBool `json:"email_verified"`
 	}
 	if err := idToken.Claims(&claims); err != nil {
 		return OAuthUserInfo{}, fmt.Errorf("identity: oauth exchange extract claims: %w", err)
@@ -85,8 +85,23 @@ func (e *OIDCExchanger) Exchange(ctx context.Context, provider, code, redirectUR
 		Provider:      provider,
 		Subject:       claims.Sub,
 		Email:         claims.Email,
-		EmailVerified: claims.EmailVerified,
+		EmailVerified: bool(claims.EmailVerified),
 	}, nil
+}
+
+// claimBool accepts Apple's string "true"/"false" as well as a JSON bool.
+type claimBool bool
+
+func (b *claimBool) UnmarshalJSON(data []byte) error {
+	switch string(data) {
+	case `true`, `"true"`:
+		*b = true
+	case `false`, `"false"`, `null`:
+		*b = false
+	default:
+		return fmt.Errorf("identity: email_verified: unexpected value %s", data)
+	}
+	return nil
 }
 
 // getOrCreateProvider returns the cached oidc.Provider and a per-call copy of

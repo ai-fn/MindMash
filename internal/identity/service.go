@@ -187,6 +187,9 @@ func (s *Service) OAuthExchange(ctx context.Context, provider, code, redirectURI
 	if err != nil {
 		return "", "", 0, "", "", false, fmt.Errorf("identity: oauth exchange: %w", err)
 	}
+	if info.Subject == "" {
+		return "", "", 0, "", "", false, platformerrors.Unauthenticated("oauth provider returned no subject")
+	}
 
 	// Try the fast path: identity already exists.
 	oauthID, lookupErr := s.repo.GetOAuthIdentity(ctx, info.Provider, info.Subject)
@@ -207,10 +210,31 @@ func (s *Service) OAuthExchange(ctx context.Context, provider, code, redirectURI
 		return access, refresh, expiresIn, user.ID, profile.ID, false, nil
 	}
 
+	if !platformerrors.IsNotFound(lookupErr) {
+		return "", "", 0, "", "", false, fmt.Errorf("identity: oauth exchange lookup identity: %w", lookupErr)
+	}
+	// An empty email would match any other account stored without one.
+	if info.Email == "" {
+		return "", "", 0, "", "", false, platformerrors.FailedPrecondition("oauth provider returned no email")
+	}
+	// Linking or creating from an unproven address would let its holder squat or take over the account.
+	if !info.EmailVerified {
+		return "", "", 0, "", "", false, platformerrors.FailedPrecondition("oauth email is not verified").
+			WithMsgID(i18n.MsgOAuthEmailUnverified)
+	}
+
 	// New OAuth identity: try to link by email first.
 	now := time.Now()
 	existingUser, emailErr := s.repo.GetUserByEmail(ctx, info.Email)
+	if emailErr != nil && !platformerrors.IsNotFound(emailErr) {
+		return "", "", 0, "", "", false, fmt.Errorf("identity: oauth exchange lookup email: %w", emailErr)
+	}
 	if emailErr == nil {
+		if !existingUser.EmailVerified {
+			return "", "", 0, "", "", false, platformerrors.AlreadyExists(
+				"an account with this email exists; verify its email before signing in with this provider").
+				WithMsgID(i18n.MsgOAuthLinkUnverified)
+		}
 		// Link the new OAuth identity to the existing account atomically so a
 		// crash between lookup and insert cannot leave a dangling partial link.
 		newIdentity := &OAuthIdentity{

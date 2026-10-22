@@ -30,6 +30,8 @@ const (
 	MsgInvalidCredentials    = "error.invalid_credentials"
 	MsgEmailAlreadyExists    = "error.email_already_exists"
 	MsgInvalidOrExpiredToken = "error.invalid_or_expired_token"
+	MsgOAuthEmailUnverified  = "error.oauth_email_unverified"
+	MsgOAuthLinkUnverified   = "error.oauth_link_unverified"
 
 	MsgVerificationSubject  = "email.verification.subject"
 	MsgVerificationBody     = "email.verification.body"
@@ -52,6 +54,8 @@ func buildCatalog() catalog.Catalog {
 		MsgInvalidCredentials:    "We couldn't sign you in. Check your email and password and try again.",
 		MsgEmailAlreadyExists:    "An account with that email already exists.",
 		MsgInvalidOrExpiredToken: "This link is invalid or has expired. Request a new one.",
+		MsgOAuthEmailUnverified:  "Your email isn't verified with this provider. Verify it there and try again.",
+		MsgOAuthLinkUnverified:   "An account with this email already exists. Verify its email, then sign in with this provider.",
 		MsgVerificationSubject:   "Verify your MindMesh email",
 		MsgVerificationBody:      "Welcome to MindMesh! Confirm your email with this token: %s",
 		MsgPasswordResetSubject:  "Reset your MindMesh password",
@@ -61,6 +65,8 @@ func buildCatalog() catalog.Catalog {
 		MsgInvalidCredentials:    "Не удалось войти. Проверьте почту и пароль и попробуйте снова.",
 		MsgEmailAlreadyExists:    "Аккаунт с такой почтой уже существует.",
 		MsgInvalidOrExpiredToken: "Ссылка недействительна или устарела. Запросите новую.",
+		MsgOAuthEmailUnverified:  "Почта не подтверждена у этого провайдера. Подтвердите её там и попробуйте снова.",
+		MsgOAuthLinkUnverified:   "Аккаунт с такой почтой уже существует. Подтвердите его почту, затем войдите через этого провайдера.",
 		MsgVerificationSubject:   "Подтвердите вашу почту в MindMesh",
 		MsgVerificationBody:      "Добро пожаловать в MindMesh! Подтвердите почту с помощью этого токена: %s",
 		MsgPasswordResetSubject:  "Сброс пароля MindMesh",
@@ -70,6 +76,8 @@ func buildCatalog() catalog.Catalog {
 		MsgInvalidCredentials:    "无法登录。请检查邮箱和密码后重试。",
 		MsgEmailAlreadyExists:    "该邮箱的账号已存在。",
 		MsgInvalidOrExpiredToken: "此链接无效或已过期。请重新申请。",
+		MsgOAuthEmailUnverified:  "你的邮箱尚未在该登录提供方验证。请先在那里验证后重试。",
+		MsgOAuthLinkUnverified:   "该邮箱的账号已存在。请先验证该账号的邮箱，再使用此提供方登录。",
 		MsgVerificationSubject:   "验证你的 MindMesh 邮箱",
 		MsgVerificationBody:      "欢迎使用 MindMesh！请使用此令牌确认邮箱：%s",
 		MsgPasswordResetSubject:  "重置你的 MindMesh 密码",

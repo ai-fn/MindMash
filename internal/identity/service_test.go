@@ -712,6 +712,9 @@ func TestOAuthExchange(t *testing.T) {
 		if oauthID.UserID != userID {
 			t.Fatalf("oauth identity user mismatch: %s vs %s", oauthID.UserID, userID)
 		}
+		if u, err := repo.GetUserByID(ctx, userID); err != nil || !u.EmailVerified {
+			t.Fatalf("want the provider-verified email stored as verified, got %+v, %v", u, err)
+		}
 	})
 
 	t.Run("existing identity isNewUser=false; returns same userID", func(t *testing.T) {
@@ -744,18 +747,21 @@ func TestOAuthExchange(t *testing.T) {
 		svc, repo, _, _, exchanger, _ := newTestService(t)
 		ctx := context.Background()
 
-		// Create a password user first.
+		// Create a password user with a verified email first.
 		userID, err := svc.Register(ctx, "grace@example.com", "pass", "")
 		if err != nil {
 			t.Fatalf("Register: %v", err)
 		}
+		if err := repo.SetEmailVerified(ctx, userID); err != nil {
+			t.Fatalf("SetEmailVerified: %v", err)
+		}
 
 		exchanger.responses["code3"] = OAuthUserInfo{
-			Provider: "github", Subject: "gh-sub-1",
+			Provider: "google", Subject: "g-sub-3",
 			Email: "grace@example.com", EmailVerified: true,
 		}
 
-		_, _, _, returnedUserID, _, isNew, err := svc.OAuthExchange(ctx, "github", "code3", "https://app/cb")
+		_, _, _, returnedUserID, _, isNew, err := svc.OAuthExchange(ctx, "google", "code3", "https://app/cb")
 		if err != nil {
 			t.Fatalf("OAuthExchange: %v", err)
 		}
@@ -767,7 +773,7 @@ func TestOAuthExchange(t *testing.T) {
 		}
 
 		// OAuth identity should now be linked.
-		oauthID, err := repo.GetOAuthIdentity(ctx, "github", "gh-sub-1")
+		oauthID, err := repo.GetOAuthIdentity(ctx, "google", "g-sub-3")
 		if err != nil {
 			t.Fatalf("GetOAuthIdentity after link: %v", err)
 		}
@@ -775,6 +781,93 @@ func TestOAuthExchange(t *testing.T) {
 			t.Fatal("oauth identity linked to wrong user")
 		}
 	})
+}
+
+func TestOAuthExchange_RefusesUnverifiedEmails(t *testing.T) {
+	tests := []struct {
+		name             string
+		existing         bool
+		accountVerified  bool
+		providerVerified bool
+		want             codes.Code
+	}{
+		{"link: account email unverified", true, false, true, codes.AlreadyExists},
+		{"link: provider email unverified", true, true, false, codes.FailedPrecondition},
+		{"link: both unverified", true, false, false, codes.FailedPrecondition},
+		{"create: provider email unverified would squat the address", false, false, false, codes.FailedPrecondition},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, repo, _, _, exchanger, _ := newTestService(t)
+			ctx := context.Background()
+			if tc.existing {
+				userID, err := svc.Register(ctx, "ivy@example.com", "pass", "")
+				if err != nil {
+					t.Fatalf("Register: %v", err)
+				}
+				if tc.accountVerified {
+					if err := repo.SetEmailVerified(ctx, userID); err != nil {
+						t.Fatalf("SetEmailVerified: %v", err)
+					}
+				}
+			}
+			exchanger.responses["c"] = OAuthUserInfo{
+				Provider: "google", Subject: "g-attacker", Email: "ivy@example.com", EmailVerified: tc.providerVerified,
+			}
+
+			_, _, _, _, _, _, err := svc.OAuthExchange(ctx, "google", "c", "https://app/cb")
+			if got := grpcCode(err); got != tc.want {
+				t.Fatalf("want %v, got %v (%v)", tc.want, got, err)
+			}
+			if _, err := repo.GetOAuthIdentity(ctx, "google", "g-attacker"); !platformerrors.IsNotFound(err) {
+				t.Fatalf("want no identity stored, got %v", err)
+			}
+			if _, err := repo.GetUserByEmail(ctx, "ivy@example.com"); tc.existing == platformerrors.IsNotFound(err) {
+				t.Fatalf("want users unchanged (existing=%v), got %v", tc.existing, err)
+			}
+		})
+	}
+}
+
+// failingEmailRepo makes the email lookup fail with a non-NotFound error.
+type failingEmailRepo struct{ *fakeRepo }
+
+func (failingEmailRepo) GetUserByEmail(context.Context, string) (*User, error) {
+	return nil, errors.New("db down")
+}
+
+func TestOAuthExchange_LookupErrorCreatesNothing(t *testing.T) {
+	repo := failingEmailRepo{newFakeRepo()}
+	exchanger := &fakeOAuthExchanger{responses: map[string]OAuthUserInfo{
+		"c": {Provider: "google", Subject: "g-1", Email: "kim@example.com", EmailVerified: true},
+	}}
+	svc := NewService(repo, newFakeSessionStore(), newTestSigner(t), exchanger, &fakeEmailSender{}, zap.NewNop(),
+		auth.Config{AccessTokenTTL: time.Minute, RefreshTokenTTL: time.Hour})
+
+	if _, _, _, _, _, _, err := svc.OAuthExchange(context.Background(), "google", "c", "https://app/cb"); err == nil {
+		t.Fatal("want the lookup error, got a session")
+	}
+	if _, err := repo.GetOAuthIdentity(context.Background(), "google", "g-1"); !platformerrors.IsNotFound(err) {
+		t.Fatalf("want no identity created on a lookup error, got %v", err)
+	}
+}
+
+func TestOAuthExchange_RejectsMissingClaims(t *testing.T) {
+	svc, repo, _, _, exchanger, _ := newTestService(t)
+	ctx := context.Background()
+	// An account stored without an email must not be reachable through an email-less token.
+	if err := repo.CreateUser(ctx, &User{ID: "u-blank", Email: "", EmailVerified: true, Status: "active"}); err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	exchanger.responses["no-email"] = OAuthUserInfo{Provider: "google", Subject: "g-1", EmailVerified: true}
+	exchanger.responses["no-sub"] = OAuthUserInfo{Provider: "google", Email: "jo@example.com", EmailVerified: true}
+
+	if _, _, _, _, _, _, err := svc.OAuthExchange(ctx, "google", "no-email", "https://app/cb"); !platformerrors.IsFailedPrecondition(err) {
+		t.Fatalf("empty email: want FailedPrecondition, got %v", err)
+	}
+	if _, _, _, _, _, _, err := svc.OAuthExchange(ctx, "google", "no-sub", "https://app/cb"); !platformerrors.IsUnauthenticated(err) {
+		t.Fatalf("empty subject: want Unauthenticated, got %v", err)
+	}
 }
 
 // ─── ActivateProfile tests ────────────────────────────────────────────────────

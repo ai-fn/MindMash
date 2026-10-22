@@ -234,7 +234,7 @@ func injectIdentity(v auth.Verifier) func(http.Handler) http.Handler {
 // the service can run with no social login configured.
 func oauthProvidersFromEnv() map[string]identity.ProviderConfig {
 	providers := make(map[string]identity.ProviderConfig)
-	for _, name := range []string{"google", "github", "apple"} {
+	for _, name := range []string{"google", "apple"} { // OIDC issuers only: GitHub has no discovery or id_token
 		up := strings.ToUpper(name)
 		issuer, hasIssuer := os.LookupEnv("OAUTH_" + up + "_ISSUER")
 		clientID, hasClient := os.LookupEnv("OAUTH_" + up + "_CLIENT_ID")

@@ -159,3 +159,5 @@ func IsInvalidArgument(err error) bool { return is(err, codes.InvalidArgument) }
 func IsFailedPrecondition(err error) bool { return is(err, codes.FailedPrecondition) }
 
 func IsAborted(err error) bool { return is(err, codes.Aborted) }
+
+func IsUnauthenticated(err error) bool { return is(err, codes.Unauthenticated) }
