@@ -31,6 +31,14 @@ func serveJWKS(t *testing.T, signers ...*Signer) (*httptest.Server, *atomic.Int6
 	return srv, &hits
 }
 
+// testCtx is cancelled at test end so verifier goroutines don't outlive the test server.
+func testCtx(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	return ctx
+}
+
 func newTestSigner(t *testing.T) *Signer {
 	t.Helper()
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
@@ -49,7 +57,7 @@ func TestRemoteVerifier_ValidAccessToken(t *testing.T) {
 	s := newTestSigner(t)
 	srv, _ := serveJWKS(t, s)
 
-	rv, err := NewRemoteVerifier(context.Background(), srv.URL+"/.well-known/jwks.json", "mindmesh-test")
+	rv, err := NewRemoteVerifier(testCtx(t), srv.URL+"/.well-known/jwks.json", "mindmesh-test")
 	if err != nil {
 		t.Fatalf("NewRemoteVerifier: %v", err)
 	}
@@ -101,7 +109,7 @@ func TestRemoteVerifier_UnknownKIDTriggersOneRefresh(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	rv, err := NewRemoteVerifier(context.Background(), srv.URL+"/.well-known/jwks.json", "mindmesh-test")
+	rv, err := NewRemoteVerifier(testCtx(t), srv.URL+"/.well-known/jwks.json", "mindmesh-test")
 	if err != nil {
 		t.Fatalf("NewRemoteVerifier: %v", err)
 	}
@@ -136,7 +144,7 @@ func TestRemoteVerifier_UnknownKIDTriggersOneRefresh(t *testing.T) {
 // TestRemoteVerifier_ExpiredToken: an expired token returns an error.
 func TestRemoteVerifier_ExpiredToken(t *testing.T) {
 	cfg := Config{
-		AccessTokenTTL:  -1 * time.Second, // already expired
+		AccessTokenTTL:  -time.Minute, // expired beyond the clock leeway
 		RefreshTokenTTL: 168 * time.Hour,
 		Issuer:          "mindmesh-test",
 	}
@@ -147,7 +155,7 @@ func TestRemoteVerifier_ExpiredToken(t *testing.T) {
 	s := NewSignerFromKeys(priv, pub, cfg)
 	srv, _ := serveJWKS(t, s)
 
-	rv, err := NewRemoteVerifier(context.Background(), srv.URL+"/.well-known/jwks.json", "mindmesh-test")
+	rv, err := NewRemoteVerifier(testCtx(t), srv.URL+"/.well-known/jwks.json", "mindmesh-test")
 	if err != nil {
 		t.Fatalf("NewRemoteVerifier: %v", err)
 	}
@@ -169,7 +177,7 @@ func TestRemoteVerifier_WrongKindRefreshToken(t *testing.T) {
 	s := newTestSigner(t)
 	srv, _ := serveJWKS(t, s)
 
-	rv, err := NewRemoteVerifier(context.Background(), srv.URL+"/.well-known/jwks.json", "mindmesh-test")
+	rv, err := NewRemoteVerifier(testCtx(t), srv.URL+"/.well-known/jwks.json", "mindmesh-test")
 	if err != nil {
 		t.Fatalf("NewRemoteVerifier: %v", err)
 	}
@@ -200,7 +208,7 @@ func TestRemoteVerifier_IssuerMismatch(t *testing.T) {
 	})
 	srv, _ := serveJWKS(t, s)
 
-	rv, err := NewRemoteVerifier(context.Background(), srv.URL+"/.well-known/jwks.json", "expected-issuer")
+	rv, err := NewRemoteVerifier(testCtx(t), srv.URL+"/.well-known/jwks.json", "expected-issuer")
 	if err != nil {
 		t.Fatalf("NewRemoteVerifier: %v", err)
 	}
@@ -222,7 +230,7 @@ func TestRemoteVerifier_CacheHit(t *testing.T) {
 	s := newTestSigner(t)
 	srv, hits := serveJWKS(t, s)
 
-	rv, err := NewRemoteVerifier(context.Background(), srv.URL+"/.well-known/jwks.json", "mindmesh-test")
+	rv, err := NewRemoteVerifier(testCtx(t), srv.URL+"/.well-known/jwks.json", "mindmesh-test")
 	if err != nil {
 		t.Fatalf("NewRemoteVerifier: %v", err)
 	}
@@ -250,23 +258,158 @@ func TestRemoteVerifier_CacheHit(t *testing.T) {
 // TestNewRemoteVerifier_EmptyURL: NewRemoteVerifier must return an error when
 // the JWKS URL is empty.
 func TestNewRemoteVerifier_EmptyURL(t *testing.T) {
-	_, err := NewRemoteVerifier(context.Background(), "", "mindmesh-test")
+	_, err := NewRemoteVerifier(testCtx(t), "", "mindmesh-test")
 	if err == nil {
 		t.Fatal("expected error for empty JWKS URL, got nil")
 	}
 }
 
-// TestNewRemoteVerifier_InitialFetchFailure: NewRemoteVerifier must return an
-// error when the server returns a non-200 status on the initial fetch.
-func TestNewRemoteVerifier_InitialFetchFailure(t *testing.T) {
+// TestRemoteVerifier_StartsWithoutJWKSAndRecovers: a down JWKS endpoint is not fatal at startup;
+// tokens are rejected until the background retry loads the keys.
+func TestRemoteVerifier_StartsWithoutJWKSAndRecovers(t *testing.T) {
+	s := newTestSigner(t)
+	var up atomic.Bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		if !up.Load() {
+			http.Error(w, "starting", http.StatusServiceUnavailable)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(BuildJWKS(s))
 	}))
 	t.Cleanup(srv.Close)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
 
-	_, err := NewRemoteVerifier(context.Background(), srv.URL+"/jwks.json", "mindmesh-test")
-	if err == nil {
-		t.Fatal("expected error when server returns 500, got nil")
+	rv, err := newRemoteVerifier(ctx, srv.URL, "mindmesh-test", 10*time.Millisecond)
+	if err != nil {
+		t.Fatalf("a failing first fetch must not be fatal: %v", err)
+	}
+	tok, _, _ := s.SignAccess("u1", "p1", "en", nil)
+	if _, err := rv.Verify(tok); err == nil {
+		t.Fatal("want tokens rejected while no keys are loaded")
+	}
+
+	up.Store(true)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := rv.Verify(tok); err == nil {
+			return
+		} else if time.Now().After(deadline) {
+			t.Fatalf("keys never loaded after the endpoint came up: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// TestRemoteVerifier_BackgroundRefreshPicksUpRotation: with the unknown-kid path rate-limited, a
+// rotated key becomes valid (and the old one invalid) only through the background refresh.
+func TestRemoteVerifier_BackgroundRefreshPicksUpRotation(t *testing.T) {
+	oldKey, newKey := newTestSigner(t), newTestSigner(t)
+	var current atomic.Pointer[Signer]
+	current.Store(oldKey)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(BuildJWKS(current.Load()))
+	}))
+	t.Cleanup(srv.Close)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	rv, err := newRemoteVerifier(ctx, srv.URL, "mindmesh-test", 10*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldTok, _, _ := oldKey.SignAccess("u1", "p1", "en", nil)
+	newTok, _, _ := newKey.SignAccess("u1", "p1", "en", nil)
+	if _, err := rv.Verify(oldTok); err != nil {
+		t.Fatalf("old key before rotation: %v", err)
+	}
+
+	current.Store(newKey)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		_, newErr := rv.Verify(newTok)
+		_, oldErr := rv.Verify(oldTok)
+		if newErr == nil && oldErr != nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("rotation not picked up: new=%v old=%v", newErr, oldErr)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// TestRemoteVerifier_StopsWithContext: cancelling the lifetime context ends the refresh loop.
+func TestRemoteVerifier_StopsWithContext(t *testing.T) {
+	s := newTestSigner(t)
+	srv, hits := serveJWKS(t, s)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	if _, err := newRemoteVerifier(ctx, srv.URL+"/.well-known/jwks.json", "mindmesh-test", 10*time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(cancel)
+	for deadline := time.Now().Add(5 * time.Second); hits.Load() < 3; time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("want periodic refreshes before cancel, got %d fetches", hits.Load())
+		}
+	}
+	cancel()
+	time.Sleep(100 * time.Millisecond) // let an in-flight iteration finish
+	after := hits.Load()
+	time.Sleep(150 * time.Millisecond)
+	if got := hits.Load(); got != after {
+		t.Fatalf("refresh continued after cancel: %d -> %d fetches", after, got)
+	}
+}
+
+// TestRemoteVerifier_RejectsForeignAlgorithms: the keyfunc no longer checks the method, so WithValidMethods must.
+func TestRemoteVerifier_RejectsForeignAlgorithms(t *testing.T) {
+	s := newTestSigner(t)
+	srv, _ := serveJWKS(t, s)
+	rv, err := NewRemoteVerifier(testCtx(t), srv.URL+"/.well-known/jwks.json", "mindmesh-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims := Claims{RegisteredClaims: jwt.RegisteredClaims{
+		Subject: "u1", Issuer: "mindmesh-test", Audience: jwt.ClaimStrings{Audience},
+		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Minute)),
+	}, Kind: "access"}
+
+	hs := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	hs.Header["kid"] = s.kid
+	hsStr, _ := hs.SignedString([]byte(s.pub))
+	none := jwt.NewWithClaims(jwt.SigningMethodNone, claims)
+	none.Header["kid"] = s.kid
+	noneStr, _ := none.SignedString(jwt.UnsafeAllowNoneSignatureType)
+	for name, tok := range map[string]string{"HS256 with the public key": hsStr, "alg none": noneStr} {
+		if _, err := rv.Verify(tok); err == nil {
+			t.Errorf("%s: want rejection", name)
+		}
+	}
+}
+
+// TestRemoteVerifier_MalformedKeyKeepsPreviousSet: a JWKS with one broken Ed25519 entry fails the refresh.
+func TestRemoteVerifier_MalformedKeyKeepsPreviousSet(t *testing.T) {
+	s := newTestSigner(t)
+	var broken atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		set := BuildJWKS(s)
+		if broken.Load() {
+			set.Keys = append(set.Keys, JWK{Kty: "OKP", Crv: "Ed25519", X: "!!", Kid: "bad"})
+		}
+		_ = json.NewEncoder(w).Encode(set)
+	}))
+	t.Cleanup(srv.Close)
+	rv, err := newRemoteVerifier(testCtx(t), srv.URL, "mindmesh-test", 10*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	broken.Store(true)
+	time.Sleep(100 * time.Millisecond) // several refresh attempts, all rejected
+	tok, _, _ := s.SignAccess("u1", "p1", "en", nil)
+	if _, err := rv.Verify(tok); err != nil {
+		t.Fatalf("the previous valid key set must survive a malformed refresh: %v", err)
 	}
 }
 
@@ -276,7 +419,7 @@ func TestRemoteVerifier_GarbageToken(t *testing.T) {
 	s := newTestSigner(t)
 	srv, _ := serveJWKS(t, s)
 
-	rv, err := NewRemoteVerifier(context.Background(), srv.URL+"/.well-known/jwks.json", "mindmesh-test")
+	rv, err := NewRemoteVerifier(testCtx(t), srv.URL+"/.well-known/jwks.json", "mindmesh-test")
 	if err != nil {
 		t.Fatalf("NewRemoteVerifier: %v", err)
 	}
@@ -293,7 +436,7 @@ func TestRemoteVerifier_MissingKIDHeader(t *testing.T) {
 	s := newTestSigner(t)
 	srv, _ := serveJWKS(t, s)
 
-	rv, err := NewRemoteVerifier(context.Background(), srv.URL+"/.well-known/jwks.json", "mindmesh-test")
+	rv, err := NewRemoteVerifier(testCtx(t), srv.URL+"/.well-known/jwks.json", "mindmesh-test")
 	if err != nil {
 		t.Fatalf("NewRemoteVerifier: %v", err)
 	}
@@ -353,7 +496,7 @@ func TestRemoteVerifier_FailedRefreshRateLimits(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	rv, err := NewRemoteVerifier(context.Background(), srv.URL+"/.well-known/jwks.json", "mindmesh-test")
+	rv, err := NewRemoteVerifier(testCtx(t), srv.URL+"/.well-known/jwks.json", "mindmesh-test")
 	if err != nil {
 		t.Fatalf("NewRemoteVerifier: %v", err)
 	}
@@ -390,5 +533,50 @@ func TestRemoteVerifier_FailedRefreshRateLimits(t *testing.T) {
 	// The second Verify must NOT trigger another fetch.
 	if n := hits.Load(); n != 2 {
 		t.Errorf("JWKS endpoint hit count: got %d, want 2 (1 construction + 1 refresh attempt)", n)
+	}
+}
+
+// TestRemoteVerifier_UnknownKidDoesNotQueueBehindSlowFetch: while one request is refreshing, others fail fast.
+func TestRemoteVerifier_UnknownKidDoesNotQueueBehindSlowFetch(t *testing.T) {
+	s, otherA, otherB := newTestSigner(t), newTestSigner(t), newTestSigner(t)
+	var block atomic.Bool
+	entered, release := make(chan struct{}, 1), make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if block.Load() {
+			entered <- struct{}{}
+			<-release
+		}
+		_ = json.NewEncoder(w).Encode(BuildJWKS(s))
+	}))
+	t.Cleanup(srv.Close)
+	t.Cleanup(func() { close(release) })
+
+	rv, err := NewRemoteVerifier(testCtx(t), srv.URL, "mindmesh-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rv.mu.Lock()
+	rv.lastRefresh = time.Time{} // allow one on-demand refresh
+	rv.mu.Unlock()
+	block.Store(true)
+
+	tokA, _, _ := otherA.SignAccess("u1", "p1", "en", nil)
+	tokB, _, _ := otherB.SignAccess("u1", "p1", "en", nil)
+	go func() { _, _ = rv.Verify(tokA) }() // starts the slow refresh
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the on-demand refresh never started")
+	}
+
+	done := make(chan error, 1)
+	go func() { _, err := rv.Verify(tokB); done <- err }()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("an unknown kid must be rejected")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("an unknown-kid request queued behind the slow refresh")
 	}
 }

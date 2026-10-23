@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -191,7 +192,7 @@ func TestSignRefreshWithID(t *testing.T) {
 
 func TestVerifyExpired(t *testing.T) {
 	cfg := defaultCfg()
-	cfg.AccessTokenTTL = -1 * time.Second
+	cfg.AccessTokenTTL = -time.Minute // past the clock leeway
 	s := newEphemeralSigner(t, cfg)
 
 	tokenStr, _, err := s.SignAccess("u1", "p1", "en", []string{"user"})
@@ -483,5 +484,56 @@ func TestGRPCAuthInterceptorInvalidTokenViaMock(t *testing.T) {
 	}
 	if st.Code() != codes.Unauthenticated {
 		t.Errorf("gRPC code: got %v, want %v", st.Code(), codes.Unauthenticated)
+	}
+}
+
+func TestVerifyEnforcesTokenShape(t *testing.T) {
+	s := newEphemeralSigner(t, defaultCfg())
+	good, _, err := s.SignAccess("u1", "p1", "en", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c, err := s.Verify(good); err != nil || len(c.Audience) != 1 || c.Audience[0] != Audience {
+		t.Fatalf("want a token carrying aud=%q, got %+v, %v", Audience, c, err)
+	}
+
+	sign := func(mutate func(*Claims)) string {
+		now := time.Now()
+		c := Claims{
+			RegisteredClaims: jwt.RegisteredClaims{
+				Subject: "u1", Issuer: s.cfg.Issuer, Audience: jwt.ClaimStrings{Audience},
+				IssuedAt: jwt.NewNumericDate(now), ExpiresAt: jwt.NewNumericDate(now.Add(time.Minute)),
+			},
+			Kind: "access",
+		}
+		mutate(&c)
+		tok := jwt.NewWithClaims(jwt.SigningMethodEdDSA, c)
+		tok.Header["kid"] = s.kid
+		str, err := tok.SignedString(s.priv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return str
+	}
+	if _, err := s.Verify(sign(func(*Claims) {})); err != nil {
+		t.Fatalf("control token should verify: %v", err)
+	}
+	for name, tok := range map[string]string{
+		"no audience":      sign(func(c *Claims) { c.Audience = nil }),
+		"other audience":   sign(func(c *Claims) { c.Audience = jwt.ClaimStrings{"collection-internal"} }),
+		"no expiry":        sign(func(c *Claims) { c.ExpiresAt = nil }),
+		"issued in future": sign(func(c *Claims) { c.IssuedAt = jwt.NewNumericDate(time.Now().Add(time.Hour)) }),
+	} {
+		if _, err := s.Verify(tok); err == nil {
+			t.Errorf("%s: want rejection", name)
+		}
+	}
+
+	hs, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, Claims{RegisteredClaims: jwt.RegisteredClaims{
+		Subject: "u1", Issuer: s.cfg.Issuer, Audience: jwt.ClaimStrings{Audience},
+		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Minute)),
+	}, Kind: "access"}).SignedString([]byte(s.pub))
+	if _, err := s.Verify(hs); err == nil {
+		t.Error("HS256 signed with the public key bytes: want rejection")
 	}
 }

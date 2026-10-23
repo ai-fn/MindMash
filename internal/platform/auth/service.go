@@ -126,7 +126,7 @@ func (v *ServiceVerifier) Verify(tokenString string) (string, error) {
 		jwt.WithAudience(v.audience),
 		jwt.WithExpirationRequired(),
 		jwt.WithIssuedAt(),
-		jwt.WithLeeway(5*time.Second),
+		jwt.WithLeeway(clockLeeway),
 	)
 	if err != nil {
 		return "", errors.Unauthenticated("invalid service token", err)

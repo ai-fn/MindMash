@@ -17,6 +17,12 @@ import (
 	"github.com/mindmesh/mindmesh/internal/platform/ids"
 )
 
+// Audience marks tokens meant for MindMesh's own API; service tokens use their own audience.
+const Audience = "mindmesh"
+
+// clockLeeway absorbs clock skew between the issuer and verifiers.
+const clockLeeway = 5 * time.Second
+
 type Config struct {
 	PrivateKeyPath  string
 	PublicKeyPath   string
@@ -116,6 +122,7 @@ func (s *Signer) SignAccess(userID, profileID, locale string, roles []string) (s
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   userID,
 			Issuer:    s.cfg.Issuer,
+			Audience:  jwt.ClaimStrings{Audience},
 			ID:        jti,
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(s.cfg.AccessTokenTTL)),
@@ -152,6 +159,7 @@ func (s *Signer) SignRefreshWithID(userID, profileID, jti string) (string, error
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   userID,
 			Issuer:    s.cfg.Issuer,
+			Audience:  jwt.ClaimStrings{Audience},
 			ID:        jti,
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(s.cfg.RefreshTokenTTL)),
@@ -178,11 +186,26 @@ func (s *Signer) Verify(tokenString string) (*Claims, error) {
 			return nil, fmt.Errorf("auth: unexpected signing method: %v", t.Header["alg"])
 		}
 		return s.pub, nil
-	}, jwt.WithIssuedAt(), jwt.WithIssuer(s.cfg.Issuer))
+	}, userTokenOptions(s.cfg.Issuer)...)
 	if err != nil {
 		return nil, errors.Unauthenticated("invalid token", err)
 	}
 	return claims, nil
+}
+
+// userTokenOptions is the validation every verifier applies to user tokens; an empty issuer skips the iss check.
+func userTokenOptions(issuer string) []jwt.ParserOption {
+	opts := []jwt.ParserOption{
+		jwt.WithValidMethods([]string{jwt.SigningMethodEdDSA.Alg()}),
+		jwt.WithAudience(Audience),
+		jwt.WithExpirationRequired(),
+		jwt.WithIssuedAt(),
+		jwt.WithLeeway(clockLeeway),
+	}
+	if issuer != "" {
+		opts = append(opts, jwt.WithIssuer(issuer))
+	}
+	return opts
 }
 
 func (s *Signer) PublicKey() ed25519.PublicKey {

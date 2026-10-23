@@ -6,24 +6,39 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
+	"math/rand/v2"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	"github.com/mindmesh/mindmesh/internal/platform/errors"
 )
 
-const minRefreshInterval = 30 * time.Second
+const (
+	minRefreshInterval  = 30 * time.Second // floor between unknown-kid refreshes
+	jwksRefreshInterval = 5 * time.Minute  // background refresh, so rotated or revoked keys propagate
+	maxJWKSBackoff      = 30 * time.Second
+	maxJWKSBytes        = 1 << 20
+)
 
-// RemoteVerifier fetches a JWKS from a URL, caches the parsed Ed25519 public
-// keys in memory, and implements the Verifier interface.  It is safe for
-// concurrent use.
+var jwksRefreshFailures = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "mindmesh_jwks_refresh_failures_total",
+	Help: "Failed JWKS fetches by remote verifiers.",
+})
+
+// RemoteVerifier caches the Ed25519 keys of a JWKS endpoint, refreshes them in the
+// background and implements Verifier. Keys stay cached through an Identity outage, so revocation
+// needs Identity reachable. It is safe for concurrent use.
 type RemoteVerifier struct {
 	jwksURL string
 	issuer  string
 	client  *http.Client
+	life    context.Context // process lifetime: on-demand fetches have no request ctx but must stop on shutdown
 
 	fetchMu sync.Mutex // serializes concurrent HTTP fetches; always acquired before mu, never while mu is held
 
@@ -32,11 +47,14 @@ type RemoteVerifier struct {
 	lastRefresh time.Time
 }
 
-// NewRemoteVerifier creates a RemoteVerifier and performs the initial JWKS
-// fetch.  Returns an error if jwksURL is empty or the initial fetch fails.
-// When issuer is non-empty, Verify enforces the "iss" claim; pass "" to skip
-// issuer validation.
+// NewRemoteVerifier starts a verifier that refreshes the JWKS until ctx is done. A failed first
+// fetch is not fatal (Identity may still be starting): tokens are rejected and the fetch is
+// retried with backoff. When issuer is non-empty, Verify enforces the "iss" claim.
 func NewRemoteVerifier(ctx context.Context, jwksURL, issuer string) (*RemoteVerifier, error) {
+	return newRemoteVerifier(ctx, jwksURL, issuer, jwksRefreshInterval)
+}
+
+func newRemoteVerifier(ctx context.Context, jwksURL, issuer string, interval time.Duration) (*RemoteVerifier, error) {
 	if jwksURL == "" {
 		return nil, fmt.Errorf("auth: JWKS_URL is not set")
 	}
@@ -44,35 +62,54 @@ func NewRemoteVerifier(ctx context.Context, jwksURL, issuer string) (*RemoteVeri
 		jwksURL: jwksURL,
 		issuer:  issuer,
 		client:  &http.Client{Timeout: 10 * time.Second},
+		life:    ctx,
 		keys:    make(map[string]ed25519.PublicKey),
 	}
-	if err := rv.refresh(ctx); err != nil {
-		return nil, fmt.Errorf("auth: initial JWKS fetch: %w", err)
+	failed := rv.refresh(ctx) != nil
+	if failed {
+		jwksRefreshFailures.Inc()
 	}
+	go rv.refreshLoop(ctx, interval, failed)
 	return rv, nil
 }
 
-// Verify implements Verifier.  It parses and validates the JWT, refreshing
-// the cached key-set at most once per minRefreshInterval when an unknown kid
-// is encountered.
-func (rv *RemoteVerifier) Verify(tokenString string) (*Claims, error) {
-	pub, err := rv.keyForToken(tokenString)
-	if err != nil {
-		return nil, errors.Unauthenticated("invalid token", err)
-	}
-
-	parseOpts := []jwt.ParserOption{jwt.WithIssuedAt()}
-	if rv.issuer != "" {
-		parseOpts = append(parseOpts, jwt.WithIssuer(rv.issuer))
-	}
-
-	claims := &Claims{}
-	_, err = jwt.ParseWithClaims(tokenString, claims, func(t *jwt.Token) (any, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodEd25519); !ok {
-			return nil, fmt.Errorf("auth: unexpected signing method: %v", t.Header["alg"])
+func (rv *RemoteVerifier) refreshLoop(ctx context.Context, interval time.Duration, failing bool) {
+	backoff := min(time.Second, interval)
+	for {
+		wait := interval
+		if failing {
+			wait = backoff
+			backoff = min(backoff*2, maxJWKSBackoff)
 		}
-		return pub, nil
-	}, parseOpts...)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(jitter(wait)):
+		}
+		failing = rv.refresh(ctx) != nil
+		if failing {
+			jwksRefreshFailures.Inc()
+		} else {
+			backoff = min(time.Second, interval)
+		}
+	}
+}
+
+// jitter spreads d by ±10% so replicas and restarted services don't hit Identity in lockstep.
+func jitter(d time.Duration) time.Duration {
+	return d - d/10 + rand.N(d/5+1)
+}
+
+// Verify implements Verifier. An unknown kid triggers at most one refresh per minRefreshInterval.
+func (rv *RemoteVerifier) Verify(tokenString string) (*Claims, error) {
+	claims := &Claims{}
+	_, err := jwt.ParseWithClaims(tokenString, claims, func(t *jwt.Token) (any, error) {
+		kid, _ := t.Header["kid"].(string)
+		if kid == "" {
+			return nil, fmt.Errorf("auth: token missing kid header")
+		}
+		return rv.keyFor(kid)
+	}, userTokenOptions(rv.issuer)...)
 	if err != nil {
 		return nil, errors.Unauthenticated("invalid token", err)
 	}
@@ -82,54 +119,41 @@ func (rv *RemoteVerifier) Verify(tokenString string) (*Claims, error) {
 	return claims, nil
 }
 
-// keyForToken extracts the kid from the token header, looks it up in the
-// cache, and refreshes once if it is unknown (subject to rate-limit).
-func (rv *RemoteVerifier) keyForToken(tokenString string) (ed25519.PublicKey, error) {
-	kid, err := extractKID(tokenString)
-	if err != nil {
-		return nil, err
-	}
-
-	// Fast path: cache hit.
+// keyFor returns the cached key for kid, refreshing once if it is unknown (rate-limited).
+func (rv *RemoteVerifier) keyFor(kid string) (ed25519.PublicKey, error) {
 	rv.mu.RLock()
 	pub, ok := rv.keys[kid]
+	limited := time.Since(rv.lastRefresh) < minRefreshInterval
 	rv.mu.RUnlock()
 	if ok {
 		return pub, nil
 	}
+	// Fail fast outside the lock: queueing behind a slow fetch would stall every unknown-kid request.
+	if limited {
+		return nil, fmt.Errorf("auth: unknown kid %q", kid)
+	}
 
-	// Unknown kid — acquire fetchMu to serialize concurrent refresh attempts.
-	// While we waited for fetchMu, another goroutine may have already fetched
-	// and loaded the key, so we re-check the cache before doing any I/O.
 	rv.fetchMu.Lock()
 	defer rv.fetchMu.Unlock()
 
-	// Double-check: another goroutine may have refreshed while we waited.
-	rv.mu.RLock()
-	pub, ok = rv.keys[kid]
-	rv.mu.RUnlock()
-	if ok {
+	// Re-check under the lock: another goroutine may have refreshed while we waited.
+	rv.mu.Lock()
+	if pub, ok = rv.keys[kid]; ok {
+		rv.mu.Unlock()
 		return pub, nil
 	}
-
-	// Rate-limit check and stamp under write-lock (held for microseconds).
-	rv.mu.Lock()
 	if time.Since(rv.lastRefresh) < minRefreshInterval {
 		rv.mu.Unlock()
 		return nil, fmt.Errorf("auth: unknown kid %q", kid)
 	}
-	// Stamp lastRefresh at the start of the attempt so that failed refreshes
-	// are also rate-limited (Issue #2).
-	rv.lastRefresh = time.Now()
+	rv.lastRefresh = time.Now() // stamped before fetching so failures are rate-limited too
 	rv.mu.Unlock()
 
-	// HTTP fetch — no lock held; fetchMu already prevents concurrent fetches.
-	newKeys, fetchErr := rv.fetchKeysRaw(context.Background())
-	if fetchErr != nil {
-		return nil, fmt.Errorf("auth: unknown kid %q (refresh failed: %w)", kid, fetchErr)
+	newKeys, err := rv.fetchKeysRaw(rv.life)
+	if err != nil {
+		jwksRefreshFailures.Inc()
+		return nil, fmt.Errorf("auth: unknown kid %q (refresh failed: %w)", kid, err)
 	}
-
-	// Swap the key map under write-lock (held for microseconds).
 	rv.mu.Lock()
 	rv.keys = newKeys
 	rv.mu.Unlock()
@@ -141,12 +165,15 @@ func (rv *RemoteVerifier) keyForToken(tokenString string) (ed25519.PublicKey, er
 	return pub, nil
 }
 
-// refresh fetches the JWKS endpoint and updates the in-memory key cache.
-// It is used only for the initial fetch at construction time.
-// Callers must NOT hold rv.mu or rv.fetchMu.
+// refresh fetches the JWKS and replaces the cache; on failure the previous keys stay.
 func (rv *RemoteVerifier) refresh(ctx context.Context) error {
 	rv.fetchMu.Lock()
 	defer rv.fetchMu.Unlock()
+
+	// Stamped first, so unknown-kid requests arriving during a slow fetch fail fast instead of queueing.
+	rv.mu.Lock()
+	rv.lastRefresh = time.Now()
+	rv.mu.Unlock()
 
 	newKeys, err := rv.fetchKeysRaw(ctx)
 	if err != nil {
@@ -154,7 +181,6 @@ func (rv *RemoteVerifier) refresh(ctx context.Context) error {
 	}
 	rv.mu.Lock()
 	rv.keys = newKeys
-	rv.lastRefresh = time.Now()
 	rv.mu.Unlock()
 	return nil
 }
@@ -180,7 +206,7 @@ func (rv *RemoteVerifier) fetchKeysRaw(ctx context.Context) (map[string]ed25519.
 	}
 
 	var jwks JWKS
-	if err := json.NewDecoder(resp.Body).Decode(&jwks); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxJWKSBytes)).Decode(&jwks); err != nil {
 		return nil, fmt.Errorf("auth: decode JWKS: %w", err)
 	}
 
@@ -189,14 +215,10 @@ func (rv *RemoteVerifier) fetchKeysRaw(ctx context.Context) (map[string]ed25519.
 		if k.Kty != "OKP" || k.Crv != "Ed25519" {
 			continue
 		}
+		// A malformed Ed25519 entry fails the fetch: swapping in a set without it would drop its valid kid.
 		raw, err := base64.RawURLEncoding.DecodeString(k.X)
-		if err != nil {
-			// Skip individual bad keys rather than aborting the entire key-set.
-			continue
-		}
-		if len(raw) != ed25519.PublicKeySize {
-			// Skip keys with wrong length rather than aborting the entire key-set.
-			continue
+		if err != nil || len(raw) != ed25519.PublicKeySize {
+			return nil, fmt.Errorf("auth: malformed Ed25519 key %q in JWKS", k.Kid)
 		}
 		pub := ed25519.PublicKey(raw)
 		// Use the kid served in the JWKS, falling back to ComputeKID if absent.
@@ -211,20 +233,4 @@ func (rv *RemoteVerifier) fetchKeysRaw(ctx context.Context) (map[string]ed25519.
 		return nil, fmt.Errorf("auth: JWKS contains no usable Ed25519 keys")
 	}
 	return newKeys, nil
-}
-
-// extractKID parses only the JWT header (no signature verification) to read
-// the "kid" field.
-func extractKID(tokenString string) (string, error) {
-	p := jwt.NewParser()
-	// ParseUnverified does not validate the signature or claims.
-	token, _, err := p.ParseUnverified(tokenString, &Claims{})
-	if err != nil {
-		return "", fmt.Errorf("auth: parse token header: %w", err)
-	}
-	kid, ok := token.Header["kid"].(string)
-	if !ok || kid == "" {
-		return "", fmt.Errorf("auth: token missing kid header")
-	}
-	return kid, nil
 }
