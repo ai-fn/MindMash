@@ -617,6 +617,13 @@ func (s *Service) CreateDeck(ctx context.Context, userID, profileID, name, paren
 	}
 
 	if err := s.repo.WithTx(ctx, func(tx Repository) error {
+		// Lock before reading the parent so a concurrent move can't leave this child with a stale path.
+		usn, err := tx.NextUSN(ctx, userID)
+		if err != nil {
+			return err
+		}
+		deck.USN = usn
+
 		parentPath := ""
 		if parentID != "" {
 			parent, err := tx.GetDeck(ctx, userID, parentID)
@@ -626,12 +633,6 @@ func (s *Service) CreateDeck(ctx context.Context, userID, profileID, name, paren
 			parentPath = parent.Path
 		}
 		deck.Path = deckPath(deck.ID, parentPath)
-
-		usn, err := tx.NextUSN(ctx, userID)
-		if err != nil {
-			return err
-		}
-		deck.USN = usn
 		if err := tx.CreateDeck(ctx, deck); err != nil {
 			return err
 		}
@@ -653,20 +654,18 @@ func (s *Service) ListDecks(ctx context.Context, userID string, page Page) ([]De
 func (s *Service) UpdateDeck(ctx context.Context, userID, id string, expectedUSN int64, name, parentID, configID string) (*Deck, error) {
 	var updated *Deck
 	if err := s.repo.WithTx(ctx, func(tx Repository) error {
-		// Read inside the transaction to close the TOCTOU window between the USN
-		// check and the subsequent UPDATE. existing.Path is also needed for the
-		// subtree recompute, so the in-tx read serves both purposes.
+		// NextUSN locks the user's USN row first, serialising deck moves so the
+		// cycle check and subtree paths below read committed state.
+		usn, err := tx.NextUSN(ctx, userID)
+		if err != nil {
+			return err
+		}
 		existing, err := tx.GetDeck(ctx, userID, id)
 		if err != nil {
 			return err
 		}
 		if expectedUSN != 0 && existing.USN != expectedUSN {
 			return platformerrors.Aborted("stale expected_usn; refetch and retry")
-		}
-
-		usn, err := tx.NextUSN(ctx, userID)
-		if err != nil {
-			return err
 		}
 		now := time.Now().UTC()
 
@@ -681,6 +680,9 @@ func (s *Service) UpdateDeck(ctx context.Context, userID, id string, expectedUSN
 			parent, err := tx.GetDeck(ctx, userID, parentID)
 			if err != nil {
 				return err
+			}
+			if parent.Path == existing.Path || strings.HasPrefix(parent.Path, existing.Path+".") {
+				return platformerrors.InvalidArgument("cannot move a deck under itself or its descendant")
 			}
 			newParentPath = parent.Path
 		}

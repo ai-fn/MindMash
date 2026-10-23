@@ -550,3 +550,149 @@ func TestOutbox_WrittenAtomically(t *testing.T) {
 		t.Fatalf("want new outbox rows after CreateNoteType, count unchanged at %d", after)
 	}
 }
+
+// ─── Deck move cycle check ───────────────────────────────────────────────────
+
+func TestUpdateDeck_RejectsCycles(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+
+	root := defaultDeck(t, c)
+	child, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, "Child", root.ID, "")
+	if err != nil {
+		t.Fatalf("CreateDeck child: %v", err)
+	}
+	grandchild, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, "Grandchild", child.ID, "")
+	if err != nil {
+		t.Fatalf("CreateDeck grandchild: %v", err)
+	}
+
+	for name, parentID := range map[string]string{"self": root.ID, "child": child.ID, "grandchild": grandchild.ID} {
+		t.Run(name, func(t *testing.T) {
+			_, err := c.svc.UpdateDeck(ctx, testUserID, root.ID, 0, root.Name, parentID, "")
+			if !platformerrors.IsInvalidArgument(err) {
+				t.Fatalf("got %v, want InvalidArgument", err)
+			}
+		})
+	}
+
+	got, err := c.svc.GetDeck(ctx, testUserID, root.ID)
+	if err != nil {
+		t.Fatalf("GetDeck: %v", err)
+	}
+	if got.ParentID != nil || got.Path != root.Path {
+		t.Fatalf("root changed after rejected moves: parent=%v path=%q", got.ParentID, got.Path)
+	}
+}
+
+func TestUpdateDeck_ConcurrentSwapNoCycle(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+
+	for i := range 10 {
+		a, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, "A", "", "")
+		if err != nil {
+			t.Fatalf("CreateDeck A: %v", err)
+		}
+		b, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, "B", "", "")
+		if err != nil {
+			t.Fatalf("CreateDeck B: %v", err)
+		}
+
+		start := make(chan struct{})
+		errs := make(chan error, 2)
+		move := func(id, name, parentID string) {
+			<-start
+			_, err := c.svc.UpdateDeck(ctx, testUserID, id, 0, name, parentID, "")
+			errs <- err
+		}
+		go move(a.ID, "A", b.ID)
+		go move(b.ID, "B", a.ID)
+		close(start)
+		var ok int
+		for range 2 {
+			err := <-errs
+			switch {
+			case err == nil:
+				ok++
+			case !platformerrors.IsInvalidArgument(err):
+				t.Fatalf("iter %d: unexpected error %v", i, err)
+			}
+		}
+		if ok != 1 {
+			t.Fatalf("iter %d: %d moves succeeded, want exactly 1", i, ok)
+		}
+
+		gotA, err := c.svc.GetDeck(ctx, testUserID, a.ID)
+		if err != nil {
+			t.Fatalf("GetDeck A: %v", err)
+		}
+		gotB, err := c.svc.GetDeck(ctx, testUserID, b.ID)
+		if err != nil {
+			t.Fatalf("GetDeck B: %v", err)
+		}
+		if gotA.ParentID != nil && gotB.ParentID != nil {
+			t.Fatalf("iter %d: cycle A↔B", i)
+		}
+		if gotA.Path != deckPath(a.ID, pathOfParent(t, c, gotA)) || gotB.Path != deckPath(b.ID, pathOfParent(t, c, gotB)) {
+			t.Fatalf("iter %d: inconsistent paths A=%q B=%q", i, gotA.Path, gotB.Path)
+		}
+	}
+}
+
+func TestCreateDeck_ConcurrentWithParentMove(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+
+	for i := range 10 {
+		parent, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, "P", "", "")
+		if err != nil {
+			t.Fatalf("CreateDeck P: %v", err)
+		}
+		target, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, "T", "", "")
+		if err != nil {
+			t.Fatalf("CreateDeck T: %v", err)
+		}
+
+		start := make(chan struct{})
+		var child *Deck
+		createErr := make(chan error, 1)
+		moved := make(chan error, 1)
+		go func() {
+			<-start
+			var err error
+			child, err = c.svc.CreateDeck(ctx, testUserID, testProfileID, "C", parent.ID, "")
+			createErr <- err
+		}()
+		go func() {
+			<-start
+			_, err := c.svc.UpdateDeck(ctx, testUserID, parent.ID, 0, "P", target.ID, "")
+			moved <- err
+		}()
+		close(start)
+		cErr, mErr := <-createErr, <-moved
+		if cErr != nil || mErr != nil {
+			t.Fatalf("iter %d: create child: %v, move parent: %v", i, cErr, mErr)
+		}
+
+		got, err := c.svc.GetDeck(ctx, testUserID, child.ID)
+		if err != nil {
+			t.Fatalf("GetDeck child: %v", err)
+		}
+		if want := deckPath(child.ID, pathOfParent(t, c, got)); got.Path != want {
+			t.Fatalf("iter %d: child path %q, want %q", i, got.Path, want)
+		}
+	}
+}
+
+func pathOfParent(t *testing.T, c integrationComponents, d *Deck) string {
+	t.Helper()
+	if d.ParentID == nil {
+		return ""
+	}
+	p, err := c.svc.GetDeck(context.Background(), testUserID, *d.ParentID)
+	if err != nil {
+		t.Fatalf("GetDeck parent: %v", err)
+	}
+	return p.Path
+}
