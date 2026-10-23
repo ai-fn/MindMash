@@ -741,36 +741,64 @@ func (s *Service) UpdateDeck(ctx context.Context, userID, id string, expectedUSN
 	return updated, nil
 }
 
+// DeleteDeck reparents the deck's children to its parent (or to root), then deletes it.
 func (s *Service) DeleteDeck(ctx context.Context, userID, id string, expectedUSN int64) error {
 	return s.repo.WithTx(ctx, func(tx Repository) error {
-		if expectedUSN != 0 {
-			existing, err := tx.GetDeck(ctx, userID, id)
-			if err != nil {
-				return err
-			}
-			if existing.USN != expectedUSN {
-				return platformerrors.Aborted("stale expected_usn; refetch and retry")
-			}
-		}
 		usn, err := tx.NextUSN(ctx, userID)
 		if err != nil {
 			return err
 		}
+		existing, err := tx.GetDeck(ctx, userID, id)
+		if err != nil {
+			return err
+		}
+		if expectedUSN != 0 && existing.USN != expectedUSN {
+			return platformerrors.Aborted("stale expected_usn; refetch and retry")
+		}
+
+		subtree, err := tx.ListSubtreeDecks(ctx, userID, existing.Path)
+		if err != nil {
+			return err
+		}
+		parentPath := strings.TrimSuffix(strings.TrimSuffix(existing.Path, deckLabel(id)), ".")
+		now := time.Now().UTC()
+		outboxEntries := make([]events.OutboxEntry, 0, len(subtree))
+		for _, d := range subtree {
+			if d.ID == id {
+				continue
+			}
+			rest := d.Path[len(existing.Path)+1:]
+			d.Path = rest
+			if parentPath != "" {
+				d.Path = parentPath + "." + rest
+			}
+			if d.ParentID != nil && *d.ParentID == id {
+				d.ParentID = existing.ParentID
+			}
+			d.USN = usn
+			d.Mtime = now
+			if err := tx.UpdateDeck(ctx, &d); err != nil {
+				return err
+			}
+			outboxEntries = append(outboxEntries, deckEntry(&d, EventDeckUpdated))
+		}
+
 		if err := tx.DeleteDeck(ctx, userID, id); err != nil {
 			return err
 		}
 		if err := tx.WriteTombstone(ctx, userID, TombstoneDeck, id, usn); err != nil {
 			return err
 		}
-		return tx.WriteOutbox(ctx, []events.OutboxEntry{{
+		outboxEntries = append(outboxEntries, events.OutboxEntry{
 			ID:            ids.NewUUID(), // outbox.id is UUID, not ULID
 			UserID:        userID,
 			AggregateType: "deck",
 			AggregateID:   id,
 			EventType:     EventDeckDeleted,
 			Payload:       mustMarshal(map[string]any{"id": id, "user_id": userID, "usn": usn}),
-			CreatedAt:     time.Now().UTC(),
-		}})
+			CreatedAt:     now,
+		})
+		return tx.WriteOutbox(ctx, outboxEntries)
 	})
 }
 
@@ -846,8 +874,13 @@ func (s *Service) UpdateDeckConfig(ctx context.Context, userID, id string, expec
 	return existing, nil
 }
 
+// DeleteDeckConfig resets decks using the config to the default, then deletes it.
 func (s *Service) DeleteDeckConfig(ctx context.Context, userID, id string, expectedUSN int64) error {
 	return s.repo.WithTx(ctx, func(tx Repository) error {
+		usn, err := tx.NextUSN(ctx, userID)
+		if err != nil {
+			return err
+		}
 		if expectedUSN != 0 {
 			existing, err := tx.GetDeckConfig(ctx, userID, id)
 			if err != nil {
@@ -857,25 +890,39 @@ func (s *Service) DeleteDeckConfig(ctx context.Context, userID, id string, expec
 				return platformerrors.Aborted("stale expected_usn; refetch and retry")
 			}
 		}
-		usn, err := tx.NextUSN(ctx, userID)
+
+		decks, err := tx.ListDecksByConfig(ctx, userID, id)
 		if err != nil {
 			return err
 		}
+		now := time.Now().UTC()
+		outboxEntries := make([]events.OutboxEntry, 0, len(decks)+1)
+		for _, d := range decks {
+			d.ConfigID = nil
+			d.USN = usn
+			d.Mtime = now
+			if err := tx.UpdateDeck(ctx, &d); err != nil {
+				return err
+			}
+			outboxEntries = append(outboxEntries, deckEntry(&d, EventDeckUpdated))
+		}
+
 		if err := tx.DeleteDeckConfig(ctx, userID, id); err != nil {
 			return err
 		}
 		if err := tx.WriteTombstone(ctx, userID, TombstoneDeckConfig, id, usn); err != nil {
 			return err
 		}
-		return tx.WriteOutbox(ctx, []events.OutboxEntry{{
+		outboxEntries = append(outboxEntries, events.OutboxEntry{
 			ID:            ids.NewUUID(), // outbox.id is UUID, not ULID
 			UserID:        userID,
 			AggregateType: "deck_config",
 			AggregateID:   id,
 			EventType:     EventDeckConfigDeleted,
 			Payload:       mustMarshal(map[string]any{"id": id, "user_id": userID, "usn": usn}),
-			CreatedAt:     time.Now().UTC(),
-		}})
+			CreatedAt:     now,
+		})
+		return tx.WriteOutbox(ctx, outboxEntries)
 	})
 }
 

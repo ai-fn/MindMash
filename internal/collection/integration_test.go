@@ -26,13 +26,18 @@ type integrationComponents struct {
 
 func setupIntegration(t *testing.T) integrationComponents {
 	t.Helper()
+	return setupIntegrationOn(t, "postgres:18-alpine", false)
+}
+
+func setupIntegrationOn(t *testing.T, image string, citus bool) integrationComponents {
+	t.Helper()
 	ctx := context.Background()
 
 	// The postgres image restarts its server process after initdb; without an
 	// explicit occurrence count the default wait strategy can report ready
 	// after the first (pre-restart) boot, so the first connection attempt
 	// hits a server that's about to restart ("connection reset by peer").
-	pgCtr, err := postgres.Run(ctx, "postgres:18-alpine",
+	pgCtr, err := postgres.Run(ctx, image,
 		postgres.WithDatabase("collection_test"),
 		postgres.WithUsername("test"),
 		postgres.WithPassword("test"),
@@ -51,15 +56,19 @@ func setupIntegration(t *testing.T) integrationComponents {
 	if err != nil {
 		t.Fatalf("pg connection string: %v", err)
 	}
-	if err := platformdb.RunMigrations(ctx, dsn, "../../migrations/collection"); err != nil {
-		t.Fatalf("run migrations: %v", err)
-	}
-
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		t.Fatalf("pgxpool: %v", err)
 	}
 	t.Cleanup(pool.Close)
+	if citus {
+		if _, err := pool.Exec(ctx, `CREATE EXTENSION IF NOT EXISTS citus`); err != nil {
+			t.Fatalf("create citus extension: %v", err)
+		}
+	}
+	if err := platformdb.RunMigrations(ctx, dsn, "../../migrations/collection"); err != nil {
+		t.Fatalf("run migrations: %v", err)
+	}
 
 	repo := NewPostgresRepository(pool)
 	svc := NewService(repo, zap.NewNop())
@@ -695,4 +704,223 @@ func pathOfParent(t *testing.T, c integrationComponents, d *Deck) string {
 		t.Fatalf("GetDeck parent: %v", err)
 	}
 	return p.Path
+}
+
+// ─── Deck / config deletion ──────────────────────────────────────────────────
+
+func TestDeleteDeck_ReparentsChildrenToGrandparent(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+
+	root := defaultDeck(t, c)
+	mid, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, "Mid", root.ID, "")
+	if err != nil {
+		t.Fatalf("CreateDeck mid: %v", err)
+	}
+	child, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, "Child", mid.ID, "")
+	if err != nil {
+		t.Fatalf("CreateDeck child: %v", err)
+	}
+	grandchild, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, "Grandchild", child.ID, "")
+	if err != nil {
+		t.Fatalf("CreateDeck grandchild: %v", err)
+	}
+
+	if err := c.svc.DeleteDeck(ctx, testUserID, mid.ID, 0); err != nil {
+		t.Fatalf("DeleteDeck: %v", err)
+	}
+	if _, err := c.svc.GetDeck(ctx, testUserID, mid.ID); !platformerrors.IsNotFound(err) {
+		t.Fatalf("deleted deck: got %v, want NotFound", err)
+	}
+
+	gotChild, err := c.svc.GetDeck(ctx, testUserID, child.ID)
+	if err != nil {
+		t.Fatalf("GetDeck child: %v", err)
+	}
+	if gotChild.ParentID == nil || *gotChild.ParentID != root.ID {
+		t.Fatalf("child parent = %v, want %s", gotChild.ParentID, root.ID)
+	}
+	if want := deckPath(child.ID, root.Path); gotChild.Path != want {
+		t.Fatalf("child path %q, want %q", gotChild.Path, want)
+	}
+	gotGrand, err := c.svc.GetDeck(ctx, testUserID, grandchild.ID)
+	if err != nil {
+		t.Fatalf("GetDeck grandchild: %v", err)
+	}
+	if gotGrand.ParentID == nil || *gotGrand.ParentID != child.ID {
+		t.Fatalf("grandchild parent = %v, want %s", gotGrand.ParentID, child.ID)
+	}
+	if want := deckPath(grandchild.ID, gotChild.Path); gotGrand.Path != want {
+		t.Fatalf("grandchild path %q, want %q", gotGrand.Path, want)
+	}
+	if gotChild.USN <= child.USN || gotGrand.USN <= grandchild.USN {
+		t.Fatalf("descendant USNs not bumped: child %d→%d, grandchild %d→%d",
+			child.USN, gotChild.USN, grandchild.USN, gotGrand.USN)
+	}
+
+	var updates int
+	if err := c.pool.QueryRow(ctx, `SELECT COUNT(*) FROM outbox WHERE user_id = $1 AND event_type = $2 AND aggregate_id = ANY($3)`,
+		testUserID, EventDeckUpdated, []string{child.ID, grandchild.ID}).Scan(&updates); err != nil {
+		t.Fatalf("count outbox: %v", err)
+	}
+	if updates != 2 {
+		t.Fatalf("deck.updated outbox rows for descendants = %d, want 2", updates)
+	}
+}
+
+func TestDeleteDeck_RootChildrenBecomeRoots(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+
+	root := defaultDeck(t, c)
+	child, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, "Child", root.ID, "")
+	if err != nil {
+		t.Fatalf("CreateDeck child: %v", err)
+	}
+	if err := c.svc.DeleteDeck(ctx, testUserID, root.ID, 0); err != nil {
+		t.Fatalf("DeleteDeck: %v", err)
+	}
+	got, err := c.svc.GetDeck(ctx, testUserID, child.ID)
+	if err != nil {
+		t.Fatalf("GetDeck child: %v", err)
+	}
+	if got.ParentID != nil || got.Path != deckPath(child.ID, "") {
+		t.Fatalf("child not promoted to root: parent=%v path=%q", got.ParentID, got.Path)
+	}
+}
+
+func TestDeleteDeck_WithCardsFailsAndKeepsChildren(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+
+	deck := defaultDeck(t, c)
+	child, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, "Child", deck.ID, "")
+	if err != nil {
+		t.Fatalf("CreateDeck child: %v", err)
+	}
+	nt := basicNoteType(t, c)
+	if _, err := c.svc.CreateNote(ctx, testUserID, testProfileID, nt.ID, deck.ID,
+		map[string]string{"Front": "q", "Back": "a"}, nil, 0); err != nil {
+		t.Fatalf("CreateNote: %v", err)
+	}
+
+	if err := c.svc.DeleteDeck(ctx, testUserID, deck.ID, 0); !platformerrors.IsFailedPrecondition(err) {
+		t.Fatalf("got %v, want FailedPrecondition", err)
+	}
+	got, err := c.svc.GetDeck(ctx, testUserID, child.ID)
+	if err != nil {
+		t.Fatalf("GetDeck child: %v", err)
+	}
+	if got.ParentID == nil || *got.ParentID != deck.ID || got.Path != child.Path || got.USN != child.USN {
+		t.Fatalf("child changed by failed delete: %+v", got)
+	}
+}
+
+func TestDeleteDeckConfig_ResetsDecks(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+
+	cfg, err := c.svc.CreateDeckConfig(ctx, testUserID, testProfileID, DeckConfig{
+		Name: "Custom", NewPerDay: 10, RevPerDay: 100, DesiredRetention: 0.9, Timezone: "UTC",
+	})
+	if err != nil {
+		t.Fatalf("CreateDeckConfig: %v", err)
+	}
+	deck, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, "Uses config", "", cfg.ID)
+	if err != nil {
+		t.Fatalf("CreateDeck: %v", err)
+	}
+
+	if err := c.svc.DeleteDeckConfig(ctx, testUserID, cfg.ID, 0); err != nil {
+		t.Fatalf("DeleteDeckConfig: %v", err)
+	}
+	got, err := c.svc.GetDeck(ctx, testUserID, deck.ID)
+	if err != nil {
+		t.Fatalf("GetDeck: %v", err)
+	}
+	if got.ConfigID != nil {
+		t.Fatalf("deck still references deleted config %s", *got.ConfigID)
+	}
+	if got.USN <= deck.USN {
+		t.Fatalf("deck USN not bumped: %d→%d", deck.USN, got.USN)
+	}
+}
+
+func TestDecksForeignKeysRestrict(t *testing.T) {
+	c := setupIntegration(t)
+	rows, err := c.pool.Query(context.Background(),
+		`SELECT conname, confdeltype FROM pg_constraint WHERE conrelid = 'decks'::regclass AND contype = 'f'`)
+	if err != nil {
+		t.Fatalf("query constraints: %v", err)
+	}
+	defer rows.Close()
+	var n int
+	for rows.Next() {
+		var name, delType string
+		if err := rows.Scan(&name, &delType); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		n++
+		if delType != "r" {
+			t.Errorf("%s: ON DELETE %q, want RESTRICT", name, delType)
+		}
+	}
+	if n != 2 {
+		t.Fatalf("decks has %d foreign keys, want 2", n)
+	}
+}
+
+func TestMigrations_Citus(t *testing.T) {
+	c := setupIntegrationOn(t, "citusdata/citus:13.0", true)
+	ctx := context.Background()
+
+	var distributed int
+	if err := c.pool.QueryRow(ctx, `SELECT COUNT(*) FROM pg_dist_partition WHERE logicalrelid::text IN ('decks','deck_configs','cards')`).Scan(&distributed); err != nil {
+		t.Fatalf("query pg_dist_partition: %v", err)
+	}
+	if distributed != 3 {
+		t.Fatalf("distributed tables = %d, want 3", distributed)
+	}
+
+	root := defaultDeck(t, c)
+	child, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, "Child", root.ID, "")
+	if err != nil {
+		t.Fatalf("CreateDeck child: %v", err)
+	}
+	if err := c.svc.DeleteDeck(ctx, testUserID, root.ID, 0); err != nil {
+		t.Fatalf("DeleteDeck: %v", err)
+	}
+	got, err := c.svc.GetDeck(ctx, testUserID, child.ID)
+	if err != nil {
+		t.Fatalf("GetDeck child: %v", err)
+	}
+	if got.ParentID != nil {
+		t.Fatalf("child parent = %v, want root", *got.ParentID)
+	}
+
+	cfg, err := c.svc.CreateDeckConfig(ctx, testUserID, testProfileID, DeckConfig{
+		Name: "Custom", NewPerDay: 10, RevPerDay: 100, DesiredRetention: 0.9, Timezone: "UTC",
+	})
+	if err != nil {
+		t.Fatalf("CreateDeckConfig: %v", err)
+	}
+	if _, err := c.svc.UpdateDeck(ctx, testUserID, child.ID, 0, child.Name, "", cfg.ID); err != nil {
+		t.Fatalf("UpdateDeck config: %v", err)
+	}
+	if err := c.svc.DeleteDeckConfig(ctx, testUserID, cfg.ID, 0); err != nil {
+		t.Fatalf("DeleteDeckConfig: %v", err)
+	}
+}
+
+func TestRepoDeleteDeck_WithSubdecksFailedPrecondition(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+	root := defaultDeck(t, c)
+	if _, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, "Child", root.ID, ""); err != nil {
+		t.Fatalf("CreateDeck child: %v", err)
+	}
+	err := c.repo.DeleteDeck(ctx, testUserID, root.ID)
+	if !platformerrors.IsFailedPrecondition(err) || !strings.Contains(err.Error(), "subdecks") {
+		t.Fatalf("got %v, want FailedPrecondition about subdecks", err)
+	}
 }

@@ -1,5 +1,7 @@
 DROP INDEX IF EXISTS notes_usn;
 DROP INDEX IF EXISTS cards_usn;
+DROP INDEX IF EXISTS decks_config;
+DROP INDEX IF EXISTS decks_parent;
 DROP INDEX IF EXISTS decks_path;
 DROP INDEX IF EXISTS notes_fields;
 DROP INDEX IF EXISTS notes_tags;

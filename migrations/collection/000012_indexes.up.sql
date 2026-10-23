@@ -20,6 +20,10 @@ CREATE INDEX IF NOT EXISTS notes_fields ON notes USING GIN (fields jsonb_path_op
 -- Hierarchical path queries on decks (GIST for ltree operators @>, <@, etc.).
 CREATE INDEX IF NOT EXISTS decks_path ON decks USING GIST (path);
 
+-- Child side of the decks RESTRICT FKs, plus the reset-by-config lookup on config delete.
+CREATE INDEX IF NOT EXISTS decks_parent ON decks (user_id, parent_id) WHERE parent_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS decks_config ON decks (user_id, config_id) WHERE config_id IS NOT NULL;
+
 -- Sync protocol: fetch changed cards/notes since a given USN.
 CREATE INDEX IF NOT EXISTS cards_usn ON cards (user_id, usn);
 CREATE INDEX IF NOT EXISTS notes_usn ON notes (user_id, usn);

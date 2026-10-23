@@ -242,6 +242,7 @@ type Repository interface {
 	// ListSubtreeDecks returns the deck with the given path and all its
 	// descendants (path <@ root), ordered by path, for subtree moves.
 	ListSubtreeDecks(ctx context.Context, userID, rootPath string) ([]Deck, error)
+	ListDecksByConfig(ctx context.Context, userID, configID string) ([]Deck, error)
 
 	// DeckConfig
 	CreateDeckConfig(ctx context.Context, dc *DeckConfig) error

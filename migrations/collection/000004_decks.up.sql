@@ -12,10 +12,8 @@ CREATE TABLE IF NOT EXISTS decks (
     usn        BIGINT        NOT NULL DEFAULT 0,
     mtime      TIMESTAMPTZ   NOT NULL DEFAULT now(),
     PRIMARY KEY (user_id, id),
-    -- Self-referential intra-shard FK: parent deck belongs to the same user.
-    -- ON DELETE SET NULL re-parents children to root rather than wiping the subtree.
-    FOREIGN KEY (user_id, parent_id) REFERENCES decks (user_id, id) ON DELETE SET NULL,
-    -- Intra-shard FK: config must belong to the same user.
-    -- ON DELETE SET NULL lets the deck fall back to the default config.
-    FOREIGN KEY (user_id, config_id) REFERENCES deck_configs (user_id, id) ON DELETE SET NULL
+    -- Intra-shard FKs. RESTRICT, not SET NULL: that would null user_id too, and Citus rejects it
+    -- on FKs over the distribution column. The service reparents children / resets configs first.
+    FOREIGN KEY (user_id, parent_id) REFERENCES decks (user_id, id) ON DELETE RESTRICT,
+    FOREIGN KEY (user_id, config_id) REFERENCES deck_configs (user_id, id) ON DELETE RESTRICT
 );

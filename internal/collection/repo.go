@@ -650,6 +650,10 @@ func (r *PostgresRepository) DeleteDeck(ctx context.Context, userID, id string) 
 	ct, err := r.db.Exec(ctx, `DELETE FROM decks WHERE user_id = $1 AND id = $2`, userID, id)
 	if err != nil {
 		if isForeignKeyViolation(err) {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.ConstraintName == "decks_user_id_parent_id_fkey" {
+				return platformerrors.FailedPrecondition("deck still has subdecks")
+			}
 			return platformerrors.FailedPrecondition("deck still holds cards; move or delete them first")
 		}
 		return fmt.Errorf("collection: delete deck: %w", err)
@@ -679,6 +683,28 @@ func (r *PostgresRepository) ListSubtreeDecks(ctx context.Context, userID, rootP
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("collection: list subtree decks rows: %w", err)
+	}
+	return items, nil
+}
+
+func (r *PostgresRepository) ListDecksByConfig(ctx context.Context, userID, configID string) ([]Deck, error) {
+	rows, err := r.db.Query(ctx,
+		`SELECT `+deckColumns+` FROM decks WHERE user_id = $1 AND config_id = $2 ORDER BY id`, userID, configID)
+	if err != nil {
+		return nil, fmt.Errorf("collection: list decks by config: %w", err)
+	}
+	defer rows.Close()
+
+	var items []Deck
+	for rows.Next() {
+		d, err := scanDeck(rows)
+		if err != nil {
+			return nil, fmt.Errorf("collection: list decks by config scan: %w", err)
+		}
+		items = append(items, *d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("collection: list decks by config rows: %w", err)
 	}
 	return items, nil
 }
@@ -856,10 +882,11 @@ func (r *PostgresRepository) UpsertTag(ctx context.Context, t *Tag) error {
 }
 
 func (r *PostgresRepository) WriteTombstone(ctx context.Context, userID, typ, id string, usn int64) error {
+	// excluded.deleted_at, not now(): Citus only allows IMMUTABLE functions in DO UPDATE SET.
 	_, err := r.db.Exec(ctx, `
 		INSERT INTO tombstones (user_id, type, id, usn)
 		VALUES ($1, $2, $3, $4)
-		ON CONFLICT (user_id, type, id) DO UPDATE SET usn = excluded.usn, deleted_at = now()`,
+		ON CONFLICT (user_id, type, id) DO UPDATE SET usn = excluded.usn, deleted_at = excluded.deleted_at`,
 		userID, typ, id, usn)
 	if err != nil {
 		return fmt.Errorf("collection: write tombstone: %w", err)
