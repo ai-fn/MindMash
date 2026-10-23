@@ -46,6 +46,12 @@ func Init(serviceName, env, level string) error {
 	return nil
 }
 
+// Replace swaps the package-level logger and returns a func restoring the previous one (tests).
+func Replace(l *zap.Logger) (restore func()) {
+	prev := global.Swap(l)
+	return func() { global.Store(prev) }
+}
+
 // L returns the package-level logger.
 func L() *zap.Logger {
 	if l := global.Load(); l != nil {

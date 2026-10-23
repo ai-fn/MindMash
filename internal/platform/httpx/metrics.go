@@ -3,9 +3,7 @@ package httpx
 import (
 	"context"
 	"net/http"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/prometheus/client_golang/prometheus"
@@ -53,18 +51,6 @@ func GatewayRoutes() runtime.ServeMuxOption {
 			}
 			next(w, r, params)
 		}
-	})
-}
-
-func recordMetrics(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		route := unrouted
-		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
-		next.ServeHTTP(rec, r.WithContext(context.WithValue(r.Context(), routeKey{}, &route)))
-		method := metricMethod(r.Method)
-		httpRequests.WithLabelValues(method, route, strconv.Itoa(rec.status)).Inc()
-		httpDuration.WithLabelValues(method, route).Observe(time.Since(start).Seconds())
 	})
 }
 

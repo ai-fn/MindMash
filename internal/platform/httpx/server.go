@@ -15,21 +15,23 @@ import (
 
 // Config holds HTTP server settings.
 type Config struct {
-	Addr            string        // listen address, e.g. ":8080"
-	ReadTimeout     time.Duration // default 15s
-	WriteTimeout    time.Duration // default 15s
-	IdleTimeout     time.Duration // default 60s
-	ShutdownTimeout time.Duration // default 15s
+	Addr              string        // listen address, e.g. ":8080"
+	ReadTimeout       time.Duration // default 15s
+	ReadHeaderTimeout time.Duration // default 5s
+	WriteTimeout      time.Duration // default 15s
+	IdleTimeout       time.Duration // default 60s
+	ShutdownTimeout   time.Duration // default 15s
 }
 
 // DefaultConfig returns sane defaults for the given addr.
 func DefaultConfig(addr string) Config {
 	return Config{
-		Addr:            addr,
-		ReadTimeout:     15 * time.Second,
-		WriteTimeout:    15 * time.Second,
-		IdleTimeout:     60 * time.Second,
-		ShutdownTimeout: 15 * time.Second,
+		Addr:              addr,
+		ReadTimeout:       15 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		ShutdownTimeout:   15 * time.Second,
 	}
 }
 
@@ -42,6 +44,7 @@ type Options struct {
 	MetricsHandler http.Handler  // prometheus handler (from observability.InitMetrics()); if nil, /metrics is omitted
 	Readiness      HealthChecker // optional readiness probe for /readyz; if nil, /readyz always 200
 	JWKSHandler    http.Handler  // optional handler for /.well-known/jwks.json; if nil, route omitted
+	MaxBodyBytes   int64         // app request body cap; default 4 MiB
 }
 
 // Server wraps an *http.Server with lifecycle management.
@@ -96,17 +99,22 @@ func New(cfg Config, opts Options) *Server {
 	// Only application routes are traced; probes and scrapes would flood the trace store.
 	// HTTP callers are external clients: link their trace rather than let them force sampling.
 	if opts.Handler != nil {
-		mux.Handle("/", otelhttp.NewHandler(recordMetrics(opts.Handler), "http.server",
+		maxBody := opts.MaxBodyBytes
+		if maxBody <= 0 {
+			maxBody = defaultMaxBodyBytes
+		}
+		mux.Handle("/", otelhttp.NewHandler(observe(limitBody(maxBody, opts.Handler)), "http.server",
 			otelhttp.WithPublicEndpointFn(func(*http.Request) bool { return true }),
 			otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string { return r.Method })))
 	}
 
 	hs := &http.Server{
-		Addr:         cfg.Addr,
-		Handler:      mux,
-		ReadTimeout:  cfg.ReadTimeout,
-		WriteTimeout: cfg.WriteTimeout,
-		IdleTimeout:  cfg.IdleTimeout,
+		Addr:              cfg.Addr,
+		Handler:           mux,
+		ReadTimeout:       cfg.ReadTimeout,
+		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
+		WriteTimeout:      cfg.WriteTimeout,
+		IdleTimeout:       cfg.IdleTimeout,
 	}
 
 	return &Server{
