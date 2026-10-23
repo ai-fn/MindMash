@@ -74,6 +74,7 @@ type integrationComponents struct {
 	repo     *PostgresRepository
 	sessions *RedisSessionStore
 	signer   *auth.Signer
+	limiter  *RedisRateLimiter
 }
 
 // setupIntegration starts Postgres and Redis containers, runs migrations, and
@@ -158,13 +159,15 @@ func setupFull(t *testing.T, emailSender EmailSender, exchanger OAuthExchanger) 
 	signer := auth.NewSignerFromKeys(priv, pub, authCfg)
 
 	// ── Service ──────────────────────────────────────────────────────────────
-	svc := NewService(repo, sessions, signer, exchanger, emailSender, zap.NewNop(), authCfg)
+	limiter := NewRedisRateLimiter(redisClient)
+	svc := NewService(repo, sessions, signer, exchanger, emailSender, zap.NewNop(), authCfg, WithRateLimiter(limiter))
 
 	return integrationComponents{
 		svc:      svc,
 		repo:     repo,
 		sessions: sessions,
 		signer:   signer,
+		limiter:  limiter,
 	}
 }
 
@@ -236,11 +239,11 @@ func TestRegisterLogin_Integration(t *testing.T) {
 	ctx := context.Background()
 	c := setupIntegration(t)
 
-	userID, err := c.svc.Register(ctx, "alice@example.com", "s3cret!", "en")
+	userID, err := c.svc.Register(ctx, "alice@example.com", "s3cret-pw!", "en")
 	require.NoError(t, err)
 	assert.NotEmpty(t, userID)
 
-	accessToken, refreshToken, expiresIn, gotUserID, profileID, err := c.svc.Login(ctx, "alice@example.com", "s3cret!")
+	accessToken, refreshToken, expiresIn, gotUserID, profileID, err := c.svc.Login(ctx, "alice@example.com", "s3cret-pw!")
 	require.NoError(t, err)
 	assert.NotEmpty(t, accessToken)
 	assert.NotEmpty(t, refreshToken)
@@ -260,10 +263,10 @@ func TestFullAuthCycle_Integration(t *testing.T) {
 	c := setupIntegration(t)
 
 	// Register and login.
-	_, err := c.svc.Register(ctx, "bob@example.com", "hunter2", "en")
+	_, err := c.svc.Register(ctx, "bob@example.com", "hunter2-pw", "en")
 	require.NoError(t, err)
 
-	_, origRefresh, _, _, _, err := c.svc.Login(ctx, "bob@example.com", "hunter2")
+	_, origRefresh, _, _, _, err := c.svc.Login(ctx, "bob@example.com", "hunter2-pw")
 	require.NoError(t, err)
 
 	// First Refresh: token should rotate.
@@ -353,7 +356,7 @@ func TestEmailVerification_Integration(t *testing.T) {
 	sender := &captureEmailSender{}
 	c := setupWithEmail(t, sender)
 
-	userID, err := c.svc.Register(ctx, "dave@example.com", "v3rify!", "en")
+	userID, err := c.svc.Register(ctx, "dave@example.com", "v3rify-pw!", "en")
 	require.NoError(t, err)
 
 	// email_verified must be false right after registration.
@@ -464,10 +467,10 @@ func TestRedisDownFallback_Integration(t *testing.T) {
 	ctx := context.Background()
 	svc := setupWithNilSessions(t)
 
-	_, err := svc.Register(ctx, "grace@example.com", "nored1s!", "en")
+	_, err := svc.Register(ctx, "grace@example.com", "nored1s-pw!", "en")
 	require.NoError(t, err)
 
-	access, refresh, _, _, _, err := svc.Login(ctx, "grace@example.com", "nored1s!")
+	access, refresh, _, _, _, err := svc.Login(ctx, "grace@example.com", "nored1s-pw!")
 	require.NoError(t, err)
 	assert.NotEmpty(t, access)
 	assert.NotEmpty(t, refresh)
@@ -480,4 +483,65 @@ func TestRedisDownFallback_Integration(t *testing.T) {
 
 	// Logout must succeed even without Redis.
 	svc.Logout(ctx, newRefresh)
+}
+
+// TestRedisRateLimiter_Integration verifies the fixed window: the limit holds, keys are
+// independent, and the counter resets once the window passes.
+func TestRedisRateLimiter_Integration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	c := setupIntegration(t)
+
+	for i := 1; i <= 3; i++ {
+		ok, err := c.limiter.Allow(ctx, "rl:test:a", 3, 2*time.Second)
+		require.NoError(t, err)
+		assert.True(t, ok, "attempt %d is within the limit", i)
+	}
+	ok, err := c.limiter.Allow(ctx, "rl:test:a", 3, 2*time.Second)
+	require.NoError(t, err)
+	assert.False(t, ok, "attempt 4 exceeds the limit")
+
+	ok, err = c.limiter.Allow(ctx, "rl:test:b", 3, 2*time.Second)
+	require.NoError(t, err)
+	assert.True(t, ok, "other keys keep their own budget")
+
+	// Later attempts must not extend the window, or a steady attacker would never be released.
+	time.Sleep(1200 * time.Millisecond)
+	ok, err = c.limiter.Allow(ctx, "rl:test:a", 3, 2*time.Second)
+	require.NoError(t, err)
+	assert.False(t, ok, "still inside the window")
+	time.Sleep(1200 * time.Millisecond)
+	ok, err = c.limiter.Allow(ctx, "rl:test:a", 3, 2*time.Second)
+	require.NoError(t, err)
+	assert.True(t, ok, "the window expired 2s after the first attempt")
+
+	require.NoError(t, c.limiter.Reset(ctx, "rl:test:b"))
+	for range 3 {
+		ok, err = c.limiter.Allow(ctx, "rl:test:b", 3, time.Minute)
+		require.NoError(t, err)
+		assert.True(t, ok, "Reset restores the full budget")
+	}
+}
+
+// TestLoginRateLimit_Integration verifies the limiter wired through Login against real Redis.
+func TestLoginRateLimit_Integration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	c := setupIntegration(t)
+
+	_, err := c.svc.Register(ctx, "frank@example.com", "correct-horse", "en")
+	require.NoError(t, err)
+
+	for range loginLimit {
+		_, _, _, _, _, err = c.svc.Login(ctx, "frank@example.com", "wrong-password")
+		require.Equal(t, codes.Unauthenticated, status.Code(err))
+	}
+	_, _, _, _, _, err = c.svc.Login(ctx, "frank@example.com", "correct-horse")
+	assert.Equal(t, codes.ResourceExhausted, status.Code(err))
 }

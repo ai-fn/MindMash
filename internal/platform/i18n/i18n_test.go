@@ -48,6 +48,7 @@ func TestPrinterLocalizesMessages(t *testing.T) {
 		{language.Chinese, MsgInvalidOrExpiredToken, "已过期"},
 		{language.Russian, MsgOAuthEmailUnverified, "не подтверждена"},
 		{language.English, MsgOAuthLinkUnverified, "Verify its email"},
+		{language.Russian, MsgTooManyAttempts, "Слишком много"},
 	}
 	for _, tc := range tests {
 		got := Printer(tc.tag).Sprintf(tc.key)

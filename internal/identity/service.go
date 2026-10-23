@@ -3,9 +3,14 @@ package identity
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"runtime"
+	"strings"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -24,6 +29,16 @@ import (
 // we can revoke the family on the pool connection).
 var errTokenReuse = errors.New("token reuse detected")
 
+const (
+	statusActive = "active"
+
+	loginLimit       = 10
+	loginWindow      = 15 * time.Minute
+	resetLimit       = 3
+	resetWindow      = time.Hour
+	rateLimitKeyBase = "rl:"
+)
+
 // Service is the domain entry-point for all identity operations.  It composes
 // the repository, session store, JWT signer, OAuth exchanger, and email sender
 // so that each handler stays thin.
@@ -36,6 +51,27 @@ type Service struct {
 	log        *zap.Logger
 	accessTTL  time.Duration
 	refreshTTL time.Duration
+
+	limiter RateLimiter // nil disables rate limiting
+
+	// hashSlots bounds concurrent argon2 runs (64 MiB each) so a login flood cannot exhaust memory.
+	hashSlots chan struct{}
+
+	// dummyHash is verified for unknown accounts so login time does not reveal whether an email exists.
+	dummyOnce sync.Once
+	dummyHash string
+	dummyErr  error
+}
+
+// Option customises a Service.
+type Option func(*Service)
+
+// WithRateLimiter enables per-account rate limits on login and password reset requests.
+func WithRateLimiter(l RateLimiter) Option { return func(s *Service) { s.limiter = l } }
+
+// WithHashConcurrency caps concurrent password hashes (default GOMAXPROCS).
+func WithHashConcurrency(n int) Option {
+	return func(s *Service) { s.hashSlots = make(chan struct{}, max(n, 1)) }
 }
 
 // NewService constructs a Service.  TTLs are pulled from the auth.Config so
@@ -48,8 +84,9 @@ func NewService(
 	email EmailSender,
 	log *zap.Logger,
 	authCfg auth.Config,
+	opts ...Option,
 ) *Service {
-	return &Service{
+	s := &Service{
 		repo:       repo,
 		sessions:   sessions,
 		signer:     signer,
@@ -58,7 +95,12 @@ func NewService(
 		log:        log,
 		accessTTL:  authCfg.AccessTokenTTL,
 		refreshTTL: authCfg.RefreshTokenTTL,
+		hashSlots:  make(chan struct{}, runtime.GOMAXPROCS(0)),
 	}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
 }
 
 // ─── Registration ────────────────────────────────────────────────────────────
@@ -70,14 +112,16 @@ func NewService(
 // connection open, and a send failure is not fatal (log and continue so that a
 // misconfigured email gateway cannot block sign-ups).
 func (s *Service) Register(ctx context.Context, email, password, locale string) (string, error) {
-	if email == "" || password == "" {
-		return "", platformerrors.InvalidArgument("email and password are required")
+	email, err := normalizeEmail(email)
+	if err != nil {
+		return "", err
 	}
-	if locale == "" {
-		locale = "en"
+	if err := validatePassword(password); err != nil {
+		return "", err
 	}
+	locale = normalizeLocale(locale)
 
-	hash, err := auth.HashPassword(password)
+	hash, err := s.hashPassword(ctx, password)
 	if err != nil {
 		return "", fmt.Errorf("identity: register hash password: %w", err)
 	}
@@ -89,7 +133,7 @@ func (s *Service) Register(ctx context.Context, email, password, locale string) 
 		EmailVerified: false,
 		PasswordHash:  &hash,
 		Locale:        locale,
-		Status:        "active",
+		Status:        statusActive,
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}
@@ -146,25 +190,42 @@ func (s *Service) Register(ctx context.Context, email, password, locale string) 
 
 // Login authenticates a user by email/password and issues a token set.
 func (s *Service) Login(ctx context.Context, email, password string) (accessToken, refreshToken string, expiresIn int64, userID, profileID string, err error) {
-	// Return a generic "invalid credentials" error for all failure cases to
-	// prevent user-enumeration attacks.
+	invalid := platformerrors.Unauthenticated("invalid credentials").WithMsgID(i18n.MsgInvalidCredentials)
+
+	email, normErr := normalizeEmail(email)
+	if normErr != nil || len(password) > maxPasswordBytes {
+		return "", "", 0, "", "", invalid
+	}
+	if err := s.allow(ctx, "login", email, loginLimit, loginWindow); err != nil {
+		return "", "", 0, "", "", err
+	}
+
 	user, lookupErr := s.repo.GetUserByEmail(ctx, email)
-	if lookupErr != nil {
-		return "", "", 0, "", "", platformerrors.Unauthenticated("invalid credentials").WithMsgID(i18n.MsgInvalidCredentials)
+	if lookupErr != nil && !platformerrors.IsNotFound(lookupErr) {
+		return "", "", 0, "", "", fmt.Errorf("identity: login lookup user: %w", lookupErr)
 	}
 
-	if user.PasswordHash == nil {
-		// OAuth-only account; no password set.
-		return "", "", 0, "", "", platformerrors.Unauthenticated("invalid credentials").WithMsgID(i18n.MsgInvalidCredentials)
+	// Unknown and OAuth-only accounts still pay for a hash so timing matches a wrong password.
+	hash, hashErr := s.dummyPasswordHash()
+	if hashErr != nil {
+		return "", "", 0, "", "", hashErr
 	}
-
-	ok, verifyErr := auth.VerifyPassword(password, *user.PasswordHash)
+	known := lookupErr == nil && user.PasswordHash != nil
+	if known {
+		hash = *user.PasswordHash
+	}
+	ok, verifyErr := s.verifyPassword(ctx, password, hash)
 	if verifyErr != nil {
 		return "", "", 0, "", "", fmt.Errorf("identity: login verify password: %w", verifyErr)
 	}
-	if !ok {
-		return "", "", 0, "", "", platformerrors.Unauthenticated("invalid credentials").WithMsgID(i18n.MsgInvalidCredentials)
+	if !known || !ok {
+		return "", "", 0, "", "", invalid
 	}
+	if err := requireActive(user); err != nil {
+		return "", "", 0, "", "", err
+	}
+	// Successful sign-ins must not eat the budget meant for guessing, or an attacker could lock the owner out.
+	s.resetLimit(ctx, "login", email)
 
 	profile, err := s.pickDefaultProfile(ctx, user.ID)
 	if err != nil {
@@ -190,6 +251,7 @@ func (s *Service) OAuthExchange(ctx context.Context, provider, code, redirectURI
 	if info.Subject == "" {
 		return "", "", 0, "", "", false, platformerrors.Unauthenticated("oauth provider returned no subject")
 	}
+	info.Email = strings.TrimSpace(info.Email)
 
 	// Try the fast path: identity already exists.
 	oauthID, lookupErr := s.repo.GetOAuthIdentity(ctx, info.Provider, info.Subject)
@@ -198,6 +260,9 @@ func (s *Service) OAuthExchange(ctx context.Context, provider, code, redirectURI
 		user, err := s.repo.GetUserByID(ctx, oauthID.UserID)
 		if err != nil {
 			return "", "", 0, "", "", false, fmt.Errorf("identity: oauth exchange load user: %w", err)
+		}
+		if err := requireActive(user); err != nil {
+			return "", "", 0, "", "", false, err
 		}
 		profile, err := s.pickDefaultProfile(ctx, user.ID)
 		if err != nil {
@@ -235,6 +300,9 @@ func (s *Service) OAuthExchange(ctx context.Context, provider, code, redirectURI
 				"an account with this email exists; verify its email before signing in with this provider").
 				WithMsgID(i18n.MsgOAuthLinkUnverified)
 		}
+		if err := requireActive(existingUser); err != nil {
+			return "", "", 0, "", "", false, err
+		}
 		// Link the new OAuth identity to the existing account atomically so a
 		// crash between lookup and insert cannot leave a dangling partial link.
 		newIdentity := &OAuthIdentity{
@@ -269,7 +337,7 @@ func (s *Service) OAuthExchange(ctx context.Context, provider, code, redirectURI
 		EmailVerified: info.EmailVerified,
 		PasswordHash:  nil,
 		Locale:        locale,
-		Status:        "active",
+		Status:        statusActive,
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}
@@ -435,6 +503,10 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (accessToken
 	if err != nil {
 		return "", "", 0, fmt.Errorf("identity: refresh load user: %w", err)
 	}
+	if err := requireActive(user); err != nil {
+		s.revokeFamilyBestEffort(ctx, rotatedFamilyID)
+		return "", "", 0, err
+	}
 
 	newAccessToken, _, err = s.signer.SignAccess(userID, txProfileID, user.Locale, DefaultRoles())
 	if err != nil {
@@ -528,8 +600,9 @@ func (s *Service) ListProfiles(ctx context.Context, userID string) ([]Profile, e
 
 // CreateProfile adds a non-default profile for the user.
 func (s *Service) CreateProfile(ctx context.Context, userID, name string) (*Profile, error) {
-	if name == "" {
-		return nil, platformerrors.InvalidArgument("profile name is required")
+	name, err := normalizeProfileName(name)
+	if err != nil {
+		return nil, err
 	}
 	p := &Profile{
 		ID:        ids.NewUUID(),
@@ -562,6 +635,9 @@ func (s *Service) ActivateProfile(ctx context.Context, userID, profileID string)
 	user, err := s.repo.GetUserByID(ctx, userID)
 	if err != nil {
 		return "", 0, fmt.Errorf("identity: activate profile load user: %w", err)
+	}
+	if err := requireActive(user); err != nil {
+		return "", 0, err
 	}
 
 	token, _, err := s.signer.SignAccess(user.ID, profile.ID, user.Locale, DefaultRoles())
@@ -616,6 +692,14 @@ func (s *Service) VerifyEmail(ctx context.Context, token string) error {
 // RequestPasswordReset creates a reset token and sends a reset email.
 // The method always returns nil to avoid leaking whether the email exists.
 func (s *Service) RequestPasswordReset(ctx context.Context, emailAddr string) error {
+	emailAddr, err := normalizeEmail(emailAddr)
+	if err != nil {
+		return nil
+	}
+	// Over the limit looks like success so the response cannot be used to probe accounts.
+	if err := s.allow(ctx, "reset", emailAddr, resetLimit, resetWindow); err != nil {
+		return nil
+	}
 	user, err := s.repo.GetUserByEmail(ctx, emailAddr)
 	if err != nil {
 		// Do not reveal whether the address is registered.
@@ -648,7 +732,10 @@ func (s *Service) RequestPasswordReset(ctx context.Context, emailAddr string) er
 // transaction so concurrent requests cannot both pass the consumed/expiry
 // check (TOCTOU-safe).
 func (s *Service) ResetPassword(ctx context.Context, token, newPassword string) error {
-	hash, err := auth.HashPassword(newPassword)
+	if err := validatePassword(newPassword); err != nil {
+		return err
+	}
+	hash, err := s.hashPassword(ctx, newPassword)
 	if err != nil {
 		return fmt.Errorf("identity: reset password hash: %w", err)
 	}
@@ -738,6 +825,99 @@ func (s *Service) pickDefaultProfile(ctx context.Context, userID string) (*Profi
 		return &profiles[0], nil
 	}
 	return nil, platformerrors.Internal("user has no profiles")
+}
+
+func requireActive(u *User) error {
+	if u.Status != statusActive {
+		return platformerrors.PermissionDenied("account is not active")
+	}
+	return nil
+}
+
+func (s *Service) revokeFamilyBestEffort(ctx context.Context, familyID string) {
+	jtis, err := s.repo.RevokeFamily(ctx, familyID)
+	if err != nil {
+		s.log.Error("identity: revoke family", zap.Error(err))
+		return
+	}
+	if len(jtis) > 0 {
+		if err := s.sessions.Delete(ctx, jtis...); err != nil {
+			s.log.Warn("identity: delete revoked sessions", zap.Error(err))
+		}
+	}
+}
+
+func limiterKey(scope, key string) string {
+	sum := sha256.Sum256([]byte(strings.ToLower(key)))
+	return rateLimitKeyBase + scope + ":" + hex.EncodeToString(sum[:16])
+}
+
+// allow counts one attempt for key; a limiter outage fails open so Redis downtime cannot block sign-in.
+func (s *Service) allow(ctx context.Context, scope, key string, limit int, window time.Duration) error {
+	if s.limiter == nil {
+		return nil
+	}
+	ok, err := s.limiter.Allow(ctx, limiterKey(scope, key), limit, window)
+	if err != nil {
+		s.log.Warn("identity: rate limiter unavailable", zap.String("scope", scope), zap.Error(err))
+		return nil
+	}
+	if !ok {
+		return platformerrors.ResourceExhausted("too many attempts").WithMsgID(i18n.MsgTooManyAttempts)
+	}
+	return nil
+}
+
+func (s *Service) resetLimit(ctx context.Context, scope, key string) {
+	if s.limiter == nil {
+		return
+	}
+	if err := s.limiter.Reset(ctx, limiterKey(scope, key)); err != nil {
+		s.log.Warn("identity: rate limiter reset failed", zap.String("scope", scope), zap.Error(err))
+	}
+}
+
+// WarmUp builds the dummy hash up front so the first unknown-email login is not slower than later ones.
+func (s *Service) WarmUp() error {
+	_, err := s.dummyPasswordHash()
+	return err
+}
+
+func (s *Service) acquireHashSlot(ctx context.Context) (release func(), err error) {
+	if err := ctx.Err(); err != nil {
+		return nil, platformerrors.ResourceExhausted("server busy", err)
+	}
+	select {
+	case s.hashSlots <- struct{}{}:
+		return func() { <-s.hashSlots }, nil
+	case <-ctx.Done():
+		return nil, platformerrors.ResourceExhausted("server busy", ctx.Err())
+	}
+}
+
+func (s *Service) hashPassword(ctx context.Context, password string) (string, error) {
+	release, err := s.acquireHashSlot(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer release()
+	return auth.HashPassword(password)
+}
+
+func (s *Service) verifyPassword(ctx context.Context, password, hash string) (bool, error) {
+	release, err := s.acquireHashSlot(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer release()
+	return auth.VerifyPassword(password, hash)
+}
+
+func (s *Service) dummyPasswordHash() (string, error) {
+	s.dummyOnce.Do(func() {
+		s.dummyHash, s.dummyErr = auth.HashPassword(ids.NewULID())
+	})
+	return s.dummyHash, s.dummyErr
 }
 
 // generateVerificationToken returns a 32-byte URL-safe opaque random string.

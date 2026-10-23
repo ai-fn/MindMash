@@ -74,6 +74,12 @@ func TestAppErrorConstructors(t *testing.T) {
 			wantGRPC: codes.Unavailable,
 			wantHTTP: http.StatusServiceUnavailable,
 		},
+		{
+			name:     "ResourceExhausted",
+			err:      apperrors.ResourceExhausted("slow down", sentinel),
+			wantGRPC: codes.ResourceExhausted,
+			wantHTTP: http.StatusTooManyRequests,
+		},
 	}
 
 	for _, tc := range cases {

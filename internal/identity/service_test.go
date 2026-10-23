@@ -371,7 +371,7 @@ func newTestSigner(t *testing.T) *auth.Signer {
 	return auth.NewSignerFromKeys(privKey, pubKey, cfg)
 }
 
-func newTestService(t *testing.T) (*Service, *fakeRepo, *fakeSessionStore, *fakeEmailSender, *fakeOAuthExchanger, *auth.Signer) {
+func newTestService(t *testing.T, opts ...Option) (*Service, *fakeRepo, *fakeSessionStore, *fakeEmailSender, *fakeOAuthExchanger, *auth.Signer) {
 	t.Helper()
 	signer := newTestSigner(t)
 	repo := newFakeRepo()
@@ -383,7 +383,7 @@ func newTestService(t *testing.T) (*Service, *fakeRepo, *fakeSessionStore, *fake
 		AccessTokenTTL:  15 * time.Minute,
 		RefreshTokenTTL: 7 * 24 * time.Hour,
 	}
-	svc := NewService(repo, sessions, signer, exchanger, emailer, log, cfg)
+	svc := NewService(repo, sessions, signer, exchanger, emailer, log, cfg, opts...)
 	return svc, repo, sessions, emailer, exchanger, signer
 }
 
@@ -405,7 +405,7 @@ func TestRegister(t *testing.T) {
 		svc, repo, _, emailer, _, _ := newTestService(t)
 		ctx := context.Background()
 
-		userID, err := svc.Register(ctx, "alice@example.com", "s3cret", "en")
+		userID, err := svc.Register(ctx, "alice@example.com", "s3cret-pw", "en")
 		if err != nil {
 			t.Fatalf("Register: %v", err)
 		}
@@ -421,10 +421,10 @@ func TestRegister(t *testing.T) {
 		if user.PasswordHash == nil {
 			t.Fatal("expected password hash to be set")
 		}
-		if *user.PasswordHash == "s3cret" {
+		if *user.PasswordHash == "s3cret-pw" {
 			t.Fatal("password must not be stored in plaintext")
 		}
-		ok, err := auth.VerifyPassword("s3cret", *user.PasswordHash)
+		ok, err := auth.VerifyPassword("s3cret-pw", *user.PasswordHash)
 		if err != nil {
 			t.Fatalf("VerifyPassword: %v", err)
 		}
@@ -457,10 +457,10 @@ func TestRegister(t *testing.T) {
 		svc, _, _, _, _, _ := newTestService(t)
 		ctx := context.Background()
 
-		if _, err := svc.Register(ctx, "bob@example.com", "pass", ""); err != nil {
+		if _, err := svc.Register(ctx, "bob@example.com", "password1", ""); err != nil {
 			t.Fatalf("first Register: %v", err)
 		}
-		_, err := svc.Register(ctx, "bob@example.com", "pass2", "")
+		_, err := svc.Register(ctx, "bob@example.com", "password2", "")
 		if err == nil {
 			t.Fatal("expected error for duplicate email")
 		}
@@ -474,7 +474,7 @@ func TestRegister(t *testing.T) {
 		ctx := context.Background()
 
 		for _, tc := range []struct{ email, pass string }{
-			{"", "pass"},
+			{"", "password1"},
 			{"user@x.com", ""},
 		} {
 			_, err := svc.Register(ctx, tc.email, tc.pass, "")
@@ -495,7 +495,7 @@ func TestLogin(t *testing.T) {
 		t.Helper()
 		svc, _, _, _, _, signer := newTestService(t)
 		ctx := context.Background()
-		if _, err := svc.Register(ctx, "carol@example.com", "hunter2", "fr"); err != nil {
+		if _, err := svc.Register(ctx, "carol@example.com", "hunter2-pw", "fr"); err != nil {
 			t.Fatalf("Register: %v", err)
 		}
 		return svc, signer, ctx
@@ -504,7 +504,7 @@ func TestLogin(t *testing.T) {
 	t.Run("success returns valid tokens and expiresIn", func(t *testing.T) {
 		svc, signer, ctx := setup(t)
 
-		access, refresh, expiresIn, userID, profileID, err := svc.Login(ctx, "carol@example.com", "hunter2")
+		access, refresh, expiresIn, userID, profileID, err := svc.Login(ctx, "carol@example.com", "hunter2-pw")
 		if err != nil {
 			t.Fatalf("Login: %v", err)
 		}
@@ -547,7 +547,7 @@ func TestLogin(t *testing.T) {
 
 	t.Run("unknown email returns Unauthenticated (not NotFound — no enumeration)", func(t *testing.T) {
 		svc, _, ctx := setup(t)
-		_, _, _, _, _, err := svc.Login(ctx, "nobody@example.com", "pass")
+		_, _, _, _, _, err := svc.Login(ctx, "nobody@example.com", "password1")
 		if err == nil {
 			t.Fatal("expected error")
 		}
@@ -598,10 +598,10 @@ func TestRefresh(t *testing.T) {
 		t.Helper()
 		svc, _, _, _, _, signer := newTestService(t)
 		ctx := context.Background()
-		if _, err := svc.Register(ctx, "dave@example.com", "pass", "de"); err != nil {
+		if _, err := svc.Register(ctx, "dave@example.com", "password1", "de"); err != nil {
 			t.Fatalf("Register: %v", err)
 		}
-		_, refresh, _, _, _, err := svc.Login(ctx, "dave@example.com", "pass")
+		_, refresh, _, _, _, err := svc.Login(ctx, "dave@example.com", "password1")
 		if err != nil {
 			t.Fatalf("Login: %v", err)
 		}
@@ -748,7 +748,7 @@ func TestOAuthExchange(t *testing.T) {
 		ctx := context.Background()
 
 		// Create a password user with a verified email first.
-		userID, err := svc.Register(ctx, "grace@example.com", "pass", "")
+		userID, err := svc.Register(ctx, "grace@example.com", "password1", "")
 		if err != nil {
 			t.Fatalf("Register: %v", err)
 		}
@@ -801,7 +801,7 @@ func TestOAuthExchange_RefusesUnverifiedEmails(t *testing.T) {
 			svc, repo, _, _, exchanger, _ := newTestService(t)
 			ctx := context.Background()
 			if tc.existing {
-				userID, err := svc.Register(ctx, "ivy@example.com", "pass", "")
+				userID, err := svc.Register(ctx, "ivy@example.com", "password1", "")
 				if err != nil {
 					t.Fatalf("Register: %v", err)
 				}
@@ -877,11 +877,11 @@ func TestActivateProfile(t *testing.T) {
 		svc, _, _, _, _, signer := newTestService(t)
 		ctx := context.Background()
 
-		userID, err := svc.Register(ctx, "henry@example.com", "pass", "en")
+		userID, err := svc.Register(ctx, "henry@example.com", "password1", "en")
 		if err != nil {
 			t.Fatalf("Register: %v", err)
 		}
-		_, _, _, _, loginProfileID, err := svc.Login(ctx, "henry@example.com", "pass")
+		_, _, _, _, loginProfileID, err := svc.Login(ctx, "henry@example.com", "password1")
 		if err != nil {
 			t.Fatalf("Login: %v", err)
 		}
@@ -916,7 +916,7 @@ func TestActivateProfile(t *testing.T) {
 		svc, repo, _, _, _, _ := newTestService(t)
 		ctx := context.Background()
 
-		userID1, err := svc.Register(ctx, "ida@example.com", "pass", "")
+		userID1, err := svc.Register(ctx, "ida@example.com", "password1", "")
 		if err != nil {
 			t.Fatalf("Register user1: %v", err)
 		}
@@ -948,10 +948,10 @@ func TestValidateToken(t *testing.T) {
 	ctx := context.Background()
 
 	// Register and login to get real tokens minted by the same signer.
-	if _, err := svc.Register(ctx, "validate@example.com", "pass", "fr"); err != nil {
+	if _, err := svc.Register(ctx, "validate@example.com", "password1", "fr"); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
-	_, _, _, userID, profileID, err := svc.Login(ctx, "validate@example.com", "pass")
+	_, _, _, userID, profileID, err := svc.Login(ctx, "validate@example.com", "password1")
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
@@ -1013,7 +1013,7 @@ func TestVerifyEmail(t *testing.T) {
 		svc, repo, _, emailer, _, _ := newTestService(t)
 		ctx := context.Background()
 
-		_, err := svc.Register(ctx, "jane@example.com", "pass", "")
+		_, err := svc.Register(ctx, "jane@example.com", "password1", "")
 		if err != nil {
 			t.Fatalf("Register: %v", err)
 		}
@@ -1074,7 +1074,7 @@ func TestPasswordReset(t *testing.T) {
 		svc, repo, _, emailer, _, _ := newTestService(t)
 		ctx := context.Background()
 
-		if _, err := svc.Register(ctx, "kate@example.com", "oldpass", ""); err != nil {
+		if _, err := svc.Register(ctx, "kate@example.com", "oldpass1", ""); err != nil {
 			t.Fatalf("Register: %v", err)
 		}
 
@@ -1086,7 +1086,7 @@ func TestPasswordReset(t *testing.T) {
 		resetToken := emailer.resets[0]
 		emailer.mu.Unlock()
 
-		if err := svc.ResetPassword(ctx, resetToken, "newpass"); err != nil {
+		if err := svc.ResetPassword(ctx, resetToken, "newpass0"); err != nil {
 			t.Fatalf("ResetPassword: %v", err)
 		}
 
@@ -1095,14 +1095,14 @@ func TestPasswordReset(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetUserByEmail: %v", err)
 		}
-		ok, err := auth.VerifyPassword("newpass", *user.PasswordHash)
+		ok, err := auth.VerifyPassword("newpass0", *user.PasswordHash)
 		if err != nil {
 			t.Fatalf("VerifyPassword: %v", err)
 		}
 		if !ok {
 			t.Fatal("new password does not verify")
 		}
-		ok, err = auth.VerifyPassword("oldpass", *user.PasswordHash)
+		ok, err = auth.VerifyPassword("oldpass1", *user.PasswordHash)
 		if err != nil {
 			t.Fatalf("VerifyPassword old: %v", err)
 		}
@@ -1122,7 +1122,7 @@ func TestPasswordReset(t *testing.T) {
 		svc, _, _, emailer, _, _ := newTestService(t)
 		ctx := context.Background()
 
-		if _, err := svc.Register(ctx, "leo@example.com", "pass", ""); err != nil {
+		if _, err := svc.Register(ctx, "leo@example.com", "password1", ""); err != nil {
 			t.Fatalf("Register: %v", err)
 		}
 		if err := svc.RequestPasswordReset(ctx, "leo@example.com"); err != nil {

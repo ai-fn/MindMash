@@ -114,6 +114,11 @@ func Unavailable(msg string, cause ...error) *AppError {
 	return newAppError(codes.Unavailable, msg, cause)
 }
 
+// ResourceExhausted signals a rate limit or quota hit; maps to HTTP 429.
+func ResourceExhausted(msg string, cause ...error) *AppError {
+	return newAppError(codes.ResourceExhausted, msg, cause)
+}
+
 func Unimplemented(msg string, cause ...error) *AppError {
 	return newAppError(codes.Unimplemented, msg, cause)
 }
@@ -129,6 +134,7 @@ var grpcToHTTP = map[codes.Code]int{
 	codes.PermissionDenied:   http.StatusForbidden,
 	codes.Internal:           http.StatusInternalServerError,
 	codes.Unavailable:        http.StatusServiceUnavailable,
+	codes.ResourceExhausted:  http.StatusTooManyRequests,
 	codes.Unimplemented:      http.StatusNotImplemented,
 }
 

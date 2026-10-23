@@ -122,7 +122,11 @@ func run() error {
 	sessions := identity.NewRedisSessionStore(rdb)
 	exchanger := identity.NewOIDCExchanger(oauthProvidersFromEnv())
 	email := identity.NewLogEmailSender(logger)
-	svc := identity.NewService(repo, sessions, signer, exchanger, email, logger, authCfg)
+	svc := identity.NewService(repo, sessions, signer, exchanger, email, logger, authCfg,
+		identity.WithRateLimiter(identity.NewRedisRateLimiter(rdb)))
+	if err := svc.WarmUp(); err != nil {
+		return fmt.Errorf("identity: warm up: %w", err)
+	}
 	handler := identity.NewHandler(svc)
 
 	// gRPC server.  The user-facing JWT check lives at the REST edge below;

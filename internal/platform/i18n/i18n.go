@@ -32,6 +32,7 @@ const (
 	MsgInvalidOrExpiredToken = "error.invalid_or_expired_token"
 	MsgOAuthEmailUnverified  = "error.oauth_email_unverified"
 	MsgOAuthLinkUnverified   = "error.oauth_link_unverified"
+	MsgTooManyAttempts       = "error.too_many_attempts"
 
 	MsgVerificationSubject  = "email.verification.subject"
 	MsgVerificationBody     = "email.verification.body"
@@ -56,6 +57,7 @@ func buildCatalog() catalog.Catalog {
 		MsgInvalidOrExpiredToken: "This link is invalid or has expired. Request a new one.",
 		MsgOAuthEmailUnverified:  "Your email isn't verified with this provider. Verify it there and try again.",
 		MsgOAuthLinkUnverified:   "An account with this email already exists. Verify its email, then sign in with this provider.",
+		MsgTooManyAttempts:       "Too many attempts. Try again later.",
 		MsgVerificationSubject:   "Verify your MindMesh email",
 		MsgVerificationBody:      "Welcome to MindMesh! Confirm your email with this token: %s",
 		MsgPasswordResetSubject:  "Reset your MindMesh password",
@@ -67,6 +69,7 @@ func buildCatalog() catalog.Catalog {
 		MsgInvalidOrExpiredToken: "Ссылка недействительна или устарела. Запросите новую.",
 		MsgOAuthEmailUnverified:  "Почта не подтверждена у этого провайдера. Подтвердите её там и попробуйте снова.",
 		MsgOAuthLinkUnverified:   "Аккаунт с такой почтой уже существует. Подтвердите его почту, затем войдите через этого провайдера.",
+		MsgTooManyAttempts:       "Слишком много попыток. Попробуйте позже.",
 		MsgVerificationSubject:   "Подтвердите вашу почту в MindMesh",
 		MsgVerificationBody:      "Добро пожаловать в MindMesh! Подтвердите почту с помощью этого токена: %s",
 		MsgPasswordResetSubject:  "Сброс пароля MindMesh",
@@ -78,6 +81,7 @@ func buildCatalog() catalog.Catalog {
 		MsgInvalidOrExpiredToken: "此链接无效或已过期。请重新申请。",
 		MsgOAuthEmailUnverified:  "你的邮箱尚未在该登录提供方验证。请先在那里验证后重试。",
 		MsgOAuthLinkUnverified:   "该邮箱的账号已存在。请先验证该账号的邮箱，再使用此提供方登录。",
+		MsgTooManyAttempts:       "尝试次数过多。请稍后再试。",
 		MsgVerificationSubject:   "验证你的 MindMesh 邮箱",
 		MsgVerificationBody:      "欢迎使用 MindMesh！请使用此令牌确认邮箱：%s",
 		MsgPasswordResetSubject:  "重置你的 MindMesh 密码",
