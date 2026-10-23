@@ -145,11 +145,18 @@ type OAuthUserInfo struct {
 	EmailVerified bool
 }
 
-// OAuthExchanger converts an OAuth authorization code into OAuthUserInfo.
-// Each provider implementation is responsible for OIDC discovery, token
-// exchange, and ID-token verification.
+// OAuthFlow is what the server remembered about an authorization request.
+type OAuthFlow struct {
+	RedirectURI string `json:"redirect_uri"`
+	Nonce       string `json:"nonce"`    // must come back in the ID token
+	Verifier    string `json:"verifier"` // PKCE code verifier
+}
+
+// OAuthExchanger builds provider authorization URLs and turns authorization codes into OAuthUserInfo.
+// Implementations handle OIDC discovery, token exchange and ID-token verification.
 type OAuthExchanger interface {
-	Exchange(ctx context.Context, provider, code, redirectURI string) (OAuthUserInfo, error)
+	AuthURL(ctx context.Context, provider string, flow OAuthFlow, state string) (string, error)
+	Exchange(ctx context.Context, provider, code string, flow OAuthFlow) (OAuthUserInfo, error)
 }
 
 // ─── Email sender ────────────────────────────────────────────────────────────

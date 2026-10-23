@@ -122,8 +122,16 @@ func run() error {
 	repo := identity.NewPostgresRepository(pool)
 	exchanger := identity.NewOIDCExchanger(oauthProvidersFromEnv())
 	email := identity.NewLogEmailSender(logger, os.Getenv("LOG_EMAIL_SECRETS") == "true")
+	redirectURIs := splitList(os.Getenv("OAUTH_REDIRECT_URIS"))
+	if err := identity.ValidateRedirectURIs(redirectURIs); err != nil {
+		return err
+	}
+	if len(redirectURIs) == 0 {
+		logger.Warn("identity: OAUTH_REDIRECT_URIS is empty; social sign-in is disabled")
+	}
 	svc := identity.NewService(repo, signer, exchanger, email, logger, authCfg,
-		identity.WithRateLimiter(identity.NewRedisRateLimiter(rdb)))
+		identity.WithRateLimiter(identity.NewRedisRateLimiter(rdb)),
+		identity.WithOAuth(identity.NewRedisOAuthStateStore(rdb), redirectURIs))
 	if err := svc.WarmUp(); err != nil {
 		return fmt.Errorf("identity: warm up: %w", err)
 	}
@@ -274,4 +282,14 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+func splitList(v string) []string {
+	var out []string
+	for item := range strings.SplitSeq(v, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			out = append(out, item)
+		}
+	}
+	return out
 }

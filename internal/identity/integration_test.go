@@ -30,8 +30,23 @@ type stubOAuthExchanger struct {
 	err  error
 }
 
-func (s *stubOAuthExchanger) Exchange(_ context.Context, _, _, _ string) (OAuthUserInfo, error) {
+func (s *stubOAuthExchanger) AuthURL(_ context.Context, _ string, _ OAuthFlow, state string) (string, error) {
+	return "https://idp.example/auth?state=" + state, nil
+}
+
+func (s *stubOAuthExchanger) Exchange(context.Context, string, string, OAuthFlow) (OAuthUserInfo, error) {
 	return s.info, s.err
+}
+
+const integrationRedirect = "https://app/cb"
+
+// oauthLogin runs a full start + exchange, as the SPA would.
+func oauthLogin(ctx context.Context, svc *Service, provider, code string) (access, refresh string, expiresIn int64, userID, profileID string, isNew bool, err error) {
+	_, state, err := svc.OAuthStart(ctx, provider, integrationRedirect)
+	if err != nil {
+		return "", "", 0, "", "", false, err
+	}
+	return svc.OAuthExchange(ctx, provider, code, state, integrationRedirect)
 }
 
 // captureEmailSender captures the last verification and reset tokens sent.
@@ -61,6 +76,7 @@ type integrationComponents struct {
 	repo    *PostgresRepository
 	signer  *auth.Signer
 	limiter *RedisRateLimiter
+	oauth   *RedisOAuthStateStore
 }
 
 // setupIntegration starts Postgres and Redis containers, runs migrations, and
@@ -144,13 +160,16 @@ func setupFull(t *testing.T, emailSender EmailSender, exchanger OAuthExchanger) 
 
 	// ── Service ──────────────────────────────────────────────────────────────
 	limiter := NewRedisRateLimiter(redisClient)
-	svc := NewService(repo, signer, exchanger, emailSender, zap.NewNop(), authCfg, WithRateLimiter(limiter), WithSyncEmail())
+	oauthStates := NewRedisOAuthStateStore(redisClient)
+	svc := NewService(repo, signer, exchanger, emailSender, zap.NewNop(), authCfg, WithRateLimiter(limiter), WithSyncEmail(),
+		WithOAuth(oauthStates, []string{integrationRedirect}))
 
 	return integrationComponents{
 		svc:     svc,
 		repo:    repo,
 		signer:  signer,
 		limiter: limiter,
+		oauth:   oauthStates,
 	}
 }
 
@@ -360,7 +379,7 @@ func TestOAuthExchange_Integration(t *testing.T) {
 	c := setupFull(t, NewLogEmailSender(zap.NewNop(), true), stub)
 
 	// First call: brand-new OAuth user.
-	access, refresh, _, userID, profileID, isNew, err := c.svc.OAuthExchange(ctx, "google", "code-abc", "https://example.com/cb")
+	access, refresh, _, userID, profileID, isNew, err := oauthLogin(ctx, c.svc, "google", "code-abc")
 	require.NoError(t, err)
 	assert.True(t, isNew, "first OAuth exchange must report isNew=true")
 	assert.NotEmpty(t, access)
@@ -369,7 +388,7 @@ func TestOAuthExchange_Integration(t *testing.T) {
 	assert.NotEmpty(t, profileID)
 
 	// Second call with same provider+subject: existing identity.
-	access2, refresh2, _, userID2, _, isNew2, err := c.svc.OAuthExchange(ctx, "google", "code-abc", "https://example.com/cb")
+	access2, refresh2, _, userID2, _, isNew2, err := oauthLogin(ctx, c.svc, "google", "code-abc")
 	require.NoError(t, err)
 	assert.False(t, isNew2, "second OAuth exchange must report isNew=false")
 	assert.NotEmpty(t, access2)
@@ -481,7 +500,7 @@ func TestAccountRecoveryRevokesSessions_Integration(t *testing.T) {
 	_, attackerRefresh, _, _, _, err := c.svc.Login(ctx, "victim@example.com", "attackers-pw")
 	require.NoError(t, err)
 
-	_, _, _, ownerID, _, isNew, err := c.svc.OAuthExchange(ctx, "google", "code", "https://app/cb")
+	_, _, _, ownerID, _, isNew, err := oauthLogin(ctx, c.svc, "google", "code")
 	require.NoError(t, err)
 	assert.False(t, isNew)
 
@@ -527,7 +546,7 @@ func TestClaimEndsRacingRefreshLoop_Integration(t *testing.T) {
 	}()
 	time.Sleep(200 * time.Millisecond)
 
-	_, _, _, _, _, _, err = c.svc.OAuthExchange(ctx, "google", "code", "https://app/cb")
+	_, _, _, _, _, _, err = oauthLogin(ctx, c.svc, "google", "code")
 	require.NoError(t, err)
 
 	select {
@@ -589,7 +608,7 @@ func TestClaimRevokesInFlightRotation_Integration(t *testing.T) {
 	}()
 	time.Sleep(300 * time.Millisecond) // Refresh now holds its locks and is sleeping before the insert
 
-	_, _, _, _, _, _, err = c.svc.OAuthExchange(ctx, "google", "code", "https://app/cb")
+	_, _, _, _, _, _, err = oauthLogin(ctx, c.svc, "google", "code")
 	require.NoError(t, err)
 	<-refreshDone
 
@@ -788,4 +807,30 @@ func TestRefreshLosingTheRotationRaceIsNotTheft_Integration(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, <-slowDone, "the loser of the race must get a sibling, not a family revoke")
+}
+
+// TestOAuthStateStore_Integration: a state is single-use and expires.
+func TestOAuthStateStore_Integration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	c := setupIntegration(t)
+	want := OAuthState{Provider: "google", OAuthFlow: OAuthFlow{RedirectURI: "https://app/cb", Nonce: "n", Verifier: "v"}}
+
+	require.NoError(t, c.oauth.Put(ctx, "state-1", want, time.Minute))
+	got, ok, err := c.oauth.Take(ctx, "state-1")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, want, got)
+	_, ok, err = c.oauth.Take(ctx, "state-1")
+	require.NoError(t, err)
+	assert.False(t, ok, "a state must work once")
+
+	require.NoError(t, c.oauth.Put(ctx, "state-2", want, time.Second))
+	time.Sleep(1500 * time.Millisecond)
+	_, ok, err = c.oauth.Take(ctx, "state-2")
+	require.NoError(t, err)
+	assert.False(t, ok, "an expired state must be gone")
 }

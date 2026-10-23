@@ -2,7 +2,10 @@ package identity
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/url"
+	"strings"
 	"sync"
 
 	gooidc "github.com/coreos/go-oidc/v3/oidc"
@@ -43,33 +46,54 @@ func NewOIDCExchanger(configs map[string]ProviderConfig) *OIDCExchanger {
 	}
 }
 
-// Exchange performs a full OIDC authorization-code exchange and returns the
-// normalised user info from the verified ID token.
-func (e *OIDCExchanger) Exchange(ctx context.Context, provider, code, redirectURI string) (OAuthUserInfo, error) {
+// AuthURL returns the provider's authorization URL carrying state, the nonce and a PKCE challenge.
+func (e *OIDCExchanger) AuthURL(ctx context.Context, provider string, flow OAuthFlow, state string) (string, error) {
+	cfg, ok := e.configs[provider]
+	if !ok {
+		return "", platformerrors.InvalidArgument(fmt.Sprintf("unknown OAuth provider %q", provider))
+	}
+	_, callCfg, err := e.getOrCreateProvider(ctx, provider, cfg, flow.RedirectURI)
+	if err != nil {
+		return "", platformerrors.Unavailable("oauth provider unavailable", err)
+	}
+	return callCfg.AuthCodeURL(state, oauth2.S256ChallengeOption(flow.Verifier), oauth2.SetAuthURLParam("nonce", flow.Nonce)), nil
+}
+
+// Exchange performs the authorization-code exchange (with PKCE) and returns the
+// user info from the verified ID token, whose nonce must match the flow's.
+func (e *OIDCExchanger) Exchange(ctx context.Context, provider, code string, flow OAuthFlow) (OAuthUserInfo, error) {
 	cfg, ok := e.configs[provider]
 	if !ok {
 		return OAuthUserInfo{}, platformerrors.InvalidArgument(fmt.Sprintf("unknown OAuth provider %q", provider))
 	}
 
-	oidcProvider, callCfg, err := e.getOrCreateProvider(ctx, provider, cfg, redirectURI)
+	oidcProvider, callCfg, err := e.getOrCreateProvider(ctx, provider, cfg, flow.RedirectURI)
 	if err != nil {
-		return OAuthUserInfo{}, fmt.Errorf("identity: oauth exchange init provider: %w", err)
+		return OAuthUserInfo{}, platformerrors.Unavailable("oauth provider unavailable", err)
 	}
 
-	token, err := callCfg.Exchange(ctx, code)
+	token, err := callCfg.Exchange(ctx, code, oauth2.VerifierOption(flow.Verifier))
 	if err != nil {
-		return OAuthUserInfo{}, fmt.Errorf("identity: oauth exchange code: %w", err)
+		var rejected *oauth2.RetrieveError
+		if errors.As(err, &rejected) {
+			return OAuthUserInfo{}, platformerrors.Unauthenticated("oauth code exchange failed", err)
+		}
+		return OAuthUserInfo{}, platformerrors.Unavailable("oauth provider unavailable", err)
 	}
 
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok {
-		return OAuthUserInfo{}, fmt.Errorf("identity: oauth exchange: id_token missing from response")
+		return OAuthUserInfo{}, platformerrors.Unauthenticated("oauth response has no id_token")
 	}
 
 	verifier := oidcProvider.Verifier(&gooidc.Config{ClientID: cfg.ClientID})
 	idToken, err := verifier.Verify(ctx, rawIDToken)
 	if err != nil {
-		return OAuthUserInfo{}, fmt.Errorf("identity: oauth exchange verify id_token: %w", err)
+		return OAuthUserInfo{}, platformerrors.Unauthenticated("invalid id_token", err)
+	}
+
+	if flow.Nonce == "" || idToken.Nonce != flow.Nonce {
+		return OAuthUserInfo{}, platformerrors.Unauthenticated("oauth id_token nonce mismatch")
 	}
 
 	var claims struct {
@@ -78,7 +102,7 @@ func (e *OIDCExchanger) Exchange(ctx context.Context, provider, code, redirectUR
 		EmailVerified claimBool `json:"email_verified"`
 	}
 	if err := idToken.Claims(&claims); err != nil {
-		return OAuthUserInfo{}, fmt.Errorf("identity: oauth exchange extract claims: %w", err)
+		return OAuthUserInfo{}, platformerrors.Unauthenticated("invalid id_token claims", err)
 	}
 
 	return OAuthUserInfo{
@@ -143,4 +167,19 @@ func (e *OIDCExchanger) getOrCreateProvider(ctx context.Context, name string, cf
 	callCfg := cp.oauth2Cfg
 	callCfg.RedirectURL = redirectURI
 	return cp.oidcProvider, callCfg, nil
+}
+
+// ValidateRedirectURIs requires absolute https URLs (http only for loopback) without fragments or wildcards.
+func ValidateRedirectURIs(uris []string) error {
+	for _, raw := range uris {
+		u, err := url.Parse(raw)
+		if err != nil || u.Host == "" || u.Fragment != "" || strings.Contains(raw, "*") {
+			return fmt.Errorf("identity: invalid oauth redirect uri %q", raw)
+		}
+		loopback := u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1"
+		if u.Scheme != "https" && (u.Scheme != "http" || !loopback) {
+			return fmt.Errorf("identity: oauth redirect uri %q must be https", raw)
+		}
+	}
+	return nil
 }

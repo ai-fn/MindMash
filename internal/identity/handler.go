@@ -53,8 +53,16 @@ func (h *Handler) Login(ctx context.Context, req *identityv1.LoginRequest) (*ide
 	}, nil
 }
 
+func (h *Handler) OAuthStart(ctx context.Context, req *identityv1.OAuthStartRequest) (*identityv1.OAuthStartResponse, error) {
+	authURL, state, err := h.svc.OAuthStart(ctx, req.Provider, req.RedirectUri)
+	if err != nil {
+		return nil, err
+	}
+	return &identityv1.OAuthStartResponse{AuthorizationUrl: authURL, State: state}, nil
+}
+
 func (h *Handler) OAuthExchange(ctx context.Context, req *identityv1.OAuthExchangeRequest) (*identityv1.OAuthExchangeResponse, error) {
-	access, refresh, expiresIn, userID, profileID, isNew, err := h.svc.OAuthExchange(ctx, req.Provider, req.Code, req.RedirectUri)
+	access, refresh, expiresIn, userID, profileID, isNew, err := h.svc.OAuthExchange(ctx, req.Provider, req.Code, req.State, req.RedirectUri)
 	if err != nil {
 		return nil, err
 	}

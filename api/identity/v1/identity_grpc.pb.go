@@ -21,6 +21,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	AuthService_Register_FullMethodName             = "/identity.v1.AuthService/Register"
 	AuthService_Login_FullMethodName                = "/identity.v1.AuthService/Login"
+	AuthService_OAuthStart_FullMethodName           = "/identity.v1.AuthService/OAuthStart"
 	AuthService_OAuthExchange_FullMethodName        = "/identity.v1.AuthService/OAuthExchange"
 	AuthService_Refresh_FullMethodName              = "/identity.v1.AuthService/Refresh"
 	AuthService_Logout_FullMethodName               = "/identity.v1.AuthService/Logout"
@@ -36,6 +37,7 @@ const (
 type AuthServiceClient interface {
 	Register(ctx context.Context, in *RegisterRequest, opts ...grpc.CallOption) (*RegisterResponse, error)
 	Login(ctx context.Context, in *LoginRequest, opts ...grpc.CallOption) (*LoginResponse, error)
+	OAuthStart(ctx context.Context, in *OAuthStartRequest, opts ...grpc.CallOption) (*OAuthStartResponse, error)
 	OAuthExchange(ctx context.Context, in *OAuthExchangeRequest, opts ...grpc.CallOption) (*OAuthExchangeResponse, error)
 	Refresh(ctx context.Context, in *RefreshRequest, opts ...grpc.CallOption) (*RefreshResponse, error)
 	Logout(ctx context.Context, in *LogoutRequest, opts ...grpc.CallOption) (*LogoutResponse, error)
@@ -67,6 +69,16 @@ func (c *authServiceClient) Login(ctx context.Context, in *LoginRequest, opts ..
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(LoginResponse)
 	err := c.cc.Invoke(ctx, AuthService_Login_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) OAuthStart(ctx context.Context, in *OAuthStartRequest, opts ...grpc.CallOption) (*OAuthStartResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(OAuthStartResponse)
+	err := c.cc.Invoke(ctx, AuthService_OAuthStart_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -149,6 +161,7 @@ func (c *authServiceClient) ResetPassword(ctx context.Context, in *ResetPassword
 type AuthServiceServer interface {
 	Register(context.Context, *RegisterRequest) (*RegisterResponse, error)
 	Login(context.Context, *LoginRequest) (*LoginResponse, error)
+	OAuthStart(context.Context, *OAuthStartRequest) (*OAuthStartResponse, error)
 	OAuthExchange(context.Context, *OAuthExchangeRequest) (*OAuthExchangeResponse, error)
 	Refresh(context.Context, *RefreshRequest) (*RefreshResponse, error)
 	Logout(context.Context, *LogoutRequest) (*LogoutResponse, error)
@@ -170,6 +183,9 @@ func (UnimplementedAuthServiceServer) Register(context.Context, *RegisterRequest
 }
 func (UnimplementedAuthServiceServer) Login(context.Context, *LoginRequest) (*LoginResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Login not implemented")
+}
+func (UnimplementedAuthServiceServer) OAuthStart(context.Context, *OAuthStartRequest) (*OAuthStartResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method OAuthStart not implemented")
 }
 func (UnimplementedAuthServiceServer) OAuthExchange(context.Context, *OAuthExchangeRequest) (*OAuthExchangeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method OAuthExchange not implemented")
@@ -244,6 +260,24 @@ func _AuthService_Login_Handler(srv interface{}, ctx context.Context, dec func(i
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AuthServiceServer).Login(ctx, req.(*LoginRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_OAuthStart_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(OAuthStartRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).OAuthStart(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_OAuthStart_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).OAuthStart(ctx, req.(*OAuthStartRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -388,6 +422,10 @@ var AuthService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Login",
 			Handler:    _AuthService_Login_Handler,
+		},
+		{
+			MethodName: "OAuthStart",
+			Handler:    _AuthService_OAuthStart_Handler,
 		},
 		{
 			MethodName: "OAuthExchange",

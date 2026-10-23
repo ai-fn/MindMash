@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -359,9 +360,20 @@ type fakeOAuthExchanger struct {
 	// code → OAuthUserInfo to return
 	responses map[string]OAuthUserInfo
 	err       error
+	flows     map[string]OAuthFlow // state → flow given to AuthURL
+	lastFlow  OAuthFlow            // flow given to the latest Exchange
 }
 
-func (f *fakeOAuthExchanger) Exchange(_ context.Context, _, code, _ string) (OAuthUserInfo, error) {
+func (f *fakeOAuthExchanger) AuthURL(_ context.Context, _ string, flow OAuthFlow, state string) (string, error) {
+	if f.flows == nil {
+		f.flows = map[string]OAuthFlow{}
+	}
+	f.flows[state] = flow
+	return "https://idp.example/auth?state=" + state, nil
+}
+
+func (f *fakeOAuthExchanger) Exchange(_ context.Context, _, code string, flow OAuthFlow) (OAuthUserInfo, error) {
+	f.lastFlow = flow
 	if f.err != nil {
 		return OAuthUserInfo{}, f.err
 	}
@@ -370,6 +382,42 @@ func (f *fakeOAuthExchanger) Exchange(_ context.Context, _, code, _ string) (OAu
 		return OAuthUserInfo{}, errors.New("fakeOAuthExchanger: unknown code")
 	}
 	return info, nil
+}
+
+type fakeStateStore struct {
+	mu   sync.Mutex
+	data map[string]OAuthState
+}
+
+func (f *fakeStateStore) Put(_ context.Context, state string, st OAuthState, _ time.Duration) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.data == nil {
+		f.data = map[string]OAuthState{}
+	}
+	f.data[state] = st
+	return nil
+}
+
+func (f *fakeStateStore) Take(_ context.Context, state string) (OAuthState, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	st, ok := f.data[state]
+	delete(f.data, state)
+	return st, ok, nil
+}
+
+const testRedirect = "https://app/cb"
+
+var testOAuth = func() Option { return WithOAuth(&fakeStateStore{}, []string{testRedirect}) }
+
+// oauthLogin runs a full start + exchange, as the SPA would.
+func oauthLogin(ctx context.Context, svc *Service, provider, code string) (access, refresh string, expiresIn int64, userID, profileID string, isNew bool, err error) {
+	_, state, err := svc.OAuthStart(ctx, provider, testRedirect)
+	if err != nil {
+		return "", "", 0, "", "", false, err
+	}
+	return svc.OAuthExchange(ctx, provider, code, state, testRedirect)
 }
 
 // ─── Test fixtures ───────────────────────────────────────────────────────────
@@ -399,7 +447,7 @@ func newTestService(t *testing.T, opts ...Option) (*Service, *fakeRepo, *fakeEma
 		AccessTokenTTL:  15 * time.Minute,
 		RefreshTokenTTL: 7 * 24 * time.Hour,
 	}
-	svc := NewService(repo, signer, exchanger, emailer, log, cfg, append([]Option{WithSyncEmail()}, opts...)...)
+	svc := NewService(repo, signer, exchanger, emailer, log, cfg, append([]Option{WithSyncEmail(), testOAuth()}, opts...)...)
 	return svc, repo, emailer, exchanger, signer
 }
 
@@ -710,7 +758,7 @@ func TestOAuthExchange(t *testing.T) {
 			Email: "eve@example.com", EmailVerified: true,
 		}
 
-		_, _, _, userID, _, isNew, err := svc.OAuthExchange(ctx, "google", "code1", "https://app/cb")
+		_, _, _, userID, _, isNew, err := oauthLogin(ctx, svc, "google", "code1")
 		if err != nil {
 			t.Fatalf("OAuthExchange: %v", err)
 		}
@@ -743,12 +791,12 @@ func TestOAuthExchange(t *testing.T) {
 			Email: "frank@example.com", EmailVerified: true,
 		}
 
-		_, _, _, userID1, _, _, err := svc.OAuthExchange(ctx, "google", "code2", "https://app/cb")
+		_, _, _, userID1, _, _, err := oauthLogin(ctx, svc, "google", "code2")
 		if err != nil {
 			t.Fatalf("first OAuthExchange: %v", err)
 		}
 
-		_, _, _, userID2, _, isNew, err := svc.OAuthExchange(ctx, "google", "code2", "https://app/cb")
+		_, _, _, userID2, _, isNew, err := oauthLogin(ctx, svc, "google", "code2")
 		if err != nil {
 			t.Fatalf("second OAuthExchange: %v", err)
 		}
@@ -778,7 +826,7 @@ func TestOAuthExchange(t *testing.T) {
 			Email: "grace@example.com", EmailVerified: true,
 		}
 
-		_, _, _, returnedUserID, _, isNew, err := svc.OAuthExchange(ctx, "google", "code3", "https://app/cb")
+		_, _, _, returnedUserID, _, isNew, err := oauthLogin(ctx, svc, "google", "code3")
 		if err != nil {
 			t.Fatalf("OAuthExchange: %v", err)
 		}
@@ -831,7 +879,7 @@ func TestOAuthExchange_RefusesUnverifiedEmails(t *testing.T) {
 				Provider: "google", Subject: "g-attacker", Email: "ivy@example.com", EmailVerified: tc.providerVerified,
 			}
 
-			_, _, _, _, _, _, err := svc.OAuthExchange(ctx, "google", "c", "https://app/cb")
+			_, _, _, _, _, _, err := oauthLogin(ctx, svc, "google", "c")
 			if got := grpcCode(err); got != tc.want {
 				t.Fatalf("want %v, got %v (%v)", tc.want, got, err)
 			}
@@ -858,10 +906,10 @@ func TestOAuthExchange_LookupErrorCreatesNothing(t *testing.T) {
 		"c": {Provider: "google", Subject: "g-1", Email: "kim@example.com", EmailVerified: true},
 	}}
 	svc := NewService(repo, newTestSigner(t), exchanger, &fakeEmailSender{}, zap.NewNop(),
-		auth.Config{AccessTokenTTL: time.Minute, RefreshTokenTTL: time.Hour})
+		auth.Config{AccessTokenTTL: time.Minute, RefreshTokenTTL: time.Hour}, testOAuth())
 
-	if _, _, _, _, _, _, err := svc.OAuthExchange(context.Background(), "google", "c", "https://app/cb"); err == nil {
-		t.Fatal("want the lookup error, got a session")
+	if _, _, _, _, _, _, err := oauthLogin(context.Background(), svc, "google", "c"); err == nil || !strings.Contains(err.Error(), "db down") {
+		t.Fatalf("want the lookup error, got %v", err)
 	}
 	if _, err := repo.GetOAuthIdentity(context.Background(), "google", "g-1"); !platformerrors.IsNotFound(err) {
 		t.Fatalf("want no identity created on a lookup error, got %v", err)
@@ -878,10 +926,10 @@ func TestOAuthExchange_RejectsMissingClaims(t *testing.T) {
 	exchanger.responses["no-email"] = OAuthUserInfo{Provider: "google", Subject: "g-1", EmailVerified: true}
 	exchanger.responses["no-sub"] = OAuthUserInfo{Provider: "google", Email: "jo@example.com", EmailVerified: true}
 
-	if _, _, _, _, _, _, err := svc.OAuthExchange(ctx, "google", "no-email", "https://app/cb"); !platformerrors.IsFailedPrecondition(err) {
+	if _, _, _, _, _, _, err := oauthLogin(ctx, svc, "google", "no-email"); !platformerrors.IsFailedPrecondition(err) {
 		t.Fatalf("empty email: want FailedPrecondition, got %v", err)
 	}
-	if _, _, _, _, _, _, err := svc.OAuthExchange(ctx, "google", "no-sub", "https://app/cb"); !platformerrors.IsUnauthenticated(err) {
+	if _, _, _, _, _, _, err := oauthLogin(ctx, svc, "google", "no-sub"); !platformerrors.IsUnauthenticated(err) {
 		t.Fatalf("empty subject: want Unauthenticated, got %v", err)
 	}
 }

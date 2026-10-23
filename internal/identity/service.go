@@ -9,11 +9,13 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"go.uber.org/zap"
+	"golang.org/x/oauth2"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -53,6 +55,9 @@ type Service struct {
 
 	limiter RateLimiter // nil disables rate limiting
 
+	oauthStates    OAuthStateStore
+	oauthRedirects []string
+
 	// hashSlots bounds concurrent argon2 runs (64 MiB each) so a login flood cannot exhaust memory.
 	hashSlots chan struct{}
 
@@ -74,6 +79,11 @@ type Option func(*Service)
 
 // WithRateLimiter enables per-account rate limits on login and password reset requests.
 func WithRateLimiter(l RateLimiter) Option { return func(s *Service) { s.limiter = l } }
+
+// WithOAuth enables social sign-in; only exact matches of redirectURIs may start a flow.
+func WithOAuth(states OAuthStateStore, redirectURIs []string) Option {
+	return func(s *Service) { s.oauthStates, s.oauthRedirects = states, redirectURIs }
+}
 
 // WithSyncEmail sends email inside the request, for tests.
 func WithSyncEmail() Option { return func(s *Service) { s.syncEmail = true } }
@@ -247,11 +257,57 @@ func (s *Service) Login(ctx context.Context, email, password string) (accessToke
 
 // ─── OAuth ───────────────────────────────────────────────────────────────────
 
-// OAuthExchange performs a code exchange with the given provider and either
-// creates a new account or links/finds an existing one.
-func (s *Service) OAuthExchange(ctx context.Context, provider, code, redirectURI string) (accessToken, refreshToken string, expiresIn int64, userID, profileID string, isNew bool, err error) {
-	info, err := s.exchanger.Exchange(ctx, provider, code, redirectURI)
+const oauthStateTTL = 10 * time.Minute
+
+// OAuthStart begins an authorization-code flow. The state, nonce and PKCE verifier stay on the server,
+// so the callback can only be completed by a flow this service started.
+func (s *Service) OAuthStart(ctx context.Context, provider, redirectURI string) (authURL, state string, err error) {
+	if s.oauthStates == nil || len(s.oauthRedirects) == 0 {
+		return "", "", platformerrors.FailedPrecondition("oauth is not configured")
+	}
+	if !slices.Contains(s.oauthRedirects, redirectURI) {
+		return "", "", platformerrors.InvalidArgument("redirect_uri is not allowed")
+	}
+	state, err = generateVerificationToken()
 	if err != nil {
+		return "", "", err
+	}
+	nonce, err := generateVerificationToken()
+	if err != nil {
+		return "", "", err
+	}
+	flow := OAuthFlow{RedirectURI: redirectURI, Nonce: nonce, Verifier: oauth2.GenerateVerifier()}
+	authURL, err = s.exchanger.AuthURL(ctx, provider, flow, state)
+	if err != nil {
+		return "", "", fmt.Errorf("identity: oauth start: %w", err)
+	}
+	if err := s.oauthStates.Put(ctx, state, OAuthState{Provider: provider, OAuthFlow: flow}, oauthStateTTL); err != nil {
+		return "", "", err
+	}
+	return authURL, state, nil
+}
+
+// OAuthExchange completes a flow started by OAuthStart and either creates a new account or links/finds an existing one.
+func (s *Service) OAuthExchange(ctx context.Context, provider, code, state, redirectURI string) (accessToken, refreshToken string, expiresIn int64, userID, profileID string, isNew bool, err error) {
+	if s.oauthStates == nil {
+		return "", "", 0, "", "", false, platformerrors.FailedPrecondition("oauth is not configured")
+	}
+	if state == "" || code == "" {
+		return "", "", 0, "", "", false, platformerrors.InvalidArgument("code and state are required")
+	}
+	st, found, err := s.oauthStates.Take(ctx, state)
+	if err != nil {
+		return "", "", 0, "", "", false, err
+	}
+	if !found || st.Provider != provider || (redirectURI != "" && redirectURI != st.RedirectURI) {
+		return "", "", 0, "", "", false, platformerrors.Unauthenticated("invalid or expired oauth state")
+	}
+	info, err := s.exchanger.Exchange(ctx, provider, code, st.OAuthFlow)
+	if err != nil {
+		var appErr *platformerrors.AppError
+		if errors.As(err, &appErr) {
+			return "", "", 0, "", "", false, err // already client-safe; wrapping would expose the cause in the status message
+		}
 		return "", "", 0, "", "", false, fmt.Errorf("identity: oauth exchange: %w", err)
 	}
 	if info.Subject == "" {

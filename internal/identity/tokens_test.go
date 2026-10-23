@@ -112,7 +112,7 @@ func TestOAuthLink_ClaimsPasswordAccount(t *testing.T) {
 			}
 			exchanger.responses["c"] = OAuthUserInfo{Provider: "google", Subject: "owner", Email: "victim@example.com", EmailVerified: true}
 
-			_, _, _, gotUID, _, isNew, err := svc.OAuthExchange(ctx, "google", "c", "")
+			_, _, _, gotUID, _, isNew, err := oauthLogin(ctx, svc, "google", "c")
 			if err != nil || gotUID != uid || isNew {
 				t.Fatalf("link: uid=%s new=%v err=%v", gotUID, isNew, err)
 			}
@@ -145,11 +145,11 @@ func TestOAuthLink_PasswordlessAccountKeepsSessions(t *testing.T) {
 	ctx := context.Background()
 	exchanger.responses["g"] = OAuthUserInfo{Provider: "google", Subject: "g1", Email: "both@example.com", EmailVerified: true}
 	exchanger.responses["a"] = OAuthUserInfo{Provider: "apple", Subject: "a1", Email: "both@example.com", EmailVerified: true}
-	_, refresh, _, _, _, _, err := svc.OAuthExchange(ctx, "google", "g", "")
+	_, refresh, _, _, _, _, err := oauthLogin(ctx, svc, "google", "g")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, _, _, _, err := svc.OAuthExchange(ctx, "apple", "a", ""); err != nil {
+	if _, _, _, _, _, _, err := oauthLogin(ctx, svc, "apple", "a"); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, _, err := svc.Refresh(ctx, refresh); err != nil {

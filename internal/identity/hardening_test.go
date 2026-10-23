@@ -253,11 +253,11 @@ func TestOAuthExchange_SuspendedAccount(t *testing.T) {
 	ctx := context.Background()
 
 	exchanger.responses["known"] = OAuthUserInfo{Provider: "google", Subject: "sub-1", Email: "gus@example.com", EmailVerified: true}
-	if _, _, _, _, _, _, err := svc.OAuthExchange(ctx, "google", "known", ""); err != nil {
+	if _, _, _, _, _, _, err := oauthLogin(ctx, svc, "google", "known"); err != nil {
 		t.Fatalf("first exchange: %v", err)
 	}
 	suspend(repo, "gus@example.com")
-	if _, _, _, _, _, _, err := svc.OAuthExchange(ctx, "google", "known", ""); grpcCode(err) != codes.PermissionDenied {
+	if _, _, _, _, _, _, err := oauthLogin(ctx, svc, "google", "known"); grpcCode(err) != codes.PermissionDenied {
 		t.Fatalf("known identity: got %v, want PermissionDenied", grpcCode(err))
 	}
 
@@ -268,7 +268,7 @@ func TestOAuthExchange_SuspendedAccount(t *testing.T) {
 	repo.mu.Unlock()
 	suspend(repo, "linda@example.com")
 	exchanger.responses["link"] = OAuthUserInfo{Provider: "google", Subject: "sub-2", Email: "linda@example.com", EmailVerified: true}
-	if _, _, _, _, _, _, err := svc.OAuthExchange(ctx, "google", "link", ""); grpcCode(err) != codes.PermissionDenied {
+	if _, _, _, _, _, _, err := oauthLogin(ctx, svc, "google", "link"); grpcCode(err) != codes.PermissionDenied {
 		t.Fatalf("link: got %v, want PermissionDenied", grpcCode(err))
 	}
 	if _, err := repo.GetOAuthIdentity(ctx, "google", "sub-2"); err == nil {
@@ -340,7 +340,7 @@ func TestLogin_UnknownAndOAuthOnlyAccountsPayForAHash(t *testing.T) {
 	ctx := context.Background()
 	_ = svc.WarmUp()
 	exchanger.responses["c"] = OAuthUserInfo{Provider: "google", Subject: "s", Email: "oauth@example.com", EmailVerified: true}
-	if _, _, _, _, _, _, err := svc.OAuthExchange(ctx, "google", "c", ""); err != nil {
+	if _, _, _, _, _, _, err := oauthLogin(ctx, svc, "google", "c"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -397,7 +397,7 @@ func TestCancelledContextIsRejectedBeforeHashing(t *testing.T) {
 func TestOAuthExchange_TrimsProviderEmail(t *testing.T) {
 	svc, repo, _, exchanger, _ := newTestService(t)
 	exchanger.responses["c"] = OAuthUserInfo{Provider: "google", Subject: "s", Email: " trim@example.com ", EmailVerified: true}
-	if _, _, _, _, _, _, err := svc.OAuthExchange(context.Background(), "google", "c", ""); err != nil {
+	if _, _, _, _, _, _, err := oauthLogin(context.Background(), svc, "google", "c"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := repo.GetUserByEmail(context.Background(), "trim@example.com"); err != nil {

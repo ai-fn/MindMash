@@ -23,6 +23,13 @@ service AuthService {
     };
   }
 
+  rpc OAuthStart(OAuthStartRequest) returns (OAuthStartResponse) {
+    option (google.api.http) = {
+      post: "/v1/auth/oauth/{provider}/start"
+      body: "*"
+    };
+  }
+
   rpc OAuthExchange(OAuthExchangeRequest) returns (OAuthExchangeResponse) {
     option (google.api.http) = {
       post: "/v1/auth/oauth/{provider}"
@@ -129,11 +136,22 @@ message LoginResponse {
   int64 expires_in = 5;
 }
 
+message OAuthStartRequest {
+  string provider = 1;
+  string redirect_uri = 2;
+}
+
+message OAuthStartResponse {
+  string authorization_url = 1;
+  // Opaque; the client keeps it (e.g. in sessionStorage) and checks it matches the callback before exchanging.
+  string state = 2;
+}
+
 message OAuthExchangeRequest {
   string provider = 1;
   string code = 2;
-  string state = 3;
-  string redirect_uri = 4;
+  string state = 3; // from OAuthStart; single use
+  string redirect_uri = 4; // optional; must equal the one given to OAuthStart
 }
 
 message OAuthExchangeResponse {
