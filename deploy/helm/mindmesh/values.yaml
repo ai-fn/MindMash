@@ -35,6 +35,12 @@ global:
     JWT_ISSUER: "https://mindmesh.dev"
     JWKS_ISSUER: "https://mindmesh.dev"
 
+# Alert rules from files/alerts.yaml as a PrometheusRule (needs the Prometheus Operator CRDs).
+# `labels` must match the operator's ruleSelector, e.g. {release: kube-prometheus-stack}.
+prometheusRule:
+  enabled: false
+  labels: {}
+
 # --- identity -------------------------------------------------------------
 identity:
   fullnameOverride: identity

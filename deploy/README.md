@@ -95,6 +95,13 @@ done
 third-party CRDs kubeconform doesn't ship schemas for; they only render when their `*.enabled`
 flag is set (off in all three committed overlays except ExternalSecrets in staging/prod).
 
+Alert rules live in `deploy/helm/mindmesh/files/alerts.yaml` and are unit-tested by
+`task alerts-test` (promtool, `deploy/prometheus/alerts_test.yml`). Set `prometheusRule.enabled`
+(plus `prometheusRule.labels` matching the operator's `ruleSelector`) to ship them as a
+`PrometheusRule`; the local compose Prometheus loads the same file. Rules group by the scrape `job`
+and assume a generic `TargetDown` alert (e.g. kube-prometheus-stack's) covers services that stop
+reporting entirely.
+
 ## Local dev (kind + Tilt)
 
 The whole stack — 5 backing stores, 6 services, and the SPA — runs on a local `kind` cluster in

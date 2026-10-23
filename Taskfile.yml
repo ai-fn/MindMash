@@ -49,6 +49,12 @@ tasks:
       - golangci-lint run
       - cd api && go tool buf lint
 
+  alerts-test:
+    desc: Check and unit-test Prometheus alert rules (promtool via Docker)
+    cmds:
+      - docker run --rm -v "$PWD/deploy:/deploy" -w /deploy/prometheus --entrypoint promtool prom/prometheus:v3.1.0 check rules ../helm/mindmesh/files/alerts.yaml
+      - docker run --rm -v "$PWD/deploy:/deploy" -w /deploy/prometheus --entrypoint promtool prom/prometheus:v3.1.0 test rules alerts_test.yml
+
   migrate:
     desc: Apply all migrations — identity, collection, scheduler (override DB_URL as needed)
     vars:

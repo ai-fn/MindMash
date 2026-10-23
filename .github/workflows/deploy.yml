@@ -125,6 +125,12 @@ jobs:
         run: |
           go install github.com/yannh/kubeconform/cmd/kubeconform@v0.6.7
           go install github.com/mikefarah/yq/v4@v4.53.3
+      - name: Alert rules (promtool check + unit tests)
+        run: |
+          docker run --rm -v "$PWD/deploy:/deploy" -w /deploy/prometheus --entrypoint promtool \
+            prom/prometheus:v3.1.0 check rules ../helm/mindmesh/files/alerts.yaml
+          docker run --rm -v "$PWD/deploy:/deploy" -w /deploy/prometheus --entrypoint promtool \
+            prom/prometheus:v3.1.0 test rules alerts_test.yml
       - name: helm dependency build
         run: helm dependency build deploy/helm/mindmesh
       - name: Lint + template + kubeconform + policy check
@@ -140,6 +146,9 @@ jobs:
             # has no bundled schema for; they only render when their own *.enabled flag
             # is set (off in dev; ExternalSecrets on in staging/prod).
             echo "$rendered" | kubeconform -strict -summary -ignore-missing-schemas
+            # Off in every overlay; render it anyway so template breakage surfaces here.
+            helm template mindmesh deploy/helm/mindmesh -f deploy/helm/mindmesh/values-$env.yaml \
+              --set prometheusRule.enabled=true --show-only templates/prometheusrule.yaml >/dev/null
 
             # values-dev.yaml deliberately runs single-replica with no PDB.
             if [ "$env" = "dev" ]; then

@@ -1,0 +1,120 @@
+# Prometheus rule groups; rendered into a PrometheusRule by templates/prometheusrule.yaml and
+# tested with `task alerts-test` (deploy/prometheus/alerts_test.yml).
+groups:
+  - name: mindmesh-red
+    rules:
+      - alert: MindMeshHTTPErrorRate
+        # The traffic floor keeps a handful of errors on an idle service from paging.
+        expr: |
+          (
+            sum by (namespace, job) (rate(mindmesh_http_server_requests_total{code=~"5.."}[5m]))
+              / sum by (namespace, job) (rate(mindmesh_http_server_requests_total[5m]))
+          ) > 0.05
+          and sum by (namespace, job) (rate(mindmesh_http_server_requests_total[5m])) > 0.1
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} returns 5xx for {{ $value | humanizePercentage }} of HTTP requests"
+      - alert: MindMeshGRPCErrorRate
+        expr: |
+          (
+            sum by (namespace, job) (rate(mindmesh_grpc_server_requests_total{code=~"Internal|Unknown|Unavailable|DataLoss|DeadlineExceeded"}[5m]))
+              / sum by (namespace, job) (rate(mindmesh_grpc_server_requests_total[5m]))
+          ) > 0.05
+          and sum by (namespace, job) (rate(mindmesh_grpc_server_requests_total[5m])) > 0.1
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} fails {{ $value | humanizePercentage }} of gRPC requests with server errors"
+      - alert: MindMeshHTTPLatencyHigh
+        # SSE streams stay open for hours by design.
+        expr: |
+          histogram_quantile(0.99,
+            sum by (namespace, job, le) (rate(mindmesh_http_server_request_duration_seconds_bucket{route!="/v1/sync/stream"}[5m]))
+          ) > 1
+          and sum by (namespace, job) (rate(mindmesh_http_server_request_duration_seconds_count{route!="/v1/sync/stream"}[5m])) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.job }} HTTP p99 latency is {{ $value | humanizeDuration }}"
+
+  - name: mindmesh-events
+    rules:
+      - alert: MindMeshOutboxStale
+        expr: max by (namespace, store) (mindmesh_outbox_oldest_unpublished_seconds) > 120
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.store }} outbox has rows unpublished for over 2m; events are delayed"
+      - alert: MindMeshOutboxRelayNoLeader
+        # Followers export 0, so the series exists while any replica runs; all replicas down is TargetDown.
+        expr: max by (namespace, store) (mindmesh_outbox_relay_leader) < 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No outbox relay leader for {{ $labels.store }}; events are not being published"
+      - alert: MindMeshDLQWriteFailing
+        expr: sum by (namespace, topic, group) (increase(mindmesh_consumer_dlq_write_failures_total[5m])) > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.group }} cannot write {{ $labels.topic }}.dlq; the partition is blocked"
+      - alert: MindMeshMessagesDeadLettered
+        expr: sum by (namespace, topic, group) (increase(mindmesh_consumer_dead_lettered_total[15m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.group }} dead-lettered {{ $labels.topic }} messages; inspect {{ $labels.topic }}.dlq and replay"
+      - alert: MindMeshConsumerLagHigh
+        # A pod keeps a revoked partition's last lag until it restarts; min takes the new owner's live value.
+        expr: |
+          max by (namespace, topic, group) (
+            min by (namespace, topic, group, partition) (mindmesh_consumer_lag_messages)
+          ) > 1000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.group }} is over 1000 messages behind on {{ $labels.topic }}"
+
+  - name: mindmesh-auth
+    rules:
+      - alert: MindMeshJWKSRefreshFailing
+        # A failing refresh retries every ≤30s; a lone blip stays under the threshold.
+        expr: sum by (namespace, job) (increase(mindmesh_jwks_refresh_failures_total[15m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.job }} keeps failing to refresh JWKS; new or rotated signing keys are not picked up"
+      - alert: MindMeshServiceAuthRejections
+        expr: sum by (namespace, job, method, caller, reason) (increase(mindmesh_service_auth_rejections_total[10m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.job }} rejects {{ $labels.caller }} calls to {{ $labels.method }} ({{ $labels.reason }})"
+
+  - name: mindmesh-retention
+    rules:
+      # Per-replica timestamps: stale only when the freshest replica is.
+      - alert: MindMeshIdentityPurgeStale
+        expr: time() - max by (namespace) (mindmesh_identity_purge_last_success_timestamp_seconds) > 3 * 3600
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No identity replica purged expired tokens in over 3h"
+      - alert: MindMeshSyncAppliedOpsPurgeStale
+        expr: time() - max by (namespace) (mindmesh_sync_applied_ops_purge_last_success_timestamp_seconds) > 3 * 3600
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No sync replica purged applied ops in over 3h"

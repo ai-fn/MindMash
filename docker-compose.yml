@@ -109,6 +109,7 @@ services:
       - "9090:9090"
     volumes:
       - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/helm/mindmesh/files/alerts.yaml:/etc/prometheus/alerts.yaml:ro
       - promdata:/prometheus
 
   grafana:

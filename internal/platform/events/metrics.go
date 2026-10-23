@@ -39,3 +39,12 @@ var (
 		Help: "1 while this instance is the outbox relay leader.",
 	}, []string{"store"})
 )
+
+// initConsumerSeries exports 0 up front: increase() can't see a counter's first increment without one.
+func initConsumerSeries(topics []string, group string) {
+	for _, t := range topics {
+		consumerHandlerFailures.WithLabelValues(t, group)
+		consumerDeadLettered.WithLabelValues(t, group)
+		consumerDLQWriteFailures.WithLabelValues(t, group)
+	}
+}

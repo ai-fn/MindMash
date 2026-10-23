@@ -287,3 +287,19 @@ func TestConsumerProcess_ShutdownIsNotASpanError(t *testing.T) {
 	require.Len(t, sr.Ended(), 1)
 	assert.Equal(t, otelcodes.Unset, sr.Ended()[0].Status().Code)
 }
+
+func TestInitConsumerSeries_ExportsZeroBeforeFirstFailure(t *testing.T) {
+	initConsumerSeries([]string{"init-a", "init-b"}, "init-group")
+	for _, name := range []string{
+		"mindmesh_consumer_handler_failures_total",
+		"mindmesh_consumer_dead_lettered_total",
+		"mindmesh_consumer_dlq_write_failures_total",
+	} {
+		for _, topic := range []string{"init-a", "init-b"} {
+			v, ok := testhelpers.MetricValue(t, name, map[string]string{"topic": topic, "group": "init-group"})
+			if !ok || v != 0 {
+				t.Errorf("%s{topic=%q}: present=%v value=%v; increase() can't see a first increment without a 0 sample", name, topic, ok, v)
+			}
+		}
+	}
+}

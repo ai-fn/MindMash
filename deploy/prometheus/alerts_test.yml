@@ -1,0 +1,189 @@
+rule_files:
+  - ../helm/mindmesh/files/alerts.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: auth
+    interval: 1m
+    input_series:
+      - series: 'mindmesh_jwks_refresh_failures_total{job="search",instance="a"}'
+        values: '0+1x30'
+      - series: 'mindmesh_jwks_refresh_failures_total{job="media",instance="a"}'
+        values: '0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1'
+      - series: 'mindmesh_service_auth_rejections_total{job="collection",method="/collection.v1.CollectionInternalService/GetSearchDocs",caller="search",reason="invalid_token"}'
+        values: '0+1x20'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: MindMeshJWKSRefreshFailing
+        exp_alerts:
+          - exp_labels: {severity: warning, job: search}
+            exp_annotations:
+              summary: "search keeps failing to refresh JWKS; new or rotated signing keys are not picked up"
+      - eval_time: 20m
+        alertname: MindMeshServiceAuthRejections
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: collection
+              method: /collection.v1.CollectionInternalService/GetSearchDocs
+              caller: search
+              reason: invalid_token
+            exp_annotations:
+              summary: "collection rejects search calls to /collection.v1.CollectionInternalService/GetSearchDocs (invalid_token)"
+
+  - name: outbox
+    interval: 1m
+    input_series:
+      - series: 'mindmesh_outbox_oldest_unpublished_seconds{store="collection",instance="a"}'
+        values: '0+60x20'
+      - series: 'mindmesh_outbox_oldest_unpublished_seconds{store="media",instance="a"}'
+        values: '0x20'
+      - series: 'mindmesh_outbox_relay_leader{store="collection",instance="a"}'
+        values: '0x20'
+      - series: 'mindmesh_outbox_relay_leader{store="collection",instance="b"}'
+        values: '0x20'
+      - series: 'mindmesh_outbox_relay_leader{store="media",instance="a"}'
+        values: '1x20'
+      - series: 'mindmesh_outbox_relay_leader{store="media",instance="b"}'
+        values: '0x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: MindMeshOutboxStale
+        exp_alerts:
+          - exp_labels: {severity: critical, store: collection}
+            exp_annotations:
+              summary: "collection outbox has rows unpublished for over 2m; events are delayed"
+      - eval_time: 15m
+        alertname: MindMeshOutboxRelayNoLeader
+        exp_alerts:
+          - exp_labels: {severity: critical, store: collection}
+            exp_annotations:
+              summary: "No outbox relay leader for collection; events are not being published"
+
+  - name: consumers
+    interval: 1m
+    input_series:
+      - series: 'mindmesh_consumer_dlq_write_failures_total{topic="card",group="search"}'
+        values: '0 0 0 1 2 3 4 5 6 7 8 9 10'
+      - series: 'mindmesh_consumer_dlq_write_failures_total{topic="deck",group="search"}'
+        values: '0x12'
+      - series: 'mindmesh_consumer_dead_lettered_total{topic="card",group="search"}'
+        values: '0 0 0 1 1 1 1 1 1 1 1 1 1'
+      - series: 'mindmesh_consumer_lag_messages{topic="card",group="search",partition="0",instance="a"}'
+        values: '5000x20'
+      - series: 'mindmesh_consumer_lag_messages{topic="card",group="search",partition="1",instance="a"}'
+        values: '0x20'
+      - series: 'mindmesh_consumer_lag_messages{topic="card",group="analytics",partition="0",instance="a"}'
+        values: '10x20'
+      # Partition 0 moved from a to b, which caught up; a still exports its last value.
+      - series: 'mindmesh_consumer_lag_messages{topic="card",group="scheduler",partition="0",instance="a"}'
+        values: '5000x20'
+      - series: 'mindmesh_consumer_lag_messages{topic="card",group="scheduler",partition="0",instance="b"}'
+        values: '0x20'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: MindMeshDLQWriteFailing
+        exp_alerts:
+          - exp_labels: {severity: critical, topic: card, group: search}
+            exp_annotations:
+              summary: "search cannot write card.dlq; the partition is blocked"
+      - eval_time: 8m
+        alertname: MindMeshMessagesDeadLettered
+        exp_alerts:
+          - exp_labels: {severity: warning, topic: card, group: search}
+            exp_annotations:
+              summary: "search dead-lettered card messages; inspect card.dlq and replay"
+      - eval_time: 15m
+        alertname: MindMeshConsumerLagHigh
+        exp_alerts:
+          - exp_labels: {severity: warning, topic: card, group: search}
+            exp_annotations:
+              summary: "search is over 1000 messages behind on card"
+
+  - name: retention
+    interval: 1m
+    input_series:
+      # Every identity replica last purged at t=0.
+      - series: 'mindmesh_identity_purge_last_success_timestamp_seconds{instance="a"}'
+        values: '0x300'
+      - series: 'mindmesh_identity_purge_last_success_timestamp_seconds{instance="b"}'
+        values: '0x300'
+      # One sync replica is stuck, another keeps purging: the job is healthy.
+      - series: 'mindmesh_sync_applied_ops_purge_last_success_timestamp_seconds{instance="a"}'
+        values: '0x300'
+      - series: 'mindmesh_sync_applied_ops_purge_last_success_timestamp_seconds{instance="b"}'
+        values: '0+60x300'
+    alert_rule_test:
+      - eval_time: 4h
+        alertname: MindMeshIdentityPurgeStale
+        exp_alerts:
+          - exp_labels: {severity: warning}
+            exp_annotations:
+              summary: "No identity replica purged expired tokens in over 3h"
+      - eval_time: 4h
+        alertname: MindMeshSyncAppliedOpsPurgeStale
+        exp_alerts: []
+
+  - name: red
+    interval: 1m
+    input_series:
+      - series: 'mindmesh_http_server_requests_total{job="collection",method="GET",route="/v1/decks",code="500"}'
+        values: '0+60x20'
+      - series: 'mindmesh_http_server_requests_total{job="collection",method="GET",route="/v1/decks",code="200"}'
+        values: '0+600x20'
+      # All errors, but too little traffic to page on.
+      - series: 'mindmesh_http_server_requests_total{job="media",method="GET",route="/v1/media/{id}",code="500"}'
+        values: '0+3x20'
+      - series: 'mindmesh_grpc_server_requests_total{job="scheduler",method="/scheduler.v1.SchedulerService/Answer",code="Internal"}'
+        values: '0+60x20'
+      - series: 'mindmesh_grpc_server_requests_total{job="scheduler",method="/scheduler.v1.SchedulerService/Answer",code="OK"}'
+        values: '0+600x20'
+      # Client errors are not server errors.
+      - series: 'mindmesh_grpc_server_requests_total{job="search",method="/search.v1.SearchService/Search",code="NotFound"}'
+        values: '0+600x20'
+      - series: 'mindmesh_grpc_server_requests_total{job="search",method="/search.v1.SearchService/Search",code="OK"}'
+        values: '0+60x20'
+      - series: 'mindmesh_http_server_request_duration_seconds_bucket{job="collection",method="GET",route="/v1/decks",le="1"}'
+        values: '0x20'
+      - series: 'mindmesh_http_server_request_duration_seconds_bucket{job="collection",method="GET",route="/v1/decks",le="2.5"}'
+        values: '0+60x20'
+      - series: 'mindmesh_http_server_request_duration_seconds_bucket{job="collection",method="GET",route="/v1/decks",le="+Inf"}'
+        values: '0+60x20'
+      - series: 'mindmesh_http_server_request_duration_seconds_count{job="collection",method="GET",route="/v1/decks"}'
+        values: '0+60x20'
+      # One slow request on an idle service.
+      - series: 'mindmesh_http_server_request_duration_seconds_bucket{job="media",method="GET",route="/v1/media/{id}",le="1"}'
+        values: '0x20'
+      - series: 'mindmesh_http_server_request_duration_seconds_bucket{job="media",method="GET",route="/v1/media/{id}",le="2.5"}'
+        values: '0+3x20'
+      - series: 'mindmesh_http_server_request_duration_seconds_bucket{job="media",method="GET",route="/v1/media/{id}",le="+Inf"}'
+        values: '0+3x20'
+      - series: 'mindmesh_http_server_request_duration_seconds_count{job="media",method="GET",route="/v1/media/{id}"}'
+        values: '0+3x20'
+      # SSE streams are long-lived by design.
+      - series: 'mindmesh_http_server_request_duration_seconds_bucket{job="sync",method="GET",route="/v1/sync/stream",le="1"}'
+        values: '0x20'
+      - series: 'mindmesh_http_server_request_duration_seconds_bucket{job="sync",method="GET",route="/v1/sync/stream",le="+Inf"}'
+        values: '0+60x20'
+      - series: 'mindmesh_http_server_request_duration_seconds_count{job="sync",method="GET",route="/v1/sync/stream"}'
+        values: '0+60x20'
+    alert_rule_test:
+      - eval_time: 18m
+        alertname: MindMeshHTTPErrorRate
+        exp_alerts:
+          - exp_labels: {severity: critical, job: collection}
+            exp_annotations:
+              summary: "collection returns 5xx for 9.091% of HTTP requests"
+      - eval_time: 18m
+        alertname: MindMeshGRPCErrorRate
+        exp_alerts:
+          - exp_labels: {severity: critical, job: scheduler}
+            exp_annotations:
+              summary: "scheduler fails 9.091% of gRPC requests with server errors"
+      - eval_time: 18m
+        alertname: MindMeshHTTPLatencyHigh
+        exp_alerts:
+          - exp_labels: {severity: warning, job: collection}
+            exp_annotations:
+              summary: "collection HTTP p99 latency is 2.485s"

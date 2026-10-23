@@ -9,6 +9,8 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -90,6 +92,13 @@ func InitTracer(ctx context.Context, cfg Config) (func(context.Context) error, e
 // sampler applies the ratio only to root spans so a trace sampled upstream stays whole.
 func sampler(rate float64) sdktrace.Sampler {
 	return sdktrace.ParentBased(sdktrace.TraceIDRatioBased(rate))
+}
+
+// NewStartedGauge registers a gauge holding the process start time until first set, for last-success timestamps.
+func NewStartedGauge(opts prometheus.GaugeOpts) prometheus.Gauge {
+	g := promauto.NewGauge(opts)
+	g.SetToCurrentTime()
+	return g
 }
 
 // InitMetrics returns an http.Handler that serves Prometheus metrics on /metrics.

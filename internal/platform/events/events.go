@@ -301,6 +301,8 @@ func (c *KafkaConsumer) Subscribe(ctx context.Context, topics []string, handler 
 		}
 	}
 
+	initConsumerSeries(topics, c.cfg.GroupID)
+
 	readerCfg := kafka.ReaderConfig{
 		Brokers:        c.cfg.Brokers,
 		GroupID:        c.cfg.GroupID,

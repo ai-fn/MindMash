@@ -9,6 +9,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"go.uber.org/zap"
+
+	"github.com/mindmesh/mindmesh/internal/platform/observability"
 )
 
 const (
@@ -25,9 +27,10 @@ var (
 		Name: "mindmesh_sync_applied_ops_purged_total",
 		Help: "Expired sync_applied_ops rows deleted by retention.",
 	})
-	appliedOpsPurgeLastSuccess = promauto.NewGauge(prometheus.GaugeOpts{
+	// Starts at process start so the stale-purge alert gives a new pod 3h, not 0s.
+	appliedOpsPurgeLastSuccess = observability.NewStartedGauge(prometheus.GaugeOpts{
 		Name: "mindmesh_sync_applied_ops_purge_last_success_timestamp_seconds",
-		Help: "Unix time of the last completed applied-ops purge on this instance.",
+		Help: "Unix time of the last completed applied-ops purge on this instance (process start until the first).",
 	})
 )
 

@@ -8,6 +8,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"go.uber.org/zap"
+
+	"github.com/mindmesh/mindmesh/internal/platform/observability"
 )
 
 const (
@@ -22,9 +24,10 @@ var (
 		Name: "mindmesh_identity_expired_rows_purged_total",
 		Help: "Expired refresh_tokens / email_verifications rows deleted by retention.",
 	}, []string{"table"})
-	purgeLastSuccess = promauto.NewGauge(prometheus.GaugeOpts{
+	// Starts at process start so the stale-purge alert gives a new pod 3h, not 0s.
+	purgeLastSuccess = observability.NewStartedGauge(prometheus.GaugeOpts{
 		Name: "mindmesh_identity_purge_last_success_timestamp_seconds",
-		Help: "Unix time of the last completed expired-row purge on this instance.",
+		Help: "Unix time of the last completed expired-row purge on this instance (process start until the first).",
 	})
 )
 
