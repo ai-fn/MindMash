@@ -2,6 +2,8 @@ package grpcx
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net"
 	"sync/atomic"
 	"testing"
@@ -155,9 +157,10 @@ func reflectionCode(t *testing.T, conn *grpc.ClientConn) codes.Code {
 	if err != nil {
 		return status.Code(err)
 	}
+	// io.EOF means the server already ended the stream; Recv carries the real status.
 	if err := stream.Send(&reflectionpb.ServerReflectionRequest{
 		MessageRequest: &reflectionpb.ServerReflectionRequest_ListServices{},
-	}); err != nil {
+	}); err != nil && !errors.Is(err, io.EOF) {
 		return status.Code(err)
 	}
 	_, err = stream.Recv()
