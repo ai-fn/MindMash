@@ -1,4 +1,4 @@
-// Package grpcx provides a reusable gRPC server with health, reflection,
+// Package grpcx provides a reusable gRPC server with health, optional reflection,
 // interceptors, and graceful shutdown.
 package grpcx
 
@@ -35,8 +35,10 @@ func DefaultConfig(addr string) Config {
 
 // Options configure the gRPC server.
 type Options struct {
-	UnaryInterceptors []grpc.UnaryServerInterceptor // applied in order (after the built-in recovery + logging)
-	Register          func(*grpc.Server)            // registers application services; called in New
+	UnaryInterceptors  []grpc.UnaryServerInterceptor  // applied in order (after the built-in recovery + logging)
+	StreamInterceptors []grpc.StreamServerInterceptor // same, for streaming RPCs
+	Register           func(*grpc.Server)             // registers application services; called in New
+	Reflection         bool                           // dev only: exposes the full API schema unauthenticated
 }
 
 // Server wraps a *grpc.Server with lifecycle management.
@@ -47,57 +49,53 @@ type Server struct {
 }
 
 // New builds a Server with recovery + logging interceptors prepended to
-// opts.UnaryInterceptors, registers the health service and reflection, and
-// calls opts.Register to register application services.
+// opts.Unary/StreamInterceptors, registers the health service (and reflection
+// when enabled), and calls opts.Register to register application services.
 func New(cfg Config, opts Options) *Server {
 	hs := health.NewServer()
 
 	recoveryInterceptor := func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
-		defer func() {
-			if rec := recover(); rec != nil {
-				log.L().Error("grpcx: panic recovered",
-					zap.Any("panic", rec),
-					zap.String("method", info.FullMethod),
-					zap.String("stack", string(debug.Stack())),
-				)
-				err = status.Error(codes.Internal, "internal")
-			}
-		}()
+		defer recoverPanic(info.FullMethod, &err)
 		return handler(ctx, req)
+	}
+	streamRecoveryInterceptor := func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) (err error) {
+		defer recoverPanic(info.FullMethod, &err)
+		return handler(srv, ss)
 	}
 
 	loggingInterceptor := func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		start := time.Now()
 		resp, err := handler(ctx, req)
-		code := codes.OK
-		if err != nil {
-			if st, ok := status.FromError(err); ok {
-				code = st.Code()
-			} else {
-				code = codes.Unknown
-			}
-		}
-		log.L().Info("grpcx: request",
-			zap.String("method", info.FullMethod),
-			zap.String("duration_ms", fmt.Sprintf("%.2f", float64(time.Since(start).Microseconds())/1000.0)),
-			zap.String("code", code.String()),
-		)
+		logRequest(info.FullMethod, start, err)
 		return resp, err
 	}
+	streamLoggingInterceptor := func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		start := time.Now()
+		err := handler(srv, ss)
+		logRequest(info.FullMethod, start, err)
+		return err
+	}
 
-	interceptors := append(
+	unary := append(
 		[]grpc.UnaryServerInterceptor{recoveryInterceptor, loggingInterceptor},
 		opts.UnaryInterceptors...,
 	)
+	stream := append(
+		[]grpc.StreamServerInterceptor{streamRecoveryInterceptor, streamLoggingInterceptor},
+		opts.StreamInterceptors...,
+	)
 
 	gs := grpc.NewServer(
-		grpc.ChainUnaryInterceptor(interceptors...),
+		grpc.ChainUnaryInterceptor(unary...),
+		grpc.ChainStreamInterceptor(stream...),
 	)
 
 	grpc_health_v1.RegisterHealthServer(gs, hs)
 	hs.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
 
-	reflection.Register(gs)
+	if opts.Reflection {
+		reflection.Register(gs)
+	}
 
 	if opts.Register != nil {
 		opts.Register(gs)
@@ -108,6 +106,33 @@ func New(cfg Config, opts Options) *Server {
 		cfg:        cfg,
 		health:     hs,
 	}
+}
+
+func recoverPanic(method string, err *error) {
+	if rec := recover(); rec != nil {
+		log.L().Error("grpcx: panic recovered",
+			zap.Any("panic", rec),
+			zap.String("method", method),
+			zap.String("stack", string(debug.Stack())),
+		)
+		*err = status.Error(codes.Internal, "internal")
+	}
+}
+
+func logRequest(method string, start time.Time, err error) {
+	code := codes.OK
+	if err != nil {
+		if st, ok := status.FromError(err); ok {
+			code = st.Code()
+		} else {
+			code = codes.Unknown
+		}
+	}
+	log.L().Info("grpcx: request",
+		zap.String("method", method),
+		zap.String("duration_ms", fmt.Sprintf("%.2f", float64(time.Since(start).Microseconds())/1000.0)),
+		zap.String("code", code.String()),
+	)
 }
 
 // Start begins serving on cfg.Addr and blocks until ctx is cancelled, then

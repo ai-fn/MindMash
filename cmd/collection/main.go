@@ -145,6 +145,8 @@ func run() error {
 		UnaryInterceptors: []grpc.UnaryServerInterceptor{
 			auth.GRPCServiceOrUserAuthInterceptor(verifier, services, collection.InternalServicePolicy()),
 		},
+		StreamInterceptors: []grpc.StreamServerInterceptor{auth.GRPCAuthStreamInterceptor(verifier)},
+		Reflection:         base.Env == "dev",
 		Register: func(gs *grpc.Server) {
 			collectionv1.RegisterNoteTypeServiceServer(gs, handler)
 			collectionv1.RegisterNoteServiceServer(gs, handler)

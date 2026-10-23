@@ -50,45 +50,86 @@ type Verifier interface {
 	Verify(tokenString string) (*Claims, error)
 }
 
-// GRPCAuthInterceptor returns a gRPC unary interceptor that validates Bearer JWTs.
-func GRPCAuthInterceptor(v Verifier) grpc.UnaryServerInterceptor {
-	publicMethods := []string{
-		"grpc.health",
-		"grpc.reflection",
-	}
+// infraPrefixes are gRPC infrastructure services served without a token; reflection is registered in dev only.
+var infraPrefixes = []string{
+	"/grpc.health.v1.Health/",
+	"/grpc.reflection.v1.ServerReflection/",
+	"/grpc.reflection.v1alpha.ServerReflection/",
+}
 
-	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		for _, skip := range publicMethods {
-			if strings.Contains(info.FullMethod, skip) {
-				return handler(ctx, req)
+func publicMatcher(public []string) func(string) bool {
+	set := make(map[string]struct{}, len(public))
+	for _, m := range public {
+		set[m] = struct{}{}
+	}
+	return func(method string) bool {
+		if _, ok := set[method]; ok {
+			return true
+		}
+		for _, p := range infraPrefixes {
+			if strings.HasPrefix(method, p) {
+				return true
 			}
 		}
+		return false
+	}
+}
 
-		token, found := incomingBearer(ctx)
-		if !found {
-			return nil, status.Error(codes.Unauthenticated, "missing or invalid token")
+// authenticate injects the caller of a valid access token into ctx.
+func authenticate(ctx context.Context, v Verifier) (context.Context, error) {
+	token, found := incomingBearer(ctx)
+	if !found {
+		return nil, status.Error(codes.Unauthenticated, "missing or invalid token")
+	}
+	claims, err := v.Verify(token)
+	if err != nil || claims.Kind != "access" {
+		return nil, status.Error(codes.Unauthenticated, "invalid token")
+	}
+	return WithIdentity(ctx, IdentityContext{
+		UserID:    claims.Subject,
+		ProfileID: claims.ProfileID,
+		Locale:    claims.Locale,
+		Roles:     claims.Roles,
+	}), nil
+}
+
+// GRPCAuthInterceptor requires an access token on every method except health/reflection and the
+// exact full method names in public.
+func GRPCAuthInterceptor(v Verifier, public ...string) grpc.UnaryServerInterceptor {
+	isPublic := publicMatcher(public)
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		if isPublic(info.FullMethod) {
+			return handler(ctx, req)
 		}
-
-		claims, err := v.Verify(token)
+		ctx, err := authenticate(ctx, v)
 		if err != nil {
-			return nil, status.Error(codes.Unauthenticated, "invalid token")
+			return nil, err
 		}
-
-		// Only access tokens are valid API credentials; a refresh token presented
-		// here indicates a confused or malicious client and must be rejected.
-		if claims.Kind != "access" {
-			return nil, status.Error(codes.Unauthenticated, "invalid token")
-		}
-
-		ctx = WithIdentity(ctx, IdentityContext{
-			UserID:    claims.Subject,
-			ProfileID: claims.ProfileID,
-			Locale:    claims.Locale,
-			Roles:     claims.Roles,
-		})
 		return handler(ctx, req)
 	}
 }
+
+// GRPCAuthStreamInterceptor is the streaming counterpart of GRPCAuthInterceptor.
+func GRPCAuthStreamInterceptor(v Verifier, public ...string) grpc.StreamServerInterceptor {
+	isPublic := publicMatcher(public)
+	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		if isPublic(info.FullMethod) {
+			return handler(srv, ss)
+		}
+		ctx, err := authenticate(ss.Context(), v)
+		if err != nil {
+			return err
+		}
+		return handler(srv, identityStream{ServerStream: ss, ctx: ctx})
+	}
+}
+
+type identityStream struct {
+	grpc.ServerStream
+	ctx context.Context
+}
+
+func (s identityStream) Context() context.Context { return s.ctx }
 
 // HTTPAuthMiddleware returns an HTTP middleware that validates Bearer JWTs.
 func HTTPAuthMiddleware(v Verifier) func(http.Handler) http.Handler {

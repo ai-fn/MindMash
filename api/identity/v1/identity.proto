@@ -103,13 +103,6 @@ service ProfileService {
   }
 }
 
-// ─── Internal Auth Service (gateway → identity, no HTTP annotations) ──────────
-
-service InternalAuthService {
-  rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse);
-  rpc GetProfile(GetProfileRequest) returns (GetProfileResponse);
-}
-
 // ─── Auth Messages ────────────────────────────────────────────────────────────
 
 message RegisterRequest {
@@ -247,28 +240,4 @@ message ActivateProfileResponse {
   string access_token = 1;
   string profile_id = 2;
   int64 expires_in = 3;
-}
-
-// ─── Internal Messages ────────────────────────────────────────────────────────
-
-message ValidateTokenRequest {
-  string token = 1;
-}
-
-message ValidateTokenResponse {
-  string user_id = 1;
-  string profile_id = 2;
-  string locale = 3;
-  repeated string roles = 4;
-}
-
-message GetProfileRequest {
-  string profile_id = 1;
-}
-
-message GetProfileResponse {
-  string id = 1;
-  string user_id = 2;
-  string name = 3;
-  bool is_default = 4;
 }

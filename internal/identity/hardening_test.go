@@ -3,6 +3,8 @@ package identity_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/mindmesh/mindmesh/internal/platform/auth"
 
+	identityv1 "github.com/mindmesh/mindmesh/api/identity/v1"
 	. "github.com/mindmesh/mindmesh/internal/identity"
 )
 
@@ -492,5 +495,35 @@ func TestRefresh_GraceDoesNotApplyToExpiredTokens(t *testing.T) {
 	repo.mu.Unlock()
 	if _, _, _, err := svc.Refresh(ctx, original); err == nil {
 		t.Fatal("expired tokens must stay rejected")
+	}
+}
+
+func TestCreateProfile_Capped(t *testing.T) {
+	svc, _, _, _, _ := newTestService(t)
+	ctx := context.Background()
+	uid := mustRegister(t, svc, "olga@example.com")
+
+	for i := 1; i < MaxProfilesPerUser; i++ { // registration created the default profile
+		if _, err := svc.CreateProfile(ctx, uid, fmt.Sprintf("p%d", i)); err != nil {
+			t.Fatalf("profile %d: %v", i, err)
+		}
+	}
+	if _, err := svc.CreateProfile(ctx, uid, "one too many"); grpcCode(err) != codes.ResourceExhausted {
+		t.Fatalf("got %v, want ResourceExhausted", grpcCode(err))
+	}
+}
+
+func TestPublicMethods_AllAuthRPCsButGetMe(t *testing.T) {
+	public := PublicMethods()
+	for _, m := range identityv1.AuthService_ServiceDesc.Methods {
+		full := "/" + identityv1.AuthService_ServiceDesc.ServiceName + "/" + m.MethodName
+		if got, want := slices.Contains(public, full), m.MethodName != "GetMe"; got != want {
+			t.Errorf("%s public=%v, want %v", full, got, want)
+		}
+	}
+	for _, m := range identityv1.ProfileService_ServiceDesc.Methods {
+		if full := "/" + identityv1.ProfileService_ServiceDesc.ServiceName + "/" + m.MethodName; slices.Contains(public, full) {
+			t.Errorf("%s must require auth", full)
+		}
 	}
 }

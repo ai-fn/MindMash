@@ -630,6 +630,9 @@ func (s *Service) ListProfiles(ctx context.Context, userID string) ([]Profile, e
 	return s.repo.ListProfiles(ctx, userID)
 }
 
+// MaxProfilesPerUser caps profiles per account, the default one included.
+const MaxProfilesPerUser = 20
+
 // CreateProfile adds a non-default profile for the user.
 func (s *Service) CreateProfile(ctx context.Context, userID, name string) (*Profile, error) {
 	name, err := normalizeProfileName(name)
@@ -643,7 +646,25 @@ func (s *Service) CreateProfile(ctx context.Context, userID, name string) (*Prof
 		IsDefault: false,
 		CreatedAt: time.Now(),
 	}
-	if err := s.repo.CreateProfile(ctx, p); err != nil {
+	err = s.repo.WithTx(ctx, func(tx Repository) error {
+		// The user-row lock serialises concurrent creates so the count check holds.
+		user, err := tx.GetUserForUpdate(ctx, userID)
+		if err != nil {
+			return err
+		}
+		if err := requireActive(user); err != nil {
+			return err
+		}
+		existing, err := tx.ListProfiles(ctx, userID)
+		if err != nil {
+			return err
+		}
+		if len(existing) >= MaxProfilesPerUser {
+			return platformerrors.ResourceExhausted(fmt.Sprintf("at most %d profiles per account", MaxProfilesPerUser))
+		}
+		return tx.CreateProfile(ctx, p)
+	})
+	if err != nil {
 		return nil, fmt.Errorf("identity: create profile: %w", err)
 	}
 	return p, nil
@@ -677,27 +698,6 @@ func (s *Service) ActivateProfile(ctx context.Context, userID, profileID string)
 		return "", 0, fmt.Errorf("identity: activate profile sign access: %w", err)
 	}
 	return token, int64(s.accessTTL.Seconds()), nil
-}
-
-// ─── Internal RPCs ───────────────────────────────────────────────────────────
-
-// ValidateToken verifies an access token structurally (no DB hit).  This is
-// the fast path used by the gateway JWKS cache so it must never block on I/O.
-func (s *Service) ValidateToken(_ context.Context, token string) (userID, profileID, locale string, roles []string, err error) {
-	claims, err := s.signer.Verify(token)
-	if err != nil {
-		return "", "", "", nil, platformerrors.Unauthenticated("invalid token")
-	}
-	if claims.Kind != "access" {
-		return "", "", "", nil, platformerrors.Unauthenticated("invalid token kind")
-	}
-	return claims.Subject, claims.ProfileID, claims.Locale, claims.Roles, nil
-}
-
-// GetProfile loads a profile by ID.  Used by downstream services to resolve
-// a profile_id carried in JWT claims.
-func (s *Service) GetProfile(ctx context.Context, profileID string) (*Profile, error) {
-	return s.repo.GetProfile(ctx, profileID)
 }
 
 // ─── Email verification & password reset ─────────────────────────────────────

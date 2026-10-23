@@ -3,12 +3,16 @@ package grpcx
 import (
 	"context"
 	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health/grpc_health_v1"
+	reflectionpb "google.golang.org/grpc/reflection/grpc_reflection_v1"
+	"google.golang.org/grpc/status"
 )
 
 // freeAddr finds a free TCP port on localhost, closes the listener, and
@@ -122,5 +126,74 @@ func TestSetServingStatus(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Error("Start did not return after context cancel")
+	}
+}
+
+func startServer(t *testing.T, opts Options) *grpc.ClientConn {
+	t.Helper()
+	addr := freeAddr(t)
+	srv := New(Config{Addr: addr, ShutdownTimeout: 5 * time.Second}, opts)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- srv.Start(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatalf("grpc.NewClient: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	waitHealthy(t, grpc_health_v1.NewHealthClient(conn), "")
+	return conn
+}
+
+func reflectionCode(t *testing.T, conn *grpc.ClientConn) codes.Code {
+	t.Helper()
+	stream, err := reflectionpb.NewServerReflectionClient(conn).ServerReflectionInfo(context.Background())
+	if err != nil {
+		return status.Code(err)
+	}
+	if err := stream.Send(&reflectionpb.ServerReflectionRequest{
+		MessageRequest: &reflectionpb.ServerReflectionRequest_ListServices{},
+	}); err != nil {
+		return status.Code(err)
+	}
+	_, err = stream.Recv()
+	return status.Code(err)
+}
+
+func TestReflectionOptIn(t *testing.T) {
+	if got := reflectionCode(t, startServer(t, Options{})); got != codes.Unimplemented {
+		t.Errorf("reflection by default: got %v, want Unimplemented", got)
+	}
+	if got := reflectionCode(t, startServer(t, Options{Reflection: true})); got != codes.OK {
+		t.Errorf("reflection enabled: got %v, want OK", got)
+	}
+}
+
+func TestStreamInterceptorsAndRecovery(t *testing.T) {
+	var intercepted atomic.Bool
+	conn := startServer(t, Options{
+		StreamInterceptors: []grpc.StreamServerInterceptor{
+			func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+				intercepted.Store(true)
+				if info.FullMethod == "/grpc.health.v1.Health/Watch" {
+					panic("boom")
+				}
+				return handler(srv, ss)
+			},
+		},
+	})
+	stream, err := grpc_health_v1.NewHealthClient(conn).Watch(context.Background(), &grpc_health_v1.HealthCheckRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stream.Recv(); status.Code(err) != codes.Internal {
+		t.Fatalf("panicking stream: got %v, want Internal", status.Code(err))
+	}
+	if !intercepted.Load() {
+		t.Fatal("stream interceptor not applied")
 	}
 }

@@ -10,13 +10,10 @@ import (
 	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
 )
 
-// Handler implements all three gRPC service interfaces by delegating to
-// *Service.  A single struct is used to keep wiring simple; it embeds the
-// three Unimplemented* types for forward-compatibility.
+// Handler implements AuthService and ProfileService by delegating to *Service.
 type Handler struct {
 	identityv1.UnimplementedAuthServiceServer
 	identityv1.UnimplementedProfileServiceServer
-	identityv1.UnimplementedInternalAuthServiceServer
 
 	svc *Service
 }
@@ -189,32 +186,19 @@ func (h *Handler) ActivateProfile(ctx context.Context, req *identityv1.ActivateP
 	}, nil
 }
 
-// ─── InternalAuthService ─────────────────────────────────────────────────────
-
-func (h *Handler) ValidateToken(ctx context.Context, req *identityv1.ValidateTokenRequest) (*identityv1.ValidateTokenResponse, error) {
-	userID, profileID, locale, roles, err := h.svc.ValidateToken(ctx, req.Token)
-	if err != nil {
-		return nil, err
+// PublicMethods are the identity RPCs callable without an access token.
+func PublicMethods() []string {
+	return []string{
+		identityv1.AuthService_Register_FullMethodName,
+		identityv1.AuthService_Login_FullMethodName,
+		identityv1.AuthService_OAuthStart_FullMethodName,
+		identityv1.AuthService_OAuthExchange_FullMethodName,
+		identityv1.AuthService_Refresh_FullMethodName,
+		identityv1.AuthService_Logout_FullMethodName,
+		identityv1.AuthService_VerifyEmail_FullMethodName,
+		identityv1.AuthService_RequestPasswordReset_FullMethodName,
+		identityv1.AuthService_ResetPassword_FullMethodName,
 	}
-	return &identityv1.ValidateTokenResponse{
-		UserId:    userID,
-		ProfileId: profileID,
-		Locale:    locale,
-		Roles:     roles,
-	}, nil
-}
-
-func (h *Handler) GetProfile(ctx context.Context, req *identityv1.GetProfileRequest) (*identityv1.GetProfileResponse, error) {
-	profile, err := h.svc.GetProfile(ctx, req.ProfileId)
-	if err != nil {
-		return nil, err
-	}
-	return &identityv1.GetProfileResponse{
-		Id:        profile.ID,
-		UserId:    profile.UserID,
-		Name:      profile.Name,
-		IsDefault: profile.IsDefault,
-	}, nil
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────

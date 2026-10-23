@@ -137,19 +137,18 @@ func run() error {
 	}
 	handler := identity.NewHandler(svc)
 
-	// gRPC server.  The user-facing JWT check lives at the REST edge below;
-	// gRPC is an internal/trusted surface (the gateway calls InternalAuthService,
-	// and other services may call it over the cluster network).
+	public := identity.PublicMethods()
 	grpcSrv := grpcx.New(grpcx.DefaultConfig(base.GRPCAddr), grpcx.Options{
+		UnaryInterceptors:  []grpc.UnaryServerInterceptor{auth.GRPCAuthInterceptor(signer, public...)},
+		StreamInterceptors: []grpc.StreamServerInterceptor{auth.GRPCAuthStreamInterceptor(signer, public...)},
+		Reflection:         base.Env == "dev",
 		Register: func(gs *grpc.Server) {
 			identityv1.RegisterAuthServiceServer(gs, handler)
 			identityv1.RegisterProfileServiceServer(gs, handler)
-			identityv1.RegisterInternalAuthServiceServer(gs, handler)
 		},
 	})
 
-	// REST gateway, registered in-process (no extra network hop).  The internal
-	// service is intentionally NOT exposed over REST.
+	// REST gateway, registered in-process (no extra network hop), so it bypasses the gRPC interceptors.
 	gwMux := runtime.NewServeMux(runtime.WithErrorHandler(localizedErrorHandler))
 	if err := identityv1.RegisterAuthServiceHandlerServer(ctx, gwMux, handler); err != nil {
 		return fmt.Errorf("identity: register auth gateway: %w", err)
@@ -205,12 +204,6 @@ func run() error {
 	return nil
 }
 
-// injectIdentity adds the authenticated caller's identity to the request context
-// when a valid access token is present, leaving the request otherwise untouched.
-// Identity's REST surface mixes public endpoints (login/register/refresh/oauth)
-// with protected ones (me/profiles); rather than maintain a path allow-list here,
-// authentication is optional at the edge and each protected handler enforces its
-// own requirement via auth.IdentityFromContext.
 // localizedErrorHandler is the grpc-gateway error handler for the REST edge. When the returned
 // error is an *AppError tagged with a localizable MsgID, it re-renders the status message in the
 // request's resolved locale (carried in ctx by i18n.HTTPMiddleware) before delegating to the
@@ -224,6 +217,7 @@ func localizedErrorHandler(ctx context.Context, mux *runtime.ServeMux, m runtime
 	runtime.DefaultHTTPErrorHandler(ctx, mux, m, w, r, err)
 }
 
+// injectIdentity makes REST auth optional; protected handlers enforce it via auth.IdentityFromContext.
 func injectIdentity(v auth.Verifier) func(http.Handler) http.Handler {
 	const prefix = "Bearer "
 	return func(next http.Handler) http.Handler {

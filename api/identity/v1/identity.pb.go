@@ -1437,230 +1437,6 @@ func (x *ActivateProfileResponse) GetExpiresIn() int64 {
 	return 0
 }
 
-type ValidateTokenRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Token         string                 `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ValidateTokenRequest) Reset() {
-	*x = ValidateTokenRequest{}
-	mi := &file_identity_v1_identity_proto_msgTypes[27]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ValidateTokenRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ValidateTokenRequest) ProtoMessage() {}
-
-func (x *ValidateTokenRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_identity_v1_identity_proto_msgTypes[27]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ValidateTokenRequest.ProtoReflect.Descriptor instead.
-func (*ValidateTokenRequest) Descriptor() ([]byte, []int) {
-	return file_identity_v1_identity_proto_rawDescGZIP(), []int{27}
-}
-
-func (x *ValidateTokenRequest) GetToken() string {
-	if x != nil {
-		return x.Token
-	}
-	return ""
-}
-
-type ValidateTokenResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	ProfileId     string                 `protobuf:"bytes,2,opt,name=profile_id,json=profileId,proto3" json:"profile_id,omitempty"`
-	Locale        string                 `protobuf:"bytes,3,opt,name=locale,proto3" json:"locale,omitempty"`
-	Roles         []string               `protobuf:"bytes,4,rep,name=roles,proto3" json:"roles,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ValidateTokenResponse) Reset() {
-	*x = ValidateTokenResponse{}
-	mi := &file_identity_v1_identity_proto_msgTypes[28]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ValidateTokenResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ValidateTokenResponse) ProtoMessage() {}
-
-func (x *ValidateTokenResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_identity_v1_identity_proto_msgTypes[28]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ValidateTokenResponse.ProtoReflect.Descriptor instead.
-func (*ValidateTokenResponse) Descriptor() ([]byte, []int) {
-	return file_identity_v1_identity_proto_rawDescGZIP(), []int{28}
-}
-
-func (x *ValidateTokenResponse) GetUserId() string {
-	if x != nil {
-		return x.UserId
-	}
-	return ""
-}
-
-func (x *ValidateTokenResponse) GetProfileId() string {
-	if x != nil {
-		return x.ProfileId
-	}
-	return ""
-}
-
-func (x *ValidateTokenResponse) GetLocale() string {
-	if x != nil {
-		return x.Locale
-	}
-	return ""
-}
-
-func (x *ValidateTokenResponse) GetRoles() []string {
-	if x != nil {
-		return x.Roles
-	}
-	return nil
-}
-
-type GetProfileRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ProfileId     string                 `protobuf:"bytes,1,opt,name=profile_id,json=profileId,proto3" json:"profile_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *GetProfileRequest) Reset() {
-	*x = GetProfileRequest{}
-	mi := &file_identity_v1_identity_proto_msgTypes[29]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *GetProfileRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*GetProfileRequest) ProtoMessage() {}
-
-func (x *GetProfileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_identity_v1_identity_proto_msgTypes[29]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use GetProfileRequest.ProtoReflect.Descriptor instead.
-func (*GetProfileRequest) Descriptor() ([]byte, []int) {
-	return file_identity_v1_identity_proto_rawDescGZIP(), []int{29}
-}
-
-func (x *GetProfileRequest) GetProfileId() string {
-	if x != nil {
-		return x.ProfileId
-	}
-	return ""
-}
-
-type GetProfileResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	Name          string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
-	IsDefault     bool                   `protobuf:"varint,4,opt,name=is_default,json=isDefault,proto3" json:"is_default,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *GetProfileResponse) Reset() {
-	*x = GetProfileResponse{}
-	mi := &file_identity_v1_identity_proto_msgTypes[30]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *GetProfileResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*GetProfileResponse) ProtoMessage() {}
-
-func (x *GetProfileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_identity_v1_identity_proto_msgTypes[30]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use GetProfileResponse.ProtoReflect.Descriptor instead.
-func (*GetProfileResponse) Descriptor() ([]byte, []int) {
-	return file_identity_v1_identity_proto_rawDescGZIP(), []int{30}
-}
-
-func (x *GetProfileResponse) GetId() string {
-	if x != nil {
-		return x.Id
-	}
-	return ""
-}
-
-func (x *GetProfileResponse) GetUserId() string {
-	if x != nil {
-		return x.UserId
-	}
-	return ""
-}
-
-func (x *GetProfileResponse) GetName() string {
-	if x != nil {
-		return x.Name
-	}
-	return ""
-}
-
-func (x *GetProfileResponse) GetIsDefault() bool {
-	if x != nil {
-		return x.IsDefault
-	}
-	return false
-}
-
 var File_identity_v1_identity_proto protoreflect.FileDescriptor
 
 const file_identity_v1_identity_proto_rawDesc = "" +
@@ -1756,24 +1532,7 @@ const file_identity_v1_identity_proto_rawDesc = "" +
 	"\n" +
 	"profile_id\x18\x02 \x01(\tR\tprofileId\x12\x1d\n" +
 	"\n" +
-	"expires_in\x18\x03 \x01(\x03R\texpiresIn\",\n" +
-	"\x14ValidateTokenRequest\x12\x14\n" +
-	"\x05token\x18\x01 \x01(\tR\x05token\"}\n" +
-	"\x15ValidateTokenResponse\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x1d\n" +
-	"\n" +
-	"profile_id\x18\x02 \x01(\tR\tprofileId\x12\x16\n" +
-	"\x06locale\x18\x03 \x01(\tR\x06locale\x12\x14\n" +
-	"\x05roles\x18\x04 \x03(\tR\x05roles\"2\n" +
-	"\x11GetProfileRequest\x12\x1d\n" +
-	"\n" +
-	"profile_id\x18\x01 \x01(\tR\tprofileId\"p\n" +
-	"\x12GetProfileResponse\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\tR\x06userId\x12\x12\n" +
-	"\x04name\x18\x03 \x01(\tR\x04name\x12\x1d\n" +
-	"\n" +
-	"is_default\x18\x04 \x01(\bR\tisDefault2\xea\b\n" +
+	"expires_in\x18\x03 \x01(\x03R\texpiresIn2\xea\b\n" +
 	"\vAuthService\x12e\n" +
 	"\bRegister\x12\x1c.identity.v1.RegisterRequest\x1a\x1d.identity.v1.RegisterResponse\"\x1c\x82\xd3\xe4\x93\x02\x16:\x01*\"\x11/v1/auth/register\x12Y\n" +
 	"\x05Login\x12\x19.identity.v1.LoginRequest\x1a\x1a.identity.v1.LoginResponse\"\x19\x82\xd3\xe4\x93\x02\x13:\x01*\"\x0e/v1/auth/login\x12y\n" +
@@ -1789,11 +1548,7 @@ const file_identity_v1_identity_proto_rawDesc = "" +
 	"\x0eProfileService\x12i\n" +
 	"\fListProfiles\x12 .identity.v1.ListProfilesRequest\x1a!.identity.v1.ListProfilesResponse\"\x14\x82\xd3\xe4\x93\x02\x0e\x12\f/v1/profiles\x12o\n" +
 	"\rCreateProfile\x12!.identity.v1.CreateProfileRequest\x1a\".identity.v1.CreateProfileResponse\"\x17\x82\xd3\xe4\x93\x02\x11:\x01*\"\f/v1/profiles\x12\x83\x01\n" +
-	"\x0fActivateProfile\x12#.identity.v1.ActivateProfileRequest\x1a$.identity.v1.ActivateProfileResponse\"%\x82\xd3\xe4\x93\x02\x1f:\x01*\"\x1a/v1/profiles/{id}:activate2\xbc\x01\n" +
-	"\x13InternalAuthService\x12V\n" +
-	"\rValidateToken\x12!.identity.v1.ValidateTokenRequest\x1a\".identity.v1.ValidateTokenResponse\x12M\n" +
-	"\n" +
-	"GetProfile\x12\x1e.identity.v1.GetProfileRequest\x1a\x1f.identity.v1.GetProfileResponseB\xa6\x01\n" +
+	"\x0fActivateProfile\x12#.identity.v1.ActivateProfileRequest\x1a$.identity.v1.ActivateProfileResponse\"%\x82\xd3\xe4\x93\x02\x1f:\x01*\"\x1a/v1/profiles/{id}:activateB\xa6\x01\n" +
 	"\x0fcom.identity.v1B\rIdentityProtoP\x01Z7github.com/mindmesh/mindmesh/api/identity/v1;identityv1\xa2\x02\x03IXX\xaa\x02\vIdentity.V1\xca\x02\vIdentity\\V1\xe2\x02\x17Identity\\V1\\GPBMetadata\xea\x02\fIdentity::V1b\x06proto3"
 
 var (
@@ -1808,7 +1563,7 @@ func file_identity_v1_identity_proto_rawDescGZIP() []byte {
 	return file_identity_v1_identity_proto_rawDescData
 }
 
-var file_identity_v1_identity_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
+var file_identity_v1_identity_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
 var file_identity_v1_identity_proto_goTypes = []any{
 	(*RegisterRequest)(nil),              // 0: identity.v1.RegisterRequest
 	(*RegisterResponse)(nil),             // 1: identity.v1.RegisterResponse
@@ -1837,15 +1592,11 @@ var file_identity_v1_identity_proto_goTypes = []any{
 	(*CreateProfileResponse)(nil),        // 24: identity.v1.CreateProfileResponse
 	(*ActivateProfileRequest)(nil),       // 25: identity.v1.ActivateProfileRequest
 	(*ActivateProfileResponse)(nil),      // 26: identity.v1.ActivateProfileResponse
-	(*ValidateTokenRequest)(nil),         // 27: identity.v1.ValidateTokenRequest
-	(*ValidateTokenResponse)(nil),        // 28: identity.v1.ValidateTokenResponse
-	(*GetProfileRequest)(nil),            // 29: identity.v1.GetProfileRequest
-	(*GetProfileResponse)(nil),           // 30: identity.v1.GetProfileResponse
-	(*timestamppb.Timestamp)(nil),        // 31: google.protobuf.Timestamp
+	(*timestamppb.Timestamp)(nil),        // 27: google.protobuf.Timestamp
 }
 var file_identity_v1_identity_proto_depIdxs = []int32{
 	20, // 0: identity.v1.GetMeResponse.profiles:type_name -> identity.v1.ProfileInfo
-	31, // 1: identity.v1.ProfileInfo.created_at:type_name -> google.protobuf.Timestamp
+	27, // 1: identity.v1.ProfileInfo.created_at:type_name -> google.protobuf.Timestamp
 	20, // 2: identity.v1.ListProfilesResponse.profiles:type_name -> identity.v1.ProfileInfo
 	20, // 3: identity.v1.CreateProfileResponse.profile:type_name -> identity.v1.ProfileInfo
 	0,  // 4: identity.v1.AuthService.Register:input_type -> identity.v1.RegisterRequest
@@ -1861,25 +1612,21 @@ var file_identity_v1_identity_proto_depIdxs = []int32{
 	21, // 14: identity.v1.ProfileService.ListProfiles:input_type -> identity.v1.ListProfilesRequest
 	23, // 15: identity.v1.ProfileService.CreateProfile:input_type -> identity.v1.CreateProfileRequest
 	25, // 16: identity.v1.ProfileService.ActivateProfile:input_type -> identity.v1.ActivateProfileRequest
-	27, // 17: identity.v1.InternalAuthService.ValidateToken:input_type -> identity.v1.ValidateTokenRequest
-	29, // 18: identity.v1.InternalAuthService.GetProfile:input_type -> identity.v1.GetProfileRequest
-	1,  // 19: identity.v1.AuthService.Register:output_type -> identity.v1.RegisterResponse
-	3,  // 20: identity.v1.AuthService.Login:output_type -> identity.v1.LoginResponse
-	5,  // 21: identity.v1.AuthService.OAuthStart:output_type -> identity.v1.OAuthStartResponse
-	7,  // 22: identity.v1.AuthService.OAuthExchange:output_type -> identity.v1.OAuthExchangeResponse
-	9,  // 23: identity.v1.AuthService.Refresh:output_type -> identity.v1.RefreshResponse
-	11, // 24: identity.v1.AuthService.Logout:output_type -> identity.v1.LogoutResponse
-	13, // 25: identity.v1.AuthService.GetMe:output_type -> identity.v1.GetMeResponse
-	15, // 26: identity.v1.AuthService.VerifyEmail:output_type -> identity.v1.VerifyEmailResponse
-	17, // 27: identity.v1.AuthService.RequestPasswordReset:output_type -> identity.v1.RequestPasswordResetResponse
-	19, // 28: identity.v1.AuthService.ResetPassword:output_type -> identity.v1.ResetPasswordResponse
-	22, // 29: identity.v1.ProfileService.ListProfiles:output_type -> identity.v1.ListProfilesResponse
-	24, // 30: identity.v1.ProfileService.CreateProfile:output_type -> identity.v1.CreateProfileResponse
-	26, // 31: identity.v1.ProfileService.ActivateProfile:output_type -> identity.v1.ActivateProfileResponse
-	28, // 32: identity.v1.InternalAuthService.ValidateToken:output_type -> identity.v1.ValidateTokenResponse
-	30, // 33: identity.v1.InternalAuthService.GetProfile:output_type -> identity.v1.GetProfileResponse
-	19, // [19:34] is the sub-list for method output_type
-	4,  // [4:19] is the sub-list for method input_type
+	1,  // 17: identity.v1.AuthService.Register:output_type -> identity.v1.RegisterResponse
+	3,  // 18: identity.v1.AuthService.Login:output_type -> identity.v1.LoginResponse
+	5,  // 19: identity.v1.AuthService.OAuthStart:output_type -> identity.v1.OAuthStartResponse
+	7,  // 20: identity.v1.AuthService.OAuthExchange:output_type -> identity.v1.OAuthExchangeResponse
+	9,  // 21: identity.v1.AuthService.Refresh:output_type -> identity.v1.RefreshResponse
+	11, // 22: identity.v1.AuthService.Logout:output_type -> identity.v1.LogoutResponse
+	13, // 23: identity.v1.AuthService.GetMe:output_type -> identity.v1.GetMeResponse
+	15, // 24: identity.v1.AuthService.VerifyEmail:output_type -> identity.v1.VerifyEmailResponse
+	17, // 25: identity.v1.AuthService.RequestPasswordReset:output_type -> identity.v1.RequestPasswordResetResponse
+	19, // 26: identity.v1.AuthService.ResetPassword:output_type -> identity.v1.ResetPasswordResponse
+	22, // 27: identity.v1.ProfileService.ListProfiles:output_type -> identity.v1.ListProfilesResponse
+	24, // 28: identity.v1.ProfileService.CreateProfile:output_type -> identity.v1.CreateProfileResponse
+	26, // 29: identity.v1.ProfileService.ActivateProfile:output_type -> identity.v1.ActivateProfileResponse
+	17, // [17:30] is the sub-list for method output_type
+	4,  // [4:17] is the sub-list for method input_type
 	4,  // [4:4] is the sub-list for extension type_name
 	4,  // [4:4] is the sub-list for extension extendee
 	0,  // [0:4] is the sub-list for field type_name
@@ -1896,9 +1643,9 @@ func file_identity_v1_identity_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_identity_v1_identity_proto_rawDesc), len(file_identity_v1_identity_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   31,
+			NumMessages:   27,
 			NumExtensions: 0,
-			NumServices:   3,
+			NumServices:   2,
 		},
 		GoTypes:           file_identity_v1_identity_proto_goTypes,
 		DependencyIndexes: file_identity_v1_identity_proto_depIdxs,

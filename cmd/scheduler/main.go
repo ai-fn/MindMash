@@ -154,6 +154,8 @@ func run() error {
 		UnaryInterceptors: []grpc.UnaryServerInterceptor{
 			auth.GRPCAuthInterceptor(verifier),
 		},
+		StreamInterceptors: []grpc.StreamServerInterceptor{auth.GRPCAuthStreamInterceptor(verifier)},
+		Reflection:         base.Env == "dev",
 		Register: func(gs *grpc.Server) {
 			schedulerv1.RegisterStudyServiceServer(gs, handler)
 		},

@@ -10,9 +10,6 @@
     },
     {
       "name": "ProfileService"
-    },
-    {
-      "name": "InternalAuthService"
     }
   ],
   "consumes": [
