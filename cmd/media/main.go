@@ -161,7 +161,7 @@ func run() error {
 	})
 
 	// REST gateway (external MediaService only; the internal service is gRPC-only).
-	gwMux := runtime.NewServeMux()
+	gwMux := runtime.NewServeMux(httpx.GatewayRoutes())
 	if err := mediav1.RegisterMediaServiceHandlerServer(ctx, gwMux, handler); err != nil {
 		return fmt.Errorf("media: register media gateway: %w", err)
 	}

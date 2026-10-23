@@ -133,7 +133,7 @@ func run() error {
 		},
 	})
 
-	gwMux := runtime.NewServeMux()
+	gwMux := runtime.NewServeMux(httpx.GatewayRoutes())
 	if err := searchv1.RegisterSearchServiceHandlerServer(ctx, gwMux, handler); err != nil {
 		return fmt.Errorf("search: register search gateway: %w", err)
 	}

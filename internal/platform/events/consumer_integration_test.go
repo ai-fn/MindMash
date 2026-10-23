@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/segmentio/kafka-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -194,5 +196,38 @@ func TestKafkaConsumer(t *testing.T) {
 		waitCommitted(t, broker, group, topic)
 		stopAgain()
 		assert.Equal(t, []string{next}, again.get())
+	})
+
+	t.Run("lag gauge reports messages left behind the committed one", func(t *testing.T) {
+		lagTopic := "lag-" + uuid.NewString()
+		createTopic(t, broker, lagTopic, 1)
+		createTopic(t, broker, lagTopic+".dlq", 1)
+		group := "g-" + uuid.NewString()
+		msgs := make([]Message, 3)
+		for i := range msgs {
+			msgs[i] = Message{Topic: lagTopic, Key: []byte("u1"), Value: []byte{byte('a' + i)}}
+		}
+		// A just-created topic can briefly be unknown to the partition leader.
+		require.Eventually(t, func() bool { return p.Publish(ctx, msgs...) == nil }, 30*time.Second, 200*time.Millisecond)
+
+		lag := func() float64 { return testutil.ToFloat64(consumerLag.WithLabelValues(lagTopic, group, "0")) }
+		atLast, release := make(chan struct{}), make(chan struct{})
+		stop := runConsumer(t, newTestConsumer(t, broker, group, 1), lagTopic, func(_ context.Context, m Message) error {
+			if string(m.Value) == "c" {
+				close(atLast)
+				<-release
+			}
+			return nil
+		})
+		select {
+		case <-atLast:
+		case <-time.After(30 * time.Second):
+			t.Fatal("consumer never reached the last message")
+		}
+		assert.Equal(t, 1.0, lag(), "after committing b, only c is left")
+		close(release)
+		require.Eventually(t, func() bool { return lag() == 0 }, 30*time.Second, 50*time.Millisecond)
+		stop()
+		assert.Zero(t, consumerLag.DeletePartialMatch(prometheus.Labels{"topic": lagTopic}), "a stopped reader must drop its partitions' series")
 	})
 }

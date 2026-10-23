@@ -146,7 +146,7 @@ func run() error {
 	})
 
 	// REST gateway (public services only; CollectionInternalService is gRPC-only).
-	gwMux := runtime.NewServeMux()
+	gwMux := runtime.NewServeMux(httpx.GatewayRoutes())
 	if err := collectionv1.RegisterNoteTypeServiceHandlerServer(ctx, gwMux, handler); err != nil {
 		return fmt.Errorf("collection: register note-type gateway: %w", err)
 	}

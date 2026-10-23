@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/segmentio/kafka-go"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -311,6 +312,12 @@ func (c *KafkaConsumer) Subscribe(ctx context.Context, topics []string, handler 
 		readerCfg.GroupTopics = topics
 	}
 	r := kafka.NewReader(readerCfg)
+	// Partitions move to other members on rebalance; don't leave their last lag behind.
+	defer func() {
+		for _, t := range topics {
+			consumerLag.DeletePartialMatch(prometheus.Labels{"topic": t, "group": c.cfg.GroupID})
+		}
+	}()
 	defer func() {
 		if err := r.Close(); err != nil && retErr == nil {
 			retErr = fmt.Errorf("events: close reader: %w", err)
@@ -350,6 +357,9 @@ func (c *KafkaConsumer) Subscribe(ctx context.Context, topics []string, handler 
 			}
 			return fmt.Errorf("events: commit offset: %w", err)
 		}
+		// HighWaterMark is the partition's next offset as of the fetch that returned km.
+		consumerLag.WithLabelValues(km.Topic, c.cfg.GroupID, strconv.Itoa(km.Partition)).
+			Set(float64(max(km.HighWaterMark-km.Offset-1, 0)))
 	}
 }
 

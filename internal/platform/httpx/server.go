@@ -95,7 +95,7 @@ func New(cfg Config, opts Options) *Server {
 	// Only application routes are traced; probes and scrapes would flood the trace store.
 	// HTTP callers are external clients: link their trace rather than let them force sampling.
 	if opts.Handler != nil {
-		mux.Handle("/", otelhttp.NewHandler(opts.Handler, "http.server",
+		mux.Handle("/", otelhttp.NewHandler(recordMetrics(opts.Handler), "http.server",
 			otelhttp.WithPublicEndpointFn(func(*http.Request) bool { return true }),
 			otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string { return r.Method })))
 	}

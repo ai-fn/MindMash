@@ -149,7 +149,7 @@ func run() error {
 		},
 	})
 
-	gwMux := runtime.NewServeMux()
+	gwMux := runtime.NewServeMux(httpx.GatewayRoutes())
 	if err := schedulerv1.RegisterStudyServiceHandlerServer(ctx, gwMux, handler); err != nil {
 		return fmt.Errorf("scheduler: register study gateway: %w", err)
 	}

@@ -167,7 +167,7 @@ func run() error {
 		},
 	})
 
-	gwMux := runtime.NewServeMux()
+	gwMux := runtime.NewServeMux(httpx.GatewayRoutes())
 	if err := syncv1.RegisterSyncServiceHandlerServer(ctx, gwMux, handler); err != nil {
 		return fmt.Errorf("sync: register gateway: %w", err)
 	}
@@ -175,7 +175,7 @@ func run() error {
 	// Combine the gateway mux with the plain SSE route under one handler so
 	// auth.HTTPAuthMiddleware wraps both identically.
 	rootMux := http.NewServeMux()
-	rootMux.HandleFunc("/v1/sync/stream", handler.StreamHandler(logger))
+	rootMux.Handle("/v1/sync/stream", httpx.Route("/v1/sync/stream", handler.StreamHandler(logger)))
 	rootMux.Handle("/", gwMux)
 
 	readiness := func(ctx context.Context) error {

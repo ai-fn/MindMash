@@ -36,7 +36,7 @@ func DefaultConfig(addr string) Config {
 
 // Options configure the gRPC server.
 type Options struct {
-	UnaryInterceptors  []grpc.UnaryServerInterceptor  // applied in order (after the built-in recovery + logging)
+	UnaryInterceptors  []grpc.UnaryServerInterceptor  // applied in order (after the built-in logging/metrics + recovery)
 	StreamInterceptors []grpc.StreamServerInterceptor // same, for streaming RPCs
 	Register           func(*grpc.Server)             // registers application services; called in New
 	Reflection         bool                           // dev only: exposes the full API schema unauthenticated
@@ -49,7 +49,7 @@ type Server struct {
 	health     *health.Server
 }
 
-// New builds a Server with recovery + logging interceptors prepended to
+// New builds a Server with logging/metrics + recovery interceptors prepended to
 // opts.Unary/StreamInterceptors, registers the health service (and reflection
 // when enabled), and calls opts.Register to register application services.
 func New(cfg Config, opts Options) *Server {
@@ -64,25 +64,26 @@ func New(cfg Config, opts Options) *Server {
 		return handler(srv, ss)
 	}
 
-	loggingInterceptor := func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+	// Outside recovery so a recovered panic is observed as Internal.
+	observeInterceptor := func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		start := time.Now()
 		resp, err := handler(ctx, req)
-		logRequest(info.FullMethod, start, err)
+		observe(info.FullMethod, start, err)
 		return resp, err
 	}
-	streamLoggingInterceptor := func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	streamObserveInterceptor := func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		start := time.Now()
 		err := handler(srv, ss)
-		logRequest(info.FullMethod, start, err)
+		observe(info.FullMethod, start, err)
 		return err
 	}
 
 	unary := append(
-		[]grpc.UnaryServerInterceptor{recoveryInterceptor, loggingInterceptor},
+		[]grpc.UnaryServerInterceptor{observeInterceptor, recoveryInterceptor},
 		opts.UnaryInterceptors...,
 	)
 	stream := append(
-		[]grpc.StreamServerInterceptor{streamRecoveryInterceptor, streamLoggingInterceptor},
+		[]grpc.StreamServerInterceptor{streamObserveInterceptor, streamRecoveryInterceptor},
 		opts.StreamInterceptors...,
 	)
 
@@ -121,18 +122,14 @@ func recoverPanic(method string, err *error) {
 	}
 }
 
-func logRequest(method string, start time.Time, err error) {
-	code := codes.OK
-	if err != nil {
-		if st, ok := status.FromError(err); ok {
-			code = st.Code()
-		} else {
-			code = codes.Unknown
-		}
-	}
+func observe(method string, start time.Time, err error) {
+	elapsed := time.Since(start)
+	code := status.Code(err)
+	grpcRequests.WithLabelValues(method, code.String()).Inc()
+	grpcDuration.WithLabelValues(method).Observe(elapsed.Seconds())
 	log.L().Info("grpcx: request",
 		zap.String("method", method),
-		zap.String("duration_ms", fmt.Sprintf("%.2f", float64(time.Since(start).Microseconds())/1000.0)),
+		zap.String("duration_ms", fmt.Sprintf("%.2f", float64(elapsed.Microseconds())/1000.0)),
 		zap.String("code", code.String()),
 	)
 }

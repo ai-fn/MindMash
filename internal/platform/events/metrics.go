@@ -30,6 +30,10 @@ var (
 		Name: "mindmesh_consumer_dlq_write_failures_total",
 		Help: "Failed writes to <topic>.dlq; the partition is blocked until one succeeds.",
 	}, []string{"topic", "group"})
+	consumerLag = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "mindmesh_consumer_lag_messages",
+		Help: "Messages behind the partition high-water mark after the last commit.",
+	}, []string{"topic", "group", "partition"})
 	relayLeader = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "mindmesh_outbox_relay_leader",
 		Help: "1 while this instance is the outbox relay leader.",

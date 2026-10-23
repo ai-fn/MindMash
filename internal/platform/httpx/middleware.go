@@ -13,13 +13,20 @@ import (
 // statusRecorder wraps http.ResponseWriter to capture the written status code.
 type statusRecorder struct {
 	http.ResponseWriter
-	status int
+	status      int
+	wroteHeader bool
 }
 
+// WriteHeader keeps the first final code: net/http ignores later calls and 1xx isn't final.
 func (r *statusRecorder) WriteHeader(code int) {
-	r.status = code
+	if !r.wroteHeader && code >= 200 {
+		r.status, r.wroteHeader = code, true
+	}
 	r.ResponseWriter.WriteHeader(code)
 }
+
+// Unwrap lets http.ResponseController reach Flush and write deadlines (SSE).
+func (r *statusRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
 
 // Recoverer wraps next and converts panics into 500 responses, logging the panic.
 func Recoverer(next http.Handler) http.Handler {
