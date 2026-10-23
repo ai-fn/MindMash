@@ -310,7 +310,7 @@ enum BulkOp {
   BULK_OP_UNTAG       = 3;
   BULK_OP_FLAG        = 4;
   BULK_OP_SUSPEND     = 5;
-  BULK_OP_DELETE      = 6;
+  BULK_OP_DELETE      = 6; // also deletes notes left with no cards
 }
 
 // BulkArgs — extra parameters for a BulkCards call. Only the field relevant to

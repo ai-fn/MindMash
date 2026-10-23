@@ -1044,7 +1044,7 @@
         "BULK_OP_DELETE"
       ],
       "default": "BULK_OP_UNSPECIFIED",
-      "description": "BulkOp — operation applied in a BulkCards call."
+      "description": "BulkOp — operation applied in a BulkCards call.\n\n - BULK_OP_DELETE: also deletes notes left with no cards"
     },
     "v1Card": {
       "type": "object",

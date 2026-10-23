@@ -90,7 +90,7 @@ const (
 	BulkOp_BULK_OP_UNTAG       BulkOp = 3
 	BulkOp_BULK_OP_FLAG        BulkOp = 4
 	BulkOp_BULK_OP_SUSPEND     BulkOp = 5
-	BulkOp_BULK_OP_DELETE      BulkOp = 6
+	BulkOp_BULK_OP_DELETE      BulkOp = 6 // also deletes notes left with no cards
 )
 
 // Enum value maps for BulkOp.

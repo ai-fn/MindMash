@@ -132,7 +132,15 @@ func (s *Service) DeleteNoteType(ctx context.Context, userID, id string, expecte
 
 // ─── Note ────────────────────────────────────────────────────────────────────
 
+// errNoCards keeps every note with at least one card, so later edits can inherit its deck.
+func errNoCards() error {
+	return platformerrors.InvalidArgument("note must generate at least one card; fill a field its templates use")
+}
+
 func (s *Service) CreateNote(ctx context.Context, userID, profileID, noteTypeID, deckID string, fields map[string]string, tags []string, flags int32) (*Note, error) {
+	if deckID == "" {
+		return nil, platformerrors.InvalidArgument("deck_id is required")
+	}
 	now := time.Now().UTC()
 	note := &Note{
 		ID:         ids.NewUUID(),
@@ -146,22 +154,28 @@ func (s *Service) CreateNote(ctx context.Context, userID, profileID, noteTypeID,
 	}
 
 	if err := s.repo.WithTx(ctx, func(tx Repository) error {
-		nt, err := tx.GetNoteType(ctx, userID, noteTypeID)
-		if err != nil {
-			return err
-		}
+		// Lock first so a concurrent DeleteDeck can't drop the deck after it's checked.
 		usn, err := tx.NextUSN(ctx, userID)
 		if err != nil {
 			return err
 		}
-		note.USN = usn
-
-		if err := tx.CreateNote(ctx, note); err != nil {
+		nt, err := tx.GetNoteType(ctx, userID, noteTypeID)
+		if err != nil {
 			return err
 		}
-
+		if _, err := tx.GetDeck(ctx, userID, deckID); err != nil {
+			return err
+		}
 		diff, err := GenerateCardDiff(nt, note, nil, deckID, ids.NewUUID)
 		if err != nil {
+			return err
+		}
+		if len(diff.ToCreate) == 0 {
+			return errNoCards()
+		}
+
+		note.USN = usn
+		if err := tx.CreateNote(ctx, note); err != nil {
 			return err
 		}
 
@@ -203,9 +217,11 @@ func (s *Service) GetNote(ctx context.Context, userID, id string) (*Note, error)
 func (s *Service) UpdateNote(ctx context.Context, userID, id string, expectedUSN int64, fields map[string]string, tags []string, flags int32) (*Note, error) {
 	var existing *Note
 	if err := s.repo.WithTx(ctx, func(tx Repository) error {
-		var err error
-		// Read inside the transaction to close the TOCTOU window between the USN
-		// check and the subsequent UPDATE.
+		// Lock first so the USN check and card diff read committed state.
+		usn, err := tx.NextUSN(ctx, userID)
+		if err != nil {
+			return err
+		}
 		existing, err = tx.GetNote(ctx, userID, id)
 		if err != nil {
 			return err
@@ -228,25 +244,21 @@ func (s *Service) UpdateNote(ctx context.Context, userID, id string, expectedUSN
 		if err != nil {
 			return err
 		}
-		usn, err := tx.NextUSN(ctx, userID)
+		if len(existingCards) == 0 {
+			return platformerrors.Internal("note has no cards")
+		}
+
+		// New cards join the deck of the note's first card.
+		diff, err := GenerateCardDiff(nt, existing, existingCards, existingCards[0].DeckID, ids.NewUUID)
 		if err != nil {
 			return err
 		}
+		if len(existingCards)-len(diff.ToDelete)+len(diff.ToCreate) == 0 {
+			return errNoCards()
+		}
+
 		existing.USN = usn
-
 		if err := tx.UpdateNote(ctx, existing); err != nil {
-			return err
-		}
-
-		// Use the deck of the first existing card so newly generated cards land in
-		// the same deck. Empty string falls through to cardgen's zero default.
-		deckID := ""
-		if len(existingCards) > 0 {
-			deckID = existingCards[0].DeckID
-		}
-
-		diff, err := GenerateCardDiff(nt, existing, existingCards, deckID, ids.NewUUID)
-		if err != nil {
 			return err
 		}
 
@@ -295,7 +307,11 @@ func (s *Service) UpdateNote(ctx context.Context, userID, id string, expectedUSN
 
 func (s *Service) DeleteNote(ctx context.Context, userID, id string, expectedUSN int64) error {
 	return s.repo.WithTx(ctx, func(tx Repository) error {
-		// Read inside the transaction so the USN check and the DELETE are atomic.
+		// Lock first so the USN check and the DELETE are atomic.
+		usn, err := tx.NextUSN(ctx, userID)
+		if err != nil {
+			return err
+		}
 		existing, err := tx.GetNote(ctx, userID, id)
 		if err != nil {
 			return err
@@ -305,10 +321,6 @@ func (s *Service) DeleteNote(ctx context.Context, userID, id string, expectedUSN
 		}
 
 		cards, err := tx.ListCardsByNote(ctx, userID, id)
-		if err != nil {
-			return err
-		}
-		usn, err := tx.NextUSN(ctx, userID)
 		if err != nil {
 			return err
 		}
@@ -465,12 +477,41 @@ func (s *Service) DeleteCards(ctx context.Context, userID string, cardIDs []stri
 		}
 		affected = int64(len(deleted))
 		outboxEntries := make([]events.OutboxEntry, 0, len(deleted))
+		seen := make(map[string]bool)
+		var noteIDs []string
 		for i := range deleted {
 			c := &deleted[i]
 			if err := tx.WriteTombstone(ctx, userID, TombstoneCard, c.ID, usn); err != nil {
 				return err
 			}
 			outboxEntries = append(outboxEntries, cardEntry(c, EventCardDeleted))
+			if !seen[c.NoteID] {
+				seen[c.NoteID] = true
+				noteIDs = append(noteIDs, c.NoteID)
+			}
+		}
+
+		// As in Anki, a note whose last card is deleted goes with it.
+		for _, noteID := range noteIDs {
+			remaining, err := tx.ListCardsByNote(ctx, userID, noteID)
+			if err != nil {
+				return err
+			}
+			if len(remaining) > 0 {
+				continue
+			}
+			note, err := tx.GetNote(ctx, userID, noteID)
+			if err != nil {
+				return err
+			}
+			if err := tx.DeleteNote(ctx, userID, noteID); err != nil {
+				return err
+			}
+			if err := tx.WriteTombstone(ctx, userID, TombstoneNote, noteID, usn); err != nil {
+				return err
+			}
+			note.USN = usn
+			outboxEntries = append(outboxEntries, noteEntry(note, EventNoteDeleted))
 		}
 		return tx.WriteOutbox(ctx, outboxEntries)
 	}); err != nil {

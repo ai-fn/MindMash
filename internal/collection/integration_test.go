@@ -924,3 +924,168 @@ func TestRepoDeleteDeck_WithSubdecksFailedPrecondition(t *testing.T) {
 		t.Fatalf("got %v, want FailedPrecondition about subdecks", err)
 	}
 }
+
+// ─── Note deck handling ──────────────────────────────────────────────────────
+
+func TestCreateNote_DeckValidation(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+	deck := defaultDeck(t, c)
+	nt := basicNoteType(t, c)
+	fields := map[string]string{"Front": "q", "Back": "a"}
+
+	tests := []struct {
+		name   string
+		deckID string
+		fields map[string]string
+		want   func(error) bool
+	}{
+		{"missing deck_id", "", fields, platformerrors.IsInvalidArgument},
+		{"unknown deck", "00000000-0000-0000-0000-0000000000dd", fields, platformerrors.IsNotFound},
+		{"no cards generated", deck.ID, map[string]string{"Front": "", "Back": "a"}, platformerrors.IsInvalidArgument},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := c.svc.CreateNote(ctx, testUserID, testProfileID, nt.ID, tc.deckID, tc.fields, nil, 0); !tc.want(err) {
+				t.Fatalf("got %v", err)
+			}
+		})
+	}
+
+	var notes int
+	if err := c.pool.QueryRow(ctx, `SELECT COUNT(*) FROM notes WHERE user_id = $1`, testUserID).Scan(&notes); err != nil {
+		t.Fatalf("count notes: %v", err)
+	}
+	if notes != 0 {
+		t.Fatalf("rejected creates left %d notes", notes)
+	}
+}
+
+func TestUpdateNote_RejectsRemovingAllCards(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+	deck := defaultDeck(t, c)
+	nt := basicNoteType(t, c)
+	note, err := c.svc.CreateNote(ctx, testUserID, testProfileID, nt.ID, deck.ID,
+		map[string]string{"Front": "q", "Back": "a"}, nil, 0)
+	if err != nil {
+		t.Fatalf("CreateNote: %v", err)
+	}
+
+	_, err = c.svc.UpdateNote(ctx, testUserID, note.ID, note.USN, map[string]string{"Front": "", "Back": "a"}, nil, 0)
+	if !platformerrors.IsInvalidArgument(err) {
+		t.Fatalf("got %v, want InvalidArgument", err)
+	}
+	cards, err := c.repo.ListCardsByNote(ctx, testUserID, note.ID)
+	if err != nil || len(cards) != 1 {
+		t.Fatalf("cards after rejected update: %v, %d", err, len(cards))
+	}
+}
+
+func TestUpdateNote_NewCardJoinsFirstCardsDeck(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+	deck := defaultDeck(t, c)
+	other, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, "Other", "", "")
+	if err != nil {
+		t.Fatalf("CreateDeck: %v", err)
+	}
+	nt, err := c.svc.CreateNoteType(ctx, testUserID, testProfileID, "Cloze", "",
+		[]Field{{Name: "Text"}}, []CardTemplate{{Name: "Cloze", Front: "{{cloze:Text}}", Back: "{{cloze:Text}}"}})
+	if err != nil {
+		t.Fatalf("CreateNoteType: %v", err)
+	}
+	note, err := c.svc.CreateNote(ctx, testUserID, testProfileID, nt.ID, deck.ID,
+		map[string]string{"Text": "{{c1::a}}"}, nil, 0)
+	if err != nil {
+		t.Fatalf("CreateNote: %v", err)
+	}
+	cards, err := c.repo.ListCardsByNote(ctx, testUserID, note.ID)
+	if err != nil || len(cards) != 1 {
+		t.Fatalf("ListCardsByNote: %v, %d", err, len(cards))
+	}
+	if _, err := c.svc.MoveCards(ctx, testUserID, []string{cards[0].ID}, other.ID); err != nil {
+		t.Fatalf("MoveCards: %v", err)
+	}
+	note, err = c.svc.GetNote(ctx, testUserID, note.ID)
+	if err != nil {
+		t.Fatalf("GetNote: %v", err)
+	}
+
+	if _, err := c.svc.UpdateNote(ctx, testUserID, note.ID, note.USN,
+		map[string]string{"Text": "{{c1::a}} {{c2::b}}"}, nil, 0); err != nil {
+		t.Fatalf("UpdateNote: %v", err)
+	}
+	cards, err = c.repo.ListCardsByNote(ctx, testUserID, note.ID)
+	if err != nil || len(cards) != 2 {
+		t.Fatalf("ListCardsByNote: %v, %d", err, len(cards))
+	}
+	if cards[1].DeckID != other.ID {
+		t.Fatalf("new card deck = %s, want %s", cards[1].DeckID, other.ID)
+	}
+}
+
+func TestDeleteCards_LastCardDeletesNote(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+	deck := defaultDeck(t, c)
+	nt, err := c.svc.CreateNoteType(ctx, testUserID, testProfileID, "Basic+Rev", "",
+		[]Field{{Name: "Front"}, {Name: "Back"}},
+		[]CardTemplate{{Name: "Card 1", Front: "{{Front}}", Back: "{{Back}}"}, {Name: "Card 2", Front: "{{Back}}", Back: "{{Front}}"}})
+	if err != nil {
+		t.Fatalf("CreateNoteType: %v", err)
+	}
+	note, err := c.svc.CreateNote(ctx, testUserID, testProfileID, nt.ID, deck.ID,
+		map[string]string{"Front": "q", "Back": "a"}, nil, 0)
+	if err != nil {
+		t.Fatalf("CreateNote: %v", err)
+	}
+	cards, err := c.repo.ListCardsByNote(ctx, testUserID, note.ID)
+	if err != nil || len(cards) != 2 {
+		t.Fatalf("ListCardsByNote: %v, %d", err, len(cards))
+	}
+
+	if _, err := c.svc.DeleteCards(ctx, testUserID, []string{cards[0].ID}); err != nil {
+		t.Fatalf("DeleteCards first: %v", err)
+	}
+	if _, err := c.svc.GetNote(ctx, testUserID, note.ID); err != nil {
+		t.Fatalf("note deleted with a card left: %v", err)
+	}
+
+	if _, err := c.svc.DeleteCards(ctx, testUserID, []string{cards[1].ID}); err != nil {
+		t.Fatalf("DeleteCards last: %v", err)
+	}
+	if _, err := c.svc.GetNote(ctx, testUserID, note.ID); !platformerrors.IsNotFound(err) {
+		t.Fatalf("note after last card deleted: got %v, want NotFound", err)
+	}
+	var tombstones int
+	if err := c.pool.QueryRow(ctx, `SELECT COUNT(*) FROM tombstones WHERE user_id = $1 AND type = $2 AND id = $3`,
+		testUserID, TombstoneNote, note.ID).Scan(&tombstones); err != nil {
+		t.Fatalf("count tombstones: %v", err)
+	}
+	if tombstones != 1 {
+		t.Fatalf("note tombstones = %d, want 1", tombstones)
+	}
+
+	both, err := c.svc.CreateNote(ctx, testUserID, testProfileID, nt.ID, deck.ID,
+		map[string]string{"Front": "q2", "Back": "a2"}, nil, 0)
+	if err != nil {
+		t.Fatalf("CreateNote: %v", err)
+	}
+	cards, err = c.repo.ListCardsByNote(ctx, testUserID, both.ID)
+	if err != nil || len(cards) != 2 {
+		t.Fatalf("ListCardsByNote: %v, %d", err, len(cards))
+	}
+	affected, err := c.svc.DeleteCards(ctx, testUserID, []string{cards[0].ID, cards[1].ID})
+	if err != nil || affected != 2 {
+		t.Fatalf("DeleteCards both: affected=%d err=%v", affected, err)
+	}
+	var noteDeletes int
+	if err := c.pool.QueryRow(ctx, `SELECT COUNT(*) FROM outbox WHERE user_id = $1 AND event_type = $2 AND aggregate_id = $3`,
+		testUserID, EventNoteDeleted, both.ID).Scan(&noteDeletes); err != nil {
+		t.Fatalf("count outbox: %v", err)
+	}
+	if noteDeletes != 1 {
+		t.Fatalf("note.deleted events = %d, want 1", noteDeletes)
+	}
+}
