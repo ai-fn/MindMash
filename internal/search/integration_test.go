@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"slices"
 	"strconv"
 	"testing"
 	"time"
@@ -95,6 +96,7 @@ type collectionHarness struct {
 	repo   *collection.PostgresRepository
 	client collectionv1.CollectionInternalServiceClient
 	signer *auth.ServiceSigner
+	pool   *pgxpool.Pool
 }
 
 func setupCollection(t *testing.T) *collectionHarness {
@@ -157,6 +159,7 @@ func setupCollection(t *testing.T) *collectionHarness {
 		repo:   repo,
 		client: collectionv1.NewCollectionInternalServiceClient(conn),
 		signer: signer,
+		pool:   pool,
 	}
 }
 
@@ -314,6 +317,71 @@ func TestIndexer_EnrichUpsertDelete(t *testing.T) {
 	}
 	if got := queryAs(t, h, userA, profA, "comer"); len(got) != 0 {
 		t.Fatalf("after delete: comer = %v, want []", got)
+	}
+}
+
+// TestIndexer_SchedulingEvents reindexes a card after Scheduler events, which carry the card id differently.
+func TestIndexer_SchedulingEvents(t *testing.T) {
+	if !slices.Contains(IndexTopics, "review_log") {
+		t.Fatalf("IndexTopics = %v, want review_log subscribed", IndexTopics)
+	}
+	repo := setupOpenSearch(t)
+	coll := setupCollection(t)
+	ctx := context.Background()
+
+	nt, err := coll.svc.CreateNoteType(ctx, userA, profA, "Basic", "",
+		[]collection.Field{{Name: "Front"}, {Name: "Back"}},
+		[]collection.CardTemplate{{Name: "Card 1", Front: "{{Front}}", Back: "{{Back}}"}})
+	if err != nil {
+		t.Fatalf("CreateNoteType: %v", err)
+	}
+	deck, err := coll.svc.CreateDeck(ctx, userA, profA, "Spanish", "", "")
+	if err != nil {
+		t.Fatalf("CreateDeck: %v", err)
+	}
+	note, err := coll.svc.CreateNote(ctx, userA, profA, nt.ID, deck.ID,
+		map[string]string{"Front": "comer", "Back": "to eat"}, nil, 0)
+	if err != nil {
+		t.Fatalf("CreateNote: %v", err)
+	}
+	cards, err := coll.repo.ListCardsByNote(ctx, userA, note.ID)
+	if err != nil || len(cards) != 1 {
+		t.Fatalf("ListCardsByNote: %v (n=%d)", err, len(cards))
+	}
+	cardID := cards[0].ID
+
+	indexer := NewIndexer(repo, coll.client, coll.signer, zap.NewNop())
+	h := NewHandler(repo)
+	handle := func(msg events.Message, schedule string) {
+		t.Helper()
+		// Scheduler writes the scheduling columns and bumps usn, so the upsert wins external_gte.
+		if _, err := coll.pool.Exec(ctx, `UPDATE cards SET `+schedule+`, usn = usn + 100 WHERE user_id = $1 AND id = $2`,
+			userA, cardID); err != nil {
+			t.Fatalf("update card: %v", err)
+		}
+		if err := indexer.Handle(ctx, msg); err != nil {
+			t.Fatalf("handle %s: %v", msg.Headers["event_type"], err)
+		}
+		if err := repo.Refresh(ctx); err != nil {
+			t.Fatalf("refresh: %v", err)
+		}
+	}
+
+	if err := indexer.Handle(ctx, noteEvent(t, "note.created", note.ID)); err != nil {
+		t.Fatalf("handle note.created: %v", err)
+	}
+
+	handle(cardEvent(t, "card.rescheduled", cardID), "queue = -1")
+	if got := queryAs(t, h, userA, profA, "is:suspended"); len(got) != 1 || got[0] != cardID {
+		t.Fatalf("after card.rescheduled: is:suspended = %v, want [%s]", got, cardID)
+	}
+
+	handle(reviewEvent(t, cardID), "queue = 2, state = 2")
+	if got := queryAs(t, h, userA, profA, "is:review"); len(got) != 1 || got[0] != cardID {
+		t.Fatalf("after review.recorded: is:review = %v, want [%s]", got, cardID)
+	}
+	if got := queryAs(t, h, userA, profA, "is:suspended"); len(got) != 0 {
+		t.Fatalf("after review.recorded: is:suspended = %v, want []", got)
 	}
 }
 
@@ -552,6 +620,18 @@ func createTopics(t *testing.T, broker string, topics ...string) {
 	if err := cc.CreateTopics(cfgs...); err != nil {
 		t.Fatalf("create topics: %v", err)
 	}
+}
+
+// reviewEvent mirrors scheduler's review.recorded payload: id is the review log, card_id the card.
+func reviewEvent(t *testing.T, cardID string) events.Message {
+	t.Helper()
+	payload, err := json.Marshal(map[string]string{
+		"id": "0190f3a8-7b2c-7d4e-9f00-0000000000ee", "user_id": userA, "profile_id": profA, "card_id": cardID,
+	})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	return events.Message{Topic: "review_log", Value: payload, Headers: map[string]string{"event_type": "review.recorded"}}
 }
 
 func noteEvent(t *testing.T, eventType, id string) events.Message {

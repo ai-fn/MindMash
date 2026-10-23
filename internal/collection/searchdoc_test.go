@@ -46,7 +46,7 @@ func TestNewSearchDoc(t *testing.T) {
 		t.Errorf("DeckPath = %q, want Spanish::Verbs", got.DeckPath)
 	}
 	if !got.Suspended {
-		t.Error("Suspended = false, want true (queue<0)")
+		t.Error("Suspended = false, want true (queue -1)")
 	}
 	if got.Ivl != 21 {
 		t.Errorf("Ivl = %d, want 21 (due-last_review days)", got.Ivl)
@@ -84,6 +84,14 @@ func TestNewSearchDocNoSchedule(t *testing.T) {
 	}
 	if got.Suspended {
 		t.Error("Suspended = true, want false for queue 0")
+	}
+}
+
+func TestNewSearchDocBuriedIsNotSuspended(t *testing.T) {
+	c := &Card{ID: ids.NewUUID(), State: StateReview, Queue: -2, USN: 1}
+	got := newSearchDoc(c, &Note{ID: "n", USN: 1}, &Deck{ID: "d", USN: 1}, nil)
+	if got.Suspended {
+		t.Error("Suspended = true, want false for a buried card (queue -2)")
 	}
 }
 

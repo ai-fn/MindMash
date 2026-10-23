@@ -64,7 +64,7 @@ func newSearchDoc(c *Card, n *Note, d *Deck, descriptors []Field) SearchDoc {
 		DeckPath:    d.Path,
 		TemplateOrd: c.TemplateOrd,
 		State:       c.State,
-		Suspended:   c.Queue < 0,
+		Suspended:   c.Queue == suspendedQueue, // buried (-2/-3) is not suspended
 		Due:         c.Due,
 		Ivl:         intervalDays(c.Due, c.LastReview),
 		Reps:        c.Reps,

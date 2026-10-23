@@ -16,10 +16,9 @@ import (
 )
 
 // IndexTopics are the Kafka topics the indexer consumes. The relay publishes
-// each outbox row to a topic named after its aggregate_type, so subscribing to
-// these three captures every card/note/deck change while ignoring unrelated
-// aggregates (note_type, deck_config, filtered_deck).
-var IndexTopics = []string{"card", "note", "deck"}
+// each outbox row to a topic named after its aggregate_type; review_log carries
+// Scheduler's answers, which change a card's state/due/reps.
+var IndexTopics = []string{"card", "note", "deck", "review_log"}
 
 // enricher is the subset of Collection's internal client the indexer needs:
 // resolving changed ids back into denormalized search documents, and (for
@@ -60,6 +59,7 @@ type eventPayload struct {
 	ID        string `json:"id"`
 	UserID    string `json:"user_id"`
 	ProfileID string `json:"profile_id"`
+	CardID    string `json:"card_id"` // set on review.recorded, whose id is the review log
 }
 
 // Handle processes one Kafka message. It is the handler passed to
@@ -85,8 +85,14 @@ func (ix *Indexer) Handle(ctx context.Context, msg events.Message) error {
 	}
 
 	switch eventType {
-	case "card.created", "card.updated":
+	case "card.created", "card.updated", "card.rescheduled":
 		return ix.enrichAndUpsert(ctx, p, &collectionv1.GetSearchDocsRequest{CardIds: []string{p.ID}})
+	case "review.recorded":
+		if !validate.IsUUID(p.CardID) {
+			ix.log.Warn("indexer: review payload card_id is not a uuid", zap.String("user_id", p.UserID), zap.String("review_id", p.ID))
+			return nil
+		}
+		return ix.enrichAndUpsert(ctx, p, &collectionv1.GetSearchDocsRequest{CardIds: []string{p.CardID}})
 	case "card.deleted":
 		return ix.repo.Delete(ctx, p.UserID, p.ID)
 	case "note.created", "note.updated":
