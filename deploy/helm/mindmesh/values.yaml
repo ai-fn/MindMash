@@ -82,6 +82,14 @@ collection:
     OTEL_SERVICE_NAME: collection
     RUN_MIGRATIONS: "false"
     JWKS_URL: "http://identity:8080/.well-known/jwks.json"
+    SERVICE_TRUSTED_KEYS: "search=/etc/mindmesh/service-keys/search.pub.pem"
+  # Public keys of services allowed to call CollectionInternalService (out-of-band Secret, public material only).
+  fileSecrets:
+    - name: mindmesh-service-pubkeys
+      mountPath: /etc/mindmesh/service-keys
+      readOnly: true
+      items:
+        - { key: search.pub.pem, path: search.pub.pem }
   secret:
     create: true
     data:
@@ -180,17 +188,14 @@ search:
     JWKS_URL: "http://identity:8080/.well-known/jwks.json"
     COLLECTION_GRPC_ADDR: "collection:50051"
     OPENSEARCH_ADDRESSES: "http://opensearch:9200"
-    JWT_PRIVATE_KEY_PATH: /etc/mindmesh/keys/ed25519.pem
-    JWT_PUBLIC_KEY_PATH: /etc/mindmesh/keys/ed25519.pub.pem
-  # The indexer mints its own per-user token to call Collection, so search needs
-  # the same signing key material as identity (not just remote JWKS verification).
+    SERVICE_SIGNING_KEY_PATH: /etc/mindmesh/service-key/search.pem
+  # The indexer signs its Collection calls with its own key; Identity's key never leaves Identity.
   fileSecrets:
-    - name: mindmesh-jwt-keys
-      mountPath: /etc/mindmesh/keys
+    - name: mindmesh-search-service-key
+      mountPath: /etc/mindmesh/service-key
       readOnly: true
       items:
-        - { key: ed25519.pem, path: ed25519.pem }
-        - { key: ed25519.pub.pem, path: ed25519.pub.pem }
+        - { key: search.pem, path: search.pem }
   ingress:
     enabled: true
     hosts:
@@ -211,18 +216,6 @@ analytics:
     CLICKHOUSE_ADDR: "clickhouse:9000"
     CLICKHOUSE_DB: mindmesh
     CLICKHOUSE_USER: mindmesh
-    JWT_PRIVATE_KEY_PATH: /etc/mindmesh/keys/ed25519.pem
-    JWT_PUBLIC_KEY_PATH: /etc/mindmesh/keys/ed25519.pub.pem
-  # auth.NewSigner is initialized unconditionally at boot (even though analytics
-  # verifies via remote JWKS and never mints tokens itself), so it needs the same
-  # key material as identity/search regardless of environment.
-  fileSecrets:
-    - name: mindmesh-jwt-keys
-      mountPath: /etc/mindmesh/keys
-      readOnly: true
-      items:
-        - { key: ed25519.pem, path: ed25519.pem }
-        - { key: ed25519.pub.pem, path: ed25519.pub.pem }
   secret:
     create: true
     data:

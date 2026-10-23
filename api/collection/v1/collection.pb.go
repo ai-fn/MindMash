@@ -3854,6 +3854,7 @@ type ListCardIDsRequest struct {
 	Query         string                 `protobuf:"bytes,1,opt,name=query,proto3" json:"query,omitempty"`
 	PageToken     string                 `protobuf:"bytes,2,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
 	PageSize      int32                  `protobuf:"varint,3,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	UserId        string                 `protobuf:"bytes,4,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"` // tenant a service caller acts for (service-token auth)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3907,6 +3908,13 @@ func (x *ListCardIDsRequest) GetPageSize() int32 {
 		return x.PageSize
 	}
 	return 0
+}
+
+func (x *ListCardIDsRequest) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
 }
 
 type ListCardIDsResponse struct {
@@ -3969,6 +3977,7 @@ type GetSearchDocsRequest struct {
 	CardIds       []string               `protobuf:"bytes,1,rep,name=card_ids,json=cardIds,proto3" json:"card_ids,omitempty"`
 	NoteIds       []string               `protobuf:"bytes,2,rep,name=note_ids,json=noteIds,proto3" json:"note_ids,omitempty"`
 	DeckIds       []string               `protobuf:"bytes,3,rep,name=deck_ids,json=deckIds,proto3" json:"deck_ids,omitempty"`
+	UserId        string                 `protobuf:"bytes,4,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"` // tenant a service caller acts for (service-token auth)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4022,6 +4031,13 @@ func (x *GetSearchDocsRequest) GetDeckIds() []string {
 		return x.DeckIds
 	}
 	return nil
+}
+
+func (x *GetSearchDocsRequest) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
 }
 
 type GetSearchDocsResponse struct {
@@ -4529,19 +4545,21 @@ const file_collection_v1_collection_proto_rawDesc = "" +
 	"\x12RenderCardResponse\x12\x1d\n" +
 	"\n" +
 	"front_html\x18\x01 \x01(\tR\tfrontHtml\x12\x1b\n" +
-	"\tback_html\x18\x02 \x01(\tR\bbackHtml\"f\n" +
+	"\tback_html\x18\x02 \x01(\tR\bbackHtml\"\x7f\n" +
 	"\x12ListCardIDsRequest\x12\x14\n" +
 	"\x05query\x18\x01 \x01(\tR\x05query\x12\x1d\n" +
 	"\n" +
 	"page_token\x18\x02 \x01(\tR\tpageToken\x12\x1b\n" +
-	"\tpage_size\x18\x03 \x01(\x05R\bpageSize\"O\n" +
+	"\tpage_size\x18\x03 \x01(\x05R\bpageSize\x12\x17\n" +
+	"\auser_id\x18\x04 \x01(\tR\x06userId\"O\n" +
 	"\x13ListCardIDsResponse\x12\x10\n" +
 	"\x03ids\x18\x01 \x03(\tR\x03ids\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"g\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\x80\x01\n" +
 	"\x14GetSearchDocsRequest\x12\x19\n" +
 	"\bcard_ids\x18\x01 \x03(\tR\acardIds\x12\x19\n" +
 	"\bnote_ids\x18\x02 \x03(\tR\anoteIds\x12\x19\n" +
-	"\bdeck_ids\x18\x03 \x03(\tR\adeckIds\"E\n" +
+	"\bdeck_ids\x18\x03 \x03(\tR\adeckIds\x12\x17\n" +
+	"\auser_id\x18\x04 \x01(\tR\x06userId\"E\n" +
 	"\x15GetSearchDocsResponse\x12,\n" +
 	"\x04docs\x18\x01 \x03(\v2\x18.collection.v1.SearchDocR\x04docs\"\xa6\x05\n" +
 	"\tSearchDoc\x12\x17\n" +

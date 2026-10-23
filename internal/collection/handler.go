@@ -549,10 +549,16 @@ func (h *Handler) DeleteFilteredDeck(ctx context.Context, req *collectionv1.Dele
 }
 
 // ─── CollectionInternalService ───────────────────────────────────────────────
-// Internal callers (Scheduler, Sync, Search, Import) authenticate via the same
-// JWT mechanism and the auth interceptor injects IdentityContext, so user_id
-// is always available via identity(ctx). The proto request messages deliberately
-// omit user_id to keep the wire format minimal for service-to-service calls.
+
+// InternalServicePolicy lists the methods callable only with a service token: the indexer has no user request to forward.
+func InternalServicePolicy() auth.ServicePolicy {
+	return auth.ServicePolicy{
+		collectionv1.CollectionInternalService_GetSearchDocs_FullMethodName: {"search"},
+		collectionv1.CollectionInternalService_ListCardIDs_FullMethodName:   {"search"},
+	}
+}
+
+// Identity comes from the caller's user token; policy methods take it from the request's user_id.
 
 func (h *InternalHandler) GetCardsByIDs(ctx context.Context, req *collectionv1.GetCardsByIDsRequest) (*collectionv1.GetCardsByIDsResponse, error) {
 	id, err := identity(ctx)

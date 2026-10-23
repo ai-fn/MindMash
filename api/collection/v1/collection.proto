@@ -618,6 +618,7 @@ message ListCardIDsRequest {
   string query      = 1;
   string page_token = 2;
   int32  page_size  = 3;
+  string user_id    = 4; // tenant a service caller acts for (service-token auth)
 }
 
 message ListCardIDsResponse {
@@ -632,6 +633,7 @@ message GetSearchDocsRequest {
   repeated string card_ids = 1;
   repeated string note_ids = 2;
   repeated string deck_ids = 3;
+  string          user_id  = 4; // tenant a service caller acts for (service-token auth)
 }
 
 message GetSearchDocsResponse {

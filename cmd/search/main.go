@@ -39,9 +39,8 @@ func main() {
 }
 
 func run() error {
-	// --backfill "userID:profileID,..." runs a one-off tenant-scoped reindex (fills
-	// per-language buckets on pre-existing cards) and exits instead of serving.
-	backfillTenants := flag.String("backfill", "", "comma-separated userID:profileID tenants to reindex, then exit")
+	// --backfill reindexes the given users (fills per-language buckets on old cards) and exits.
+	backfillTenants := flag.String("backfill", "", "comma-separated user ids to reindex, then exit")
 	flag.Parse()
 
 	base, err := config.Load()
@@ -82,30 +81,14 @@ func run() error {
 		return fmt.Errorf("search: ensure index: %w", err)
 	}
 
-	// The signer mints the per-user tokens the indexer presents to Collection,
-	// and (in the local-key dev path) also verifies inbound JWTs on the query
-	// path. In prod the query path verifies via remote JWKS; the indexer's
-	// signing key must then be trusted by that JWKS — a deployment concern noted
-	// in the spec, not handled here.
-	authCfg, err := auth.LoadConfig()
+	// The indexer authenticates to Collection with its own service key, never Identity's.
+	serviceTokens, err := auth.NewServiceSigner("search", envOr("SERVICE_SIGNING_KEY_PATH", "keys/search-service.pem"))
 	if err != nil {
-		return fmt.Errorf("search: load auth config: %w", err)
+		return fmt.Errorf("search: init service signer: %w", err)
 	}
-	signer, err := auth.NewSigner(authCfg)
+	verifier, err := userVerifier(ctx, logger)
 	if err != nil {
-		return fmt.Errorf("search: init signer: %w", err)
-	}
-
-	var verifier auth.Verifier = signer
-	if jwksURL := os.Getenv("JWKS_URL"); jwksURL != "" {
-		rv, err := auth.NewRemoteVerifier(ctx, jwksURL, envOr("JWKS_ISSUER", ""))
-		if err != nil {
-			return fmt.Errorf("search: init jwks verifier: %w", err)
-		}
-		verifier = rv
-		logger.Info("search: using remote JWKS verifier", zap.String("url", jwksURL))
-	} else {
-		logger.Info("search: using local key verifier (dev fallback)")
+		return err
 	}
 
 	// Collection internal client (GetSearchDocs enrichment).
@@ -130,7 +113,7 @@ func run() error {
 	}
 	defer func() { _ = consumer.Close() }()
 
-	indexer := search.NewIndexer(repo, collClient, signer, logger)
+	indexer := search.NewIndexer(repo, collClient, serviceTokens, logger)
 
 	// Backfill mode: reindex the named tenants and exit (no servers, no consumer).
 	if *backfillTenants != "" {
@@ -183,26 +166,43 @@ func run() error {
 	return nil
 }
 
-// runBackfill reindexes each "userID:profileID" tenant in spec, then returns. It
-// is the operator entrypoint for populating per-language buckets on cards that
-// predate the analyzer rollout (new/edited cards get them via the forward path).
+// runBackfill reindexes each comma-separated user id in spec, then returns.
 func runBackfill(ctx context.Context, indexer *search.Indexer, logger *zap.Logger, spec string) error {
 	for _, t := range strings.Split(spec, ",") {
 		t = strings.TrimSpace(t)
 		if t == "" {
 			continue
 		}
-		userID, profileID, ok := strings.Cut(t, ":")
-		if !ok || userID == "" || profileID == "" {
-			return fmt.Errorf("search: backfill tenant %q must be userID:profileID", t)
-		}
-		n, err := indexer.Backfill(ctx, userID, profileID)
+		userID := t
+		n, err := indexer.Backfill(ctx, userID)
 		if err != nil {
 			return fmt.Errorf("search: backfill %s: %w", userID, err)
 		}
 		logger.Info("search: backfilled tenant", zap.String("user_id", userID), zap.Int("cards", n))
 	}
 	return nil
+}
+
+// userVerifier verifies query-path JWTs via JWKS; only the dev fallback loads Identity's local key.
+func userVerifier(ctx context.Context, logger *zap.Logger) (auth.Verifier, error) {
+	if jwksURL := os.Getenv("JWKS_URL"); jwksURL != "" {
+		rv, err := auth.NewRemoteVerifier(ctx, jwksURL, envOr("JWKS_ISSUER", ""))
+		if err != nil {
+			return nil, fmt.Errorf("search: init jwks verifier: %w", err)
+		}
+		logger.Info("search: using remote JWKS verifier", zap.String("url", jwksURL))
+		return rv, nil
+	}
+	authCfg, err := auth.LoadConfig()
+	if err != nil {
+		return nil, fmt.Errorf("search: load auth config: %w", err)
+	}
+	signer, err := auth.NewSigner(authCfg)
+	if err != nil {
+		return nil, fmt.Errorf("search: init local key verifier: %w", err)
+	}
+	logger.Info("search: using local key verifier (dev fallback)")
+	return signer, nil
 }
 
 func envOr(key, def string) string {

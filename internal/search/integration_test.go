@@ -7,6 +7,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"net"
 	"strconv"
 	"testing"
@@ -70,20 +71,22 @@ func setupOpenSearch(t *testing.T) *Repo {
 	return repo
 }
 
-// newSigner builds an in-test Ed25519 signer. Collection's bufconn server and
-// the indexer share it, so a token the indexer mints verifies on Collection —
-// exactly the trust relationship the production JWKS provides.
-func newSigner(t *testing.T) *auth.Signer {
+// newServiceKeys returns the indexer's service signer and a Collection-side verifier trusting it.
+func newServiceKeys(t *testing.T) (*auth.ServiceSigner, *auth.ServiceVerifier) {
 	t.Helper()
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatalf("generate key: %v", err)
 	}
-	return auth.NewSignerFromKeys(priv, pub, auth.Config{
-		Issuer:          "mindmesh",
-		AccessTokenTTL:  10 * time.Minute,
-		RefreshTokenTTL: time.Hour,
-	})
+	return auth.NewServiceSignerFromKey("search", priv),
+		auth.NewServiceVerifierFromKeys(auth.CollectionInternalAudience, map[string]ed25519.PublicKey{"search": pub})
+}
+
+// rejectUsers fails any user-token method: the indexer must only reach service-policy methods.
+type rejectUsers struct{}
+
+func (rejectUsers) Verify(string) (*auth.Claims, error) {
+	return nil, errors.New("no user tokens here")
 }
 
 // collectionHarness is a real Collection backed by Postgres+Redis, exposed both
@@ -93,7 +96,7 @@ type collectionHarness struct {
 	svc    *collection.Service
 	repo   *collection.PostgresRepository
 	client collectionv1.CollectionInternalServiceClient
-	signer *auth.Signer
+	signer *auth.ServiceSigner
 }
 
 func setupCollection(t *testing.T) *collectionHarness {
@@ -145,13 +148,12 @@ func setupCollection(t *testing.T) *collectionHarness {
 	repo := collection.NewPostgresRepository(pool)
 	svc := collection.NewService(repo, rdb, zap.NewNop())
 	internalHandler := collection.NewInternalHandler(svc)
-	signer := newSigner(t)
+	signer, services := newServiceKeys(t)
 
-	// Real auth interceptor: the indexer's minted Bearer token is verified here
-	// and turned into the IdentityContext GetSearchDocs scopes by.
+	// Production policy: the indexer's service token plus user_id becomes the IdentityContext GetSearchDocs scopes by.
 	lis := bufconn.Listen(1024 * 1024)
 	t.Cleanup(func() { _ = lis.Close() })
-	srv := grpc.NewServer(grpc.ChainUnaryInterceptor(auth.GRPCAuthInterceptor(signer)))
+	srv := grpc.NewServer(grpc.ChainUnaryInterceptor(auth.GRPCServiceOrUserAuthInterceptor(rejectUsers{}, services, collection.InternalServicePolicy())))
 	collectionv1.RegisterCollectionInternalServiceServer(srv, internalHandler)
 	go func() { _ = srv.Serve(lis) }()
 	t.Cleanup(srv.Stop)

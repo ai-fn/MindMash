@@ -78,18 +78,8 @@ func run() error {
 		return fmt.Errorf("analytics: run clickhouse migrations: %w", err)
 	}
 
-	// The read API verifies inbound JWTs. The local signer is the dev fallback
-	// verifier; prod verifies via remote JWKS. Analytics makes no outbound RPCs,
-	// so it never mints tokens.
-	authCfg, err := auth.LoadConfig()
-	if err != nil {
-		return fmt.Errorf("analytics: load auth config: %w", err)
-	}
-	signer, err := auth.NewSigner(authCfg)
-	if err != nil {
-		return fmt.Errorf("analytics: init signer: %w", err)
-	}
-	var verifier auth.Verifier = signer
+	// Analytics only verifies; Identity's private key is loaded solely for the dev fallback without JWKS.
+	var verifier auth.Verifier
 	if jwksURL := os.Getenv("JWKS_URL"); jwksURL != "" {
 		rv, err := auth.NewRemoteVerifier(ctx, jwksURL, envOr("JWKS_ISSUER", ""))
 		if err != nil {
@@ -98,6 +88,15 @@ func run() error {
 		verifier = rv
 		logger.Info("analytics: using remote JWKS verifier", zap.String("url", jwksURL))
 	} else {
+		authCfg, err := auth.LoadConfig()
+		if err != nil {
+			return fmt.Errorf("analytics: load auth config: %w", err)
+		}
+		signer, err := auth.NewSigner(authCfg)
+		if err != nil {
+			return fmt.Errorf("analytics: init local key verifier: %w", err)
+		}
+		verifier = signer
 		logger.Info("analytics: using local key verifier (dev fallback)")
 	}
 

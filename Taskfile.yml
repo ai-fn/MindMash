@@ -60,14 +60,18 @@ tasks:
       - migrate -path migrations/scheduler  -database "{{.DB_URL}}&x-migrations-table=schema_migrations_scheduler"  up
 
   keygen:
-    desc: Generate local Ed25519 signing keys (skips if they already exist)
+    desc: Generate local Ed25519 keys - user JWTs and the search service key (skips existing)
     status:
       - test -f keys/ed25519.pem
       - test -f keys/ed25519.pub.pem
+      - test -f keys/search-service.pem
+      - test -f keys/search-service.pub.pem
     cmds:
       - mkdir -p keys
-      - openssl genpkey -algorithm ed25519 -out keys/ed25519.pem
+      - test -f keys/ed25519.pem || openssl genpkey -algorithm ed25519 -out keys/ed25519.pem
       - openssl pkey -in keys/ed25519.pem -pubout -out keys/ed25519.pub.pem
+      - test -f keys/search-service.pem || openssl genpkey -algorithm ed25519 -out keys/search-service.pem
+      - openssl pkey -in keys/search-service.pem -pubout -out keys/search-service.pub.pem
 
   run:
     desc: Start local deps and run the identity service

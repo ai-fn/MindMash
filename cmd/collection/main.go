@@ -136,12 +136,14 @@ func run() error {
 	handler := collection.NewHandler(svc)
 	internalHandler := collection.NewInternalHandler(svc)
 
-	// gRPC server. The JWT interceptor guards all services; the internal service
-	// is trusted-network only (peer services call it over the cluster network and
-	// present valid access tokens minted by Identity).
+	services, err := auth.NewServiceVerifier(auth.CollectionInternalAudience,
+		envOr("SERVICE_TRUSTED_KEYS", "search=keys/search-service.pub.pem"))
+	if err != nil {
+		return fmt.Errorf("collection: load trusted service keys: %w", err)
+	}
 	grpcSrv := grpcx.New(grpcx.DefaultConfig(base.GRPCAddr), grpcx.Options{
 		UnaryInterceptors: []grpc.UnaryServerInterceptor{
-			auth.GRPCAuthInterceptor(verifier),
+			auth.GRPCServiceOrUserAuthInterceptor(verifier, services, collection.InternalServicePolicy()),
 		},
 		Register: func(gs *grpc.Server) {
 			collectionv1.RegisterNoteTypeServiceServer(gs, handler)

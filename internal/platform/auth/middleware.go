@@ -7,7 +7,6 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
@@ -65,17 +64,7 @@ func GRPCAuthInterceptor(v Verifier) grpc.UnaryServerInterceptor {
 			}
 		}
 
-		md, ok := metadata.FromIncomingContext(ctx)
-		if !ok {
-			return nil, status.Error(codes.Unauthenticated, "missing or invalid token")
-		}
-
-		vals := md.Get("authorization")
-		if len(vals) == 0 {
-			return nil, status.Error(codes.Unauthenticated, "missing or invalid token")
-		}
-
-		token, found := parseBearerToken(vals[0])
+		token, found := incomingBearer(ctx)
 		if !found {
 			return nil, status.Error(codes.Unauthenticated, "missing or invalid token")
 		}

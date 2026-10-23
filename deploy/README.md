@@ -29,7 +29,7 @@ web/Dockerfile           # SPA build (node) → nginx serving static dist/ on :8
 Tiltfile                 # local dev loop: build → deploy → port-forward → Vite HMR
 .env.example             # all local-dev config knobs (copy to .env)
 scripts/
-  cluster-up.sh          # kind + node DNS fix + JWT secret + dev stores (idempotent)
+  cluster-up.sh          # kind + node DNS fix + signing-key secrets + dev stores (idempotent)
   cluster-down.sh        # tilt down + delete the kind cluster
   redeploy.sh <svc>      # rebuild+reload one image (non-Tilt escape hatch)
 deploy/
@@ -102,7 +102,7 @@ two commands:
 
 ```bash
 cp .env.example .env          # optional: edit creds / image tags / ports
-scripts/cluster-up.sh         # kind cluster + node DNS fix + JWT secret + dev stores (idempotent)
+scripts/cluster-up.sh         # kind cluster + node DNS fix + signing-key secrets + dev stores (idempotent)
 tilt up                       # build every image, deploy the chart, port-forward, serve the SPA
 ```
 
@@ -167,6 +167,16 @@ so a new pod must pass its readiness probe (`/readyz`) before an old one is remo
 guarding voluntary disruptions. Because migrations run in a **pre-upgrade Job before** the new
 pods roll, schema changes must be **backward-compatible (expand-contract)** — the old pods keep
 serving against the migrated schema during the rollout. Tune via `<svc>.strategy` in values.
+
+### Service-to-service keys
+
+Search calls Collection's internal API with its **own** Ed25519 key, never Identity's. Create two
+Secrets out-of-band (as for `mindmesh-jwt-keys`): `mindmesh-search-service-key` (`search.pem`,
+mounted only into search) and `mindmesh-service-pubkeys` (`search.pub.pem`, mounted into collection
+and listed in its `SERVICE_TRUSTED_KEYS=name=path,...`). Service tokens last a minute and are
+accepted only for the methods in `collection.InternalServicePolicy`. Tokens aren't bound to a
+request and have no replay store, so keep gRPC on a trusted network (or mTLS). Every other service
+verifies user JWTs via JWKS only; just Identity mounts the user signing key.
 
 ### Kafka topics and dead letters
 

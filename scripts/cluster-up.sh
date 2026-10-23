@@ -29,11 +29,18 @@ echo "==> node DNS fix"
 docker exec "${KIND_CLUSTER_NAME}-control-plane" sh -c \
   'grep -q "8.8.8.8" /etc/resolv.conf || echo "nameserver 8.8.8.8" > /etc/resolv.conf'
 
-echo "==> JWT signing keys + secret"
+echo "==> signing keys + secrets"
 task keygen
 kubectl --context "${CTX}" create secret generic mindmesh-jwt-keys \
   --from-file=ed25519.pem=keys/ed25519.pem \
   --from-file=ed25519.pub.pem=keys/ed25519.pub.pem \
+  --dry-run=client -o yaml | kubectl --context "${CTX}" apply -f -
+# Search's private key reaches only search; collection gets just its public half.
+kubectl --context "${CTX}" create secret generic mindmesh-search-service-key \
+  --from-file=search.pem=keys/search-service.pem \
+  --dry-run=client -o yaml | kubectl --context "${CTX}" apply -f -
+kubectl --context "${CTX}" create secret generic mindmesh-service-pubkeys \
+  --from-file=search.pub.pem=keys/search-service.pub.pem \
   --dry-run=client -o yaml | kubectl --context "${CTX}" apply -f -
 
 # Render once; reuse for both preload and apply so the image list and the manifest

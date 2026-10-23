@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc/metadata"
 
 	collectionv1 "github.com/mindmesh/mindmesh/api/collection/v1"
+	"github.com/mindmesh/mindmesh/internal/platform/auth"
 	"github.com/mindmesh/mindmesh/internal/platform/events"
 )
 
@@ -31,13 +32,9 @@ type enricher interface {
 // during a backfill, matching the ListCardIDs page size.
 const backfillBatch = 200
 
-// TokenMinter mints a short-lived access token the indexer presents to
-// Collection. The Kafka event has no user request to forward, so the indexer
-// signs a token scoped to the event's own user_id/profile_id; Collection then
-// scopes GetSearchDocs to that user exactly as for a real request. *auth.Signer
-// satisfies this.
-type TokenMinter interface {
-	SignAccess(userID, profileID, locale string, roles []string) (string, string, error)
+// ServiceTokens signs the indexer's own service tokens; events carry no user request to forward.
+type ServiceTokens interface {
+	Sign(audience string) (string, error)
 }
 
 // Indexer applies Collection change events to the OpenSearch card index. It is
@@ -46,13 +43,13 @@ type TokenMinter interface {
 type Indexer struct {
 	repo   *Repo
 	coll   enricher
-	minter TokenMinter
+	tokens ServiceTokens
 	log    *zap.Logger
 }
 
 // NewIndexer wires an Indexer.
-func NewIndexer(repo *Repo, coll enricher, minter TokenMinter, log *zap.Logger) *Indexer {
-	return &Indexer{repo: repo, coll: coll, minter: minter, log: log}
+func NewIndexer(repo *Repo, coll enricher, tokens ServiceTokens, log *zap.Logger) *Indexer {
+	return &Indexer{repo: repo, coll: coll, tokens: tokens, log: log}
 }
 
 // eventPayload is the common envelope every card/note/deck outbox payload shares
@@ -81,8 +78,8 @@ func (ix *Indexer) Handle(ctx context.Context, msg events.Message) error {
 		ix.log.Warn("indexer: undecodable payload", zap.String("event_type", eventType), zap.Error(err))
 		return nil // poison message; dropping it avoids a redelivery hot-loop
 	}
-	if p.ID == "" || p.UserID == "" {
-		ix.log.Warn("indexer: payload missing id/user_id", zap.String("event_type", eventType))
+	if p.ID == "" || !auth.IsCanonicalUUID(p.UserID) {
+		ix.log.Warn("indexer: payload missing id or user_id is not a uuid", zap.String("event_type", eventType))
 		return nil
 	}
 
@@ -114,10 +111,11 @@ func (ix *Indexer) Handle(ctx context.Context, msg events.Message) error {
 // enrichAndUpsert resolves the changed ids into search documents (as the event's
 // user) and upserts each one.
 func (ix *Indexer) enrichAndUpsert(ctx context.Context, p eventPayload, req *collectionv1.GetSearchDocsRequest) error {
-	authCtx, err := ix.authContext(ctx, p)
+	authCtx, err := ix.authContext(ctx)
 	if err != nil {
 		return err
 	}
+	req.UserId = p.UserID
 	resp, err := ix.coll.GetSearchDocs(authCtx, req)
 	if err != nil {
 		return fmt.Errorf("indexer: get search docs: %w", err)
@@ -134,16 +132,20 @@ func (ix *Indexer) enrichAndUpsert(ctx context.Context, p eventPayload, req *col
 // card ids (ListCardIDs) and re-enriching them via GetSearchDocs, so pre-existing
 // documents pick up the per-language buckets that only the forward path fills for
 // new/edited cards. It is idempotent (upserts use external_gte) and safe to re-run.
-func (ix *Indexer) Backfill(ctx context.Context, userID, profileID string) (int, error) {
-	p := eventPayload{UserID: userID, ProfileID: profileID}
-	authCtx, err := ix.authContext(ctx, p)
-	if err != nil {
-		return 0, err
+func (ix *Indexer) Backfill(ctx context.Context, userID string) (int, error) {
+	if !auth.IsCanonicalUUID(userID) {
+		return 0, fmt.Errorf("indexer: backfill: %q is not a canonical uuid", userID)
 	}
 	var indexed int
 	var pageToken string
 	for {
+		// Re-signed per page: a long backfill outlives one service token.
+		authCtx, err := ix.authContext(ctx)
+		if err != nil {
+			return indexed, err
+		}
 		page, err := ix.coll.ListCardIDs(authCtx, &collectionv1.ListCardIDsRequest{
+			UserId:    userID,
 			PageToken: pageToken,
 			PageSize:  backfillBatch,
 		})
@@ -152,7 +154,7 @@ func (ix *Indexer) Backfill(ctx context.Context, userID, profileID string) (int,
 		}
 		ids := page.GetIds()
 		if len(ids) > 0 {
-			resp, err := ix.coll.GetSearchDocs(authCtx, &collectionv1.GetSearchDocsRequest{CardIds: ids})
+			resp, err := ix.coll.GetSearchDocs(authCtx, &collectionv1.GetSearchDocsRequest{UserId: userID, CardIds: ids})
 			if err != nil {
 				return indexed, fmt.Errorf("indexer: backfill get search docs: %w", err)
 			}
@@ -170,12 +172,10 @@ func (ix *Indexer) Backfill(ctx context.Context, userID, profileID string) (int,
 	}
 }
 
-// authContext returns ctx with a freshly minted access token for the event's
-// user attached as gRPC authorization metadata.
-func (ix *Indexer) authContext(ctx context.Context, p eventPayload) (context.Context, error) {
-	token, _, err := ix.minter.SignAccess(p.UserID, p.ProfileID, "", nil)
+func (ix *Indexer) authContext(ctx context.Context) (context.Context, error) {
+	token, err := ix.tokens.Sign(auth.CollectionInternalAudience)
 	if err != nil {
-		return nil, fmt.Errorf("indexer: mint token: %w", err)
+		return nil, fmt.Errorf("indexer: sign service token: %w", err)
 	}
 	return metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+token), nil
 }
