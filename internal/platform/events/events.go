@@ -4,6 +4,7 @@ package events
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -15,8 +16,15 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/segmentio/kafka-go"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
+
+const tracerName = "github.com/mindmesh/mindmesh/internal/platform/events"
 
 // Config holds Kafka client configuration.
 type Config struct {
@@ -345,7 +353,23 @@ func (c *KafkaConsumer) Subscribe(ctx context.Context, topics []string, handler 
 	}
 }
 
-func (c *KafkaConsumer) process(ctx context.Context, km kafka.Message, msg Message, handler func(context.Context, Message) error) error {
+func (c *KafkaConsumer) process(ctx context.Context, km kafka.Message, msg Message, handler func(context.Context, Message) error) (err error) {
+	ctx = otel.GetTextMapPropagator().Extract(ctx, propagation.MapCarrier(msg.Headers))
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "consume "+km.Topic,
+		trace.WithSpanKind(trace.SpanKindConsumer),
+		trace.WithAttributes(
+			attribute.String("messaging.system", "kafka"),
+			attribute.String("messaging.destination.name", km.Topic),
+			attribute.String("messaging.consumer.group.name", c.cfg.GroupID),
+			attribute.String("messaging.message.id", msg.Headers["event_id"]),
+		))
+	defer func() {
+		if err != nil && ctx.Err() == nil { // shutdown is not a processing failure
+			span.SetStatus(codes.Error, err.Error())
+		}
+		span.End()
+	}()
+
 	backoff := c.retryBase
 	for attempt := 1; ; attempt++ {
 		actx, cancel := context.WithTimeout(ctx, c.cfg.HandlerTimeout)
@@ -358,6 +382,7 @@ func (c *KafkaConsumer) process(ctx context.Context, km kafka.Message, msg Messa
 			return ctx.Err()
 		}
 		consumerHandlerFailures.WithLabelValues(km.Topic, c.cfg.GroupID).Inc()
+		span.RecordError(err, trace.WithAttributes(attribute.Int("attempt", attempt)))
 		fields := []zap.Field{
 			zap.String("topic", km.Topic), zap.Int("partition", km.Partition), zap.Int64("offset", km.Offset),
 			zap.String("event_id", msg.Headers["event_id"]), zap.Int("attempt", attempt),
@@ -365,6 +390,7 @@ func (c *KafkaConsumer) process(ctx context.Context, km kafka.Message, msg Messa
 		}
 		if attempt >= c.cfg.HandlerMaxAttempts {
 			c.log.Error("events: handler failed, dead-lettering", fields...)
+			span.SetStatus(codes.Error, "dead-lettered: "+err.Error())
 			return c.deadLetter(ctx, km, err)
 		}
 		c.log.Warn("events: handler failed, retrying", fields...)
@@ -442,8 +468,18 @@ type OutboxEntry struct {
 // Kafka partition key so a user's events stay ordered.
 func WriteOutbox(ctx context.Context, tx pgx.Tx, entries []OutboxEntry) error {
 	const q = `INSERT INTO outbox
-		(id, user_id, aggregate_type, aggregate_id, event_type, payload, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`
+		(id, user_id, aggregate_type, aggregate_id, event_type, payload, created_at, trace_headers)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
+
+	carrier := propagation.MapCarrier{}
+	otel.GetTextMapPropagator().Inject(ctx, carrier)
+	var traceHeaders []byte // NULL when the writer isn't traced
+	if len(carrier) > 0 {
+		var err error
+		if traceHeaders, err = json.Marshal(carrier); err != nil {
+			return fmt.Errorf("events: marshal trace headers: %w", err)
+		}
+	}
 
 	for _, e := range entries {
 		// user_id is the shard key + Kafka partition key; an empty value would
@@ -453,7 +489,7 @@ func WriteOutbox(ctx context.Context, tx pgx.Tx, entries []OutboxEntry) error {
 			return fmt.Errorf("events: write outbox entry %s: user_id is required", e.ID)
 		}
 		if _, err := tx.Exec(ctx, q,
-			e.ID, e.UserID, e.AggregateType, e.AggregateID, e.EventType, e.Payload, e.CreatedAt,
+			e.ID, e.UserID, e.AggregateType, e.AggregateID, e.EventType, e.Payload, e.CreatedAt, traceHeaders,
 		); err != nil {
 			return fmt.Errorf("events: write outbox entry %s: %w", e.ID, err)
 		}

@@ -187,7 +187,7 @@ func (r *Relay) withTimeout(ctx context.Context, fn func(context.Context) error)
 // at-least-once: a failed mark re-sends the batch, consumers dedupe by event_id.
 func (r *Relay) poll(ctx context.Context, conn *pgx.Conn) (int, error) {
 	const q = `
-		SELECT id, user_id, aggregate_type, aggregate_id, event_type, payload,
+		SELECT id, user_id, aggregate_type, aggregate_id, event_type, payload, trace_headers,
 		       EXTRACT(EPOCH FROM now() - created_at)::float8
 		FROM outbox
 		WHERE published_at IS NULL
@@ -201,6 +201,7 @@ func (r *Relay) poll(ctx context.Context, conn *pgx.Conn) (int, error) {
 		aggregateID   string
 		eventType     string
 		payload       []byte
+		traceHeaders  map[string]string
 		ageSeconds    float64
 	}
 
@@ -210,7 +211,7 @@ func (r *Relay) poll(ctx context.Context, conn *pgx.Conn) (int, error) {
 	}
 	pending, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (outboxRow, error) {
 		var ro outboxRow
-		err := row.Scan(&ro.id, &ro.userID, &ro.aggregateType, &ro.aggregateID, &ro.eventType, &ro.payload, &ro.ageSeconds)
+		err := row.Scan(&ro.id, &ro.userID, &ro.aggregateType, &ro.aggregateID, &ro.eventType, &ro.payload, &ro.traceHeaders, &ro.ageSeconds)
 		return ro, err
 	})
 	if err != nil {
@@ -228,16 +229,22 @@ func (r *Relay) poll(ctx context.Context, conn *pgx.Conn) (int, error) {
 	for i, ro := range pending {
 		userIDs[i] = ro.userID
 		ids[i] = ro.id
+		headers := map[string]string{
+			"event_id":       ro.id, // stable dedup key for idempotent consumers
+			"event_type":     ro.eventType,
+			"aggregate_type": ro.aggregateType,
+			"aggregate_id":   ro.aggregateID,
+		}
+		for k, v := range ro.traceHeaders {
+			if _, reserved := headers[k]; !reserved {
+				headers[k] = v
+			}
+		}
 		msgs = append(msgs, Message{
-			Topic: ro.aggregateType,
-			Key:   []byte(ro.userID), // partition by user_id for per-user ordering
-			Value: ro.payload,
-			Headers: map[string]string{
-				"event_id":       ro.id, // stable dedup key for idempotent consumers
-				"event_type":     ro.eventType,
-				"aggregate_type": ro.aggregateType,
-				"aggregate_id":   ro.aggregateID,
-			},
+			Topic:   ro.aggregateType,
+			Key:     []byte(ro.userID), // partition by user_id for per-user ordering
+			Value:   ro.payload,
+			Headers: headers,
 		})
 	}
 

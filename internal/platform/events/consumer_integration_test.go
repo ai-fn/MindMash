@@ -13,7 +13,10 @@ import (
 	"github.com/segmentio/kafka-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/codes"
 	"go.uber.org/zap"
+
+	"github.com/mindmesh/mindmesh/internal/platform/testhelpers"
 )
 
 type seen struct {
@@ -123,6 +126,7 @@ func TestKafkaConsumer(t *testing.T) {
 	})
 
 	t.Run("exhausted retries dead-letter and commit", func(t *testing.T) {
+		sr := testhelpers.RecordSpans(t)
 		group := "g-" + uuid.NewString()
 		bad, good := "bad-"+uuid.NewString(), "good-"+uuid.NewString()
 		publish(bad, good)
@@ -143,6 +147,16 @@ func TestKafkaConsumer(t *testing.T) {
 		waitCommitted(t, broker, group, topic)
 		stop()
 		assert.Equal(t, []string{bad, bad, bad, good}, got.get())
+		status := map[string]codes.Code{}
+		for _, sp := range sr.Ended() {
+			for _, a := range sp.Attributes() {
+				if a.Key == "messaging.message.id" {
+					status[a.Value.AsString()] = sp.Status().Code
+				}
+			}
+		}
+		assert.Equal(t, codes.Error, status[bad], "the dead-lettered message's span must be an error")
+		assert.Equal(t, codes.Unset, status[good])
 
 		deadCh := make(chan Message, 1)
 		stopDLQ := runConsumer(t, newTestConsumer(t, broker, "dlq-"+uuid.NewString(), 1), topic+".dlq", func(_ context.Context, m Message) error {

@@ -11,6 +11,9 @@ import (
 	"github.com/segmentio/kafka-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	otelcodes "go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+	"go.uber.org/zap"
 
 	"github.com/mindmesh/mindmesh/internal/platform/testhelpers"
 )
@@ -254,4 +257,33 @@ func TestProcessStopsOnShutdown(t *testing.T) {
 	})
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Equal(t, 1, calls, "shutdown must not be retried")
+}
+
+func TestConsumerProcess_ContinuesProducerTrace(t *testing.T) {
+	testhelpers.RecordSpans(t)
+	c := &KafkaConsumer{cfg: Config{HandlerTimeout: time.Second, HandlerMaxAttempts: 1}, log: zap.NewNop()}
+	msg := Message{Topic: "card", Headers: map[string]string{
+		"traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+	}}
+	var got trace.SpanContext
+	err := c.process(context.Background(), kafka.Message{Topic: "card"}, msg, func(ctx context.Context, _ Message) error {
+		got = trace.SpanContextFromContext(ctx)
+		return nil
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "0af7651916cd43dd8448eb211c80319c", got.TraceID().String())
+	assert.NotEqual(t, "b7ad6b7169203331", got.SpanID().String(), "handler runs in a consumer span of its own")
+}
+
+func TestConsumerProcess_ShutdownIsNotASpanError(t *testing.T) {
+	sr := testhelpers.RecordSpans(t)
+	c := &KafkaConsumer{cfg: Config{HandlerTimeout: time.Second, HandlerMaxAttempts: 3}, log: zap.NewNop()}
+	ctx, cancel := context.WithCancel(context.Background())
+	err := c.process(ctx, kafka.Message{Topic: "card"}, Message{Topic: "card"}, func(context.Context, Message) error {
+		cancel()
+		return errors.New("interrupted")
+	})
+	require.ErrorIs(t, err, context.Canceled)
+	require.Len(t, sr.Ended(), 1)
+	assert.Equal(t, otelcodes.Unset, sr.Ended()[0].Status().Code)
 }

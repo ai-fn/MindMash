@@ -7,6 +7,11 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/mindmesh/mindmesh/internal/platform/testhelpers"
 )
 
 func TestHealthz(t *testing.T) {
@@ -112,5 +117,47 @@ func TestCatchAllHandler(t *testing.T) {
 
 	if !called {
 		t.Error("expected catch-all handler to be called for unknown path")
+	}
+}
+
+func TestServer_LinksClientTraceInsteadOfJoiningIt(t *testing.T) {
+	sr := testhelpers.RecordSpans(t)
+	const clientTrace = "0af7651916cd43dd8448eb211c80319c"
+	var got trace.SpanContext
+	srv := New(DefaultConfig(":0"), Options{Handler: http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		got = trace.SpanContextFromContext(r.Context())
+	})})
+	req := httptest.NewRequest(http.MethodGet, "/v1/decks", nil)
+	req.Header.Set("traceparent", "00-"+clientTrace+"-b7ad6b7169203331-01")
+	srv.Handler().ServeHTTP(httptest.NewRecorder(), req)
+
+	if !got.IsValid() || got.TraceID().String() == clientTrace {
+		t.Fatalf("handler trace = %q, want a new root so clients can't force sampling", got.TraceID())
+	}
+	spans := sr.Ended()
+	if len(spans) != 1 || len(spans[0].Links()) != 1 || spans[0].Links()[0].SpanContext.TraceID().String() != clientTrace {
+		t.Fatalf("want one server span linked to the client trace, got %d spans", len(spans))
+	}
+}
+
+func TestServer_AppHandlerSupportsWriteDeadlines(t *testing.T) {
+	errs := make(chan error, 1)
+	srv := New(DefaultConfig(":0"), Options{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		rc := http.NewResponseController(w)
+		err := rc.SetWriteDeadline(time.Now().Add(time.Second))
+		if err == nil {
+			err = rc.Flush()
+		}
+		errs <- err
+	})})
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+	resp, err := ts.Client().Get(ts.URL + "/v1/sync/stream")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	_ = resp.Body.Close()
+	if err := <-errs; err != nil {
+		t.Fatalf("SSE handlers need per-write deadlines through the wrapped writer: %v", err)
 	}
 }

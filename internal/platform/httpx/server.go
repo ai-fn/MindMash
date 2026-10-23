@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/mindmesh/mindmesh/internal/platform/log"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.uber.org/zap"
 )
 
@@ -91,8 +92,12 @@ func New(cfg Config, opts Options) *Server {
 		mux.Handle("/.well-known/jwks.json", opts.JWKSHandler)
 	}
 
+	// Only application routes are traced; probes and scrapes would flood the trace store.
+	// HTTP callers are external clients: link their trace rather than let them force sampling.
 	if opts.Handler != nil {
-		mux.Handle("/", opts.Handler)
+		mux.Handle("/", otelhttp.NewHandler(opts.Handler, "http.server",
+			otelhttp.WithPublicEndpointFn(func(*http.Request) bool { return true }),
+			otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string { return r.Method })))
 	}
 
 	hs := &http.Server{

@@ -5,12 +5,14 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
@@ -26,13 +28,19 @@ type Config struct {
 }
 
 // LoadConfig reads observability configuration from environment variables.
-// It returns an error when OTEL_SAMPLING_RATE is set but outside [0.0, 1.0].
+// It returns an error when the OTLP endpoint isn't an http(s) URL or
+// OTEL_SAMPLING_RATE is set but outside [0.0, 1.0].
 func LoadConfig() (Config, error) {
 	cfg := Config{
 		ServiceName:  envStr("OTEL_SERVICE_NAME", "mindmesh"),
 		OTLPEndpoint: envStr("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317"),
 		SamplingRate: 1.0,
 		MetricsAddr:  envStr("METRICS_ADDR", ":9090"),
+	}
+
+	// A bare host:port parses as scheme "host" and the exporter silently falls back to localhost.
+	if u, err := url.Parse(cfg.OTLPEndpoint); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return Config{}, fmt.Errorf("observability: OTEL_EXPORTER_OTLP_ENDPOINT must be an http(s) URL with a host, got %q", cfg.OTLPEndpoint)
 	}
 
 	if v, ok := os.LookupEnv("OTEL_SAMPLING_RATE"); ok {
@@ -53,10 +61,8 @@ func LoadConfig() (Config, error) {
 // The returned shutdown function must be called during graceful shutdown to
 // flush pending spans before the process exits.
 func InitTracer(ctx context.Context, cfg Config) (func(context.Context) error, error) {
-	exporter, err := otlptracegrpc.New(ctx,
-		otlptracegrpc.WithEndpoint(cfg.OTLPEndpoint),
-		otlptracegrpc.WithInsecure(),
-	)
+	// The endpoint is a URL; its scheme picks TLS (https) or plaintext (http).
+	exporter, err := otlptracegrpc.New(ctx, otlptracegrpc.WithEndpointURL(cfg.OTLPEndpoint))
 	if err != nil {
 		return nil, fmt.Errorf("observability: create OTLP exporter: %w", err)
 	}
@@ -71,12 +77,19 @@ func InitTracer(ctx context.Context, cfg Config) (func(context.Context) error, e
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),
 		sdktrace.WithResource(res),
-		sdktrace.WithSampler(sdktrace.TraceIDRatioBased(cfg.SamplingRate)),
+		sdktrace.WithSampler(sampler(cfg.SamplingRate)),
 	)
 
 	otel.SetTracerProvider(tp)
+	// No Baggage: client-supplied baggage would be copied into every outbox row and Kafka header.
+	otel.SetTextMapPropagator(propagation.TraceContext{})
 
 	return tp.Shutdown, nil
+}
+
+// sampler applies the ratio only to root spans so a trace sampled upstream stays whole.
+func sampler(rate float64) sdktrace.Sampler {
+	return sdktrace.ParentBased(sdktrace.TraceIDRatioBased(rate))
 }
 
 // InitMetrics returns an http.Handler that serves Prometheus metrics on /metrics.

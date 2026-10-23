@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS outbox (
     payload        JSONB         NOT NULL,
     created_at     TIMESTAMPTZ   NOT NULL DEFAULT now(),
     published_at   TIMESTAMPTZ,                  -- NULL until the relay publishes to Kafka
+    trace_headers  JSONB,                        -- writer's W3C trace context, forwarded as Kafka headers
     PRIMARY KEY (user_id, id)
 );
 

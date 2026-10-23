@@ -17,7 +17,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
+	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
+
+	"github.com/mindmesh/mindmesh/internal/platform/testhelpers"
 )
 
 type recordingProducer struct {
@@ -135,9 +138,34 @@ func TestRelay(t *testing.T) {
 				require.NoError(t, err)
 			}
 
+			t.Run("poll forwards the writer's trace context", func(t *testing.T) {
+				reset(t)
+				testhelpers.RecordSpans(t)
+				wctx, span := otel.Tracer("test").Start(ctx, "write")
+				entry := OutboxEntry{
+					ID: uuid.NewString(), UserID: uuid.NewString(), AggregateType: "card",
+					AggregateID: uuid.NewString(), EventType: "card.created", Payload: []byte(`{}`), CreatedAt: time.Now(),
+				}
+				require.NoError(t, pgx.BeginFunc(wctx, pool, func(tx pgx.Tx) error {
+					return WriteOutbox(wctx, tx, []OutboxEntry{entry})
+				}))
+				span.End()
+
+				prod := &recordingProducer{}
+				r := NewRelay(pool, prod, zap.NewNop(), RelayConfig{Store: "test"})
+				_, err := r.poll(ctx, connect(t, ctx, pool))
+				require.NoError(t, err)
+				msgs := prod.snapshot()
+				require.Len(t, msgs, 1)
+				assert.Contains(t, msgs[0].Headers["traceparent"], span.SpanContext().TraceID().String())
+			})
+
 			t.Run("poll publishes and marks", func(t *testing.T) {
 				reset(t)
 				entries := seedOutbox(t, ctx, pool, 3)
+				var traced int
+				require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM outbox WHERE trace_headers IS NOT NULL`).Scan(&traced))
+				assert.Zero(t, traced, "an untraced writer stores NULL trace headers")
 				prod := &recordingProducer{}
 				r := NewRelay(pool, prod, zap.NewNop(), RelayConfig{Store: "test"})
 				conn := connect(t, ctx, pool)

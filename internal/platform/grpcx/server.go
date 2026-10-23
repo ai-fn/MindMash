@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/mindmesh/mindmesh/internal/platform/log"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -86,6 +87,7 @@ func New(cfg Config, opts Options) *Server {
 	)
 
 	gs := grpc.NewServer(
+		grpc.StatsHandler(otelgrpc.NewServerHandler()),
 		grpc.ChainUnaryInterceptor(unary...),
 		grpc.ChainStreamInterceptor(stream...),
 	)
