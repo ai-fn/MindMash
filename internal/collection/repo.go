@@ -23,6 +23,9 @@ const (
 	defaultPageSize = 50
 	maxPageSize     = 200
 	zeroUUID        = "00000000-0000-0000-0000-000000000000"
+
+	// searchDocPageBytes caps the note text in one GetSearchDocs page; a note may be 1 MiB.
+	searchDocPageBytes = 4 << 20
 )
 
 // Column lists kept next to the scans that consume them so the order stays in
@@ -500,7 +503,8 @@ func (r *PostgresRepository) ListCardIDs(ctx context.Context, userID string, pag
 // denormalized documents the Search indexer consumes. Exactly one selector list
 // must be non-empty; an empty selector returns no docs. deck_ids expands to the
 // deck subtree (path <@ root.path) so a parent rename reindexes every descendant.
-func (r *PostgresRepository) GetSearchDocs(ctx context.Context, userID string, sel SearchDocSelector) ([]SearchDoc, error) {
+// Pages are keyset by card id and cut early once searchDocPageBytes is reached.
+func (r *PostgresRepository) GetSearchDocs(ctx context.Context, userID string, sel SearchDocSelector, page Page) ([]SearchDoc, string, error) {
 	var pred string
 	var arg any
 	switch {
@@ -514,8 +518,9 @@ func (r *PostgresRepository) GetSearchDocs(ctx context.Context, userID string, s
 			JOIN decks root ON root.user_id = s.user_id AND root.id = ANY($2)
 			WHERE s.user_id = $1 AND s.path <@ root.path)`, sel.DeckIDs
 	default:
-		return nil, nil
+		return nil, "", nil
 	}
+	token, limit := pageBounds(page)
 
 	// deck_path is the human-readable name path ("Parent::Child"), not the
 	// internal ltree id-path: the Search service's `deck:` token matches by name
@@ -535,14 +540,16 @@ func (r *PostgresRepository) GetSearchDocs(ctx context.Context, userID string, s
 		JOIN notes n ON n.user_id = c.user_id AND n.id = c.note_id
 		JOIN note_types nt ON nt.user_id = c.user_id AND nt.id = n.note_type_id
 		JOIN decks d ON d.user_id = c.user_id AND d.id = c.deck_id
-		WHERE c.user_id = $1 AND `+pred+`
-		ORDER BY c.id ASC`, userID, arg)
+		WHERE c.user_id = $1 AND c.id > $3 AND `+pred+`
+		ORDER BY c.id ASC
+		LIMIT $4`, userID, arg, token, limit+1)
 	if err != nil {
-		return nil, fmt.Errorf("collection: get search docs: %w", err)
+		return nil, "", fmt.Errorf("collection: get search docs: %w", err)
 	}
 	defer rows.Close()
 
 	var docs []SearchDoc
+	var pageBytes int
 	for rows.Next() {
 		c := Card{}
 		n := Note{}
@@ -555,25 +562,29 @@ func (r *PostgresRepository) GetSearchDocs(ctx context.Context, userID string, s
 			&fields, &n.Tags, &flags, &n.USN, &noteTypeFields,
 			&d.Path, &d.USN,
 		); err != nil {
-			return nil, fmt.Errorf("collection: get search docs scan: %w", err)
+			return nil, "", fmt.Errorf("collection: get search docs scan: %w", err)
 		}
 		c.TemplateOrd = int(ord)
 		c.State = CardState(state)
 		c.Queue = int(queue)
 		if err := json.Unmarshal(fields, &n.Fields); err != nil {
-			return nil, fmt.Errorf("collection: get search docs decode fields: %w", err)
+			return nil, "", fmt.Errorf("collection: get search docs decode fields: %w", err)
 		}
 		var descriptors []Field
 		if err := json.Unmarshal(noteTypeFields, &descriptors); err != nil {
-			return nil, fmt.Errorf("collection: get search docs decode note type fields: %w", err)
+			return nil, "", fmt.Errorf("collection: get search docs decode note type fields: %w", err)
 		}
 		n.Flags = int32(flags)
-		docs = append(docs, newSearchDoc(&c, &n, &d, descriptors))
+		doc := newSearchDoc(&c, &n, &d, descriptors)
+		if pageBytes += doc.textBytes(); pageBytes > searchDocPageBytes && len(docs) > 0 {
+			return docs, docs[len(docs)-1].CardID, nil
+		}
+		docs = append(docs, doc)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("collection: get search docs rows: %w", err)
+		return nil, "", fmt.Errorf("collection: get search docs rows: %w", err)
 	}
-	return docs, nil
+	return paginate(docs, limit, func(d SearchDoc) string { return d.CardID })
 }
 
 // collectCards drains rows into a Card slice; rows is closed before returning.

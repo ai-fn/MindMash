@@ -50,6 +50,14 @@ type SearchDocSelector struct {
 	DeckIDs []string
 }
 
+func (d *SearchDoc) textBytes() int {
+	n := len(d.FieldsText)
+	for _, v := range d.LangText {
+		n += len(v)
+	}
+	return n
+}
+
 // newSearchDoc assembles a SearchDoc from a card and its owning note and deck.
 // descriptors are the note type's field descriptors (in schema order), used to
 // resolve each field's language tag for per-language grouping; pass nil when the

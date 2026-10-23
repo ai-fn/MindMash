@@ -102,10 +102,19 @@ func TestBuildQuery_UnknownFieldFallback(t *testing.T) {
 }
 
 func TestBuildQuery_Wildcard(t *testing.T) {
-	got := clause(t, "hol*")
-	want := map[string]any{"wildcard": map[string]any{"fields_text.keyword": "hol*"}}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("wildcard = %#v, want %#v", got, want)
+	tests := []struct {
+		in   string
+		want map[string]any
+	}{
+		{"hol*", map[string]any{"prefix": map[string]any{"fields_text.keyword": "hol"}}},
+		// * and ? inside the value are literal, not OpenSearch wildcards.
+		{"h?l*o*", map[string]any{"prefix": map[string]any{"fields_text.keyword": "h?l*o"}}},
+		{"tag:gr?m*", map[string]any{"prefix": map[string]any{"tags": "gr?m"}}},
+	}
+	for _, tt := range tests {
+		if got := clause(t, tt.in); !reflect.DeepEqual(got, tt.want) {
+			t.Errorf("%s = %#v, want %#v", tt.in, got, tt.want)
+		}
 	}
 }
 

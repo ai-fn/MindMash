@@ -84,14 +84,14 @@ func boolClause(occur string, children []searchdsl.Node, opts Opts) map[string]a
 var textFields = []any{"fields_text", "fields_text_en", "fields_text_ru", "fields_text_zh"}
 
 // termClause maps a Term leaf to a clause based on its field. A bare term (no
-// field) is full-text across the language fields; a wildcard goes against the
-// untokenized keyword subfield; a phrase uses a phrase multi_match.
+// field) is full-text across the language fields; a trailing-* term is a prefix
+// query (so * and ? in user input stay literal); a phrase uses a phrase multi_match.
 func termClause(tm searchdsl.Term, opts Opts) map[string]any {
 	switch tm.Field {
 	case "":
 		switch {
 		case tm.Wildcard:
-			return map[string]any{"wildcard": map[string]any{"fields_text.keyword": tm.Value + "*"}}
+			return map[string]any{"prefix": map[string]any{"fields_text.keyword": tm.Value}}
 		case tm.Phrase:
 			return multiMatch(tm.Value, "phrase")
 		default:
@@ -108,7 +108,7 @@ func termClause(tm searchdsl.Term, opts Opts) map[string]any {
 		}}
 	case "tag":
 		if tm.Wildcard {
-			return map[string]any{"wildcard": map[string]any{"tags": tm.Value + "*"}}
+			return map[string]any{"prefix": map[string]any{"tags": tm.Value}}
 		}
 		return term("tags", tm.Value)
 	case "is":

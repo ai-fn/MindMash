@@ -295,31 +295,41 @@ func (r *Repo) Reindex(ctx context.Context, src, dst string) error {
 	return nil
 }
 
-// Upsert indexes doc under its card_id, routed by user_id, using external_gte
-// versioning so a redelivered or out-of-order event with a stale version is
-// ignored rather than overwriting fresher data. A version conflict (HTTP 409) is
-// therefore a success from the indexer's perspective and is swallowed.
-func (r *Repo) Upsert(ctx context.Context, doc Document) error {
-	body, err := json.Marshal(doc)
-	if err != nil {
-		return fmt.Errorf("search: marshal doc %s: %w", doc.CardID, err)
+// Upsert bulk-indexes docs under their card_id, routed by user_id, with
+// external_gte versioning: a stale version (per-item 409) is skipped, not an error.
+func (r *Repo) Upsert(ctx context.Context, docs ...Document) error {
+	if len(docs) == 0 {
+		return nil
 	}
-	version := int(doc.Version)
-	_, err = r.client.Index(ctx, opensearchapi.IndexReq{
-		Index:      r.index,
-		DocumentID: doc.CardID,
-		Body:       bytes.NewReader(body),
-		Params: opensearchapi.IndexParams{
-			Routing:     doc.UserID,
-			Version:     &version,
-			VersionType: "external_gte",
-		},
-	})
-	if err != nil {
-		if isVersionConflict(err) {
-			return nil // a newer version already won; nothing to do
+	var body bytes.Buffer
+	enc := json.NewEncoder(&body)
+	for i := range docs {
+		action := map[string]any{"index": map[string]any{
+			"_id":          docs[i].CardID,
+			"routing":      docs[i].UserID,
+			"version":      docs[i].Version,
+			"version_type": "external_gte",
+		}}
+		if err := enc.Encode(action); err != nil {
+			return fmt.Errorf("search: marshal bulk action %s: %w", docs[i].CardID, err)
 		}
-		return fmt.Errorf("search: index doc %s: %w", doc.CardID, err)
+		if err := enc.Encode(docs[i]); err != nil {
+			return fmt.Errorf("search: marshal doc %s: %w", docs[i].CardID, err)
+		}
+	}
+	resp, err := r.client.Bulk(ctx, opensearchapi.BulkReq{Index: r.index, Body: &body})
+	if err != nil {
+		return fmt.Errorf("search: bulk index: %w", err)
+	}
+	if !resp.Errors {
+		return nil
+	}
+	for _, item := range resp.Items {
+		for _, res := range item {
+			if res.Error != nil && res.Status != http.StatusConflict {
+				return fmt.Errorf("search: index doc %s: %d %s: %s", res.ID, res.Status, res.Error.Type, res.Error.Reason)
+			}
+		}
 	}
 	return nil
 }
@@ -444,9 +454,6 @@ func (r *Repo) Search(ctx context.Context, userID string, query map[string]any, 
 	}
 	return out, nil
 }
-
-// isVersionConflict reports whether err is an OpenSearch 409 version conflict.
-func isVersionConflict(err error) bool { return statusCode(err) == http.StatusConflict }
 
 // isNotFound reports whether err is an OpenSearch 404.
 func isNotFound(err error) bool { return statusCode(err) == http.StatusNotFound }

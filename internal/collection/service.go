@@ -467,11 +467,14 @@ func (s *Service) ListCardIDs(ctx context.Context, userID string, page Page) ([]
 	return s.repo.ListCardIDs(ctx, userID, page)
 }
 
-func (s *Service) GetSearchDocs(ctx context.Context, userID string, sel SearchDocSelector) ([]SearchDoc, error) {
+func (s *Service) GetSearchDocs(ctx context.Context, userID string, sel SearchDocSelector, page Page) ([]SearchDoc, string, error) {
 	if err := validateSelector(sel); err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return s.repo.GetSearchDocs(ctx, userID, sel)
+	if err := validatePage(page); err != nil {
+		return nil, "", err
+	}
+	return s.repo.GetSearchDocs(ctx, userID, sel, page)
 }
 
 // ─── Bulk card operations ────────────────────────────────────────────────────

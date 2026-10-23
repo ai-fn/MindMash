@@ -385,6 +385,66 @@ func TestIndexer_SchedulingEvents(t *testing.T) {
 	}
 }
 
+func TestIndexer_PagesDeckReindex(t *testing.T) {
+	repo := setupOpenSearch(t)
+	coll := setupCollection(t)
+	ctx := context.Background()
+
+	nt, err := coll.svc.CreateNoteType(ctx, userA, profA, "Basic", "",
+		[]collection.Field{{Name: "Front"}}, []collection.CardTemplate{{Name: "Card 1", Front: "{{Front}}", Back: "{{Front}}"}})
+	if err != nil {
+		t.Fatalf("CreateNoteType: %v", err)
+	}
+	deck, err := coll.svc.CreateDeck(ctx, userA, profA, "Spanish", "", "")
+	if err != nil {
+		t.Fatalf("CreateDeck: %v", err)
+	}
+	for _, w := range []string{"uno", "dos", "tres"} {
+		if _, err := coll.svc.CreateNote(ctx, userA, profA, nt.ID, deck.ID, map[string]string{"Front": w}, nil, 0); err != nil {
+			t.Fatalf("CreateNote: %v", err)
+		}
+	}
+
+	indexer := NewIndexer(repo, coll.client, coll.signer, zap.NewNop())
+	indexer.pageSize = 2
+	if err := indexer.Handle(ctx, deckEvent(t, "deck.updated", deck.ID)); err != nil {
+		t.Fatalf("handle deck.updated: %v", err)
+	}
+	if err := repo.Refresh(ctx); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	if got := queryAs(t, NewHandler(repo), userA, profA, "deck:Spanish"); len(got) != 3 {
+		t.Fatalf("deck:Spanish = %v, want 3 cards", got)
+	}
+}
+
+func TestSearchRepo_UpsertSkipsStaleVersion(t *testing.T) {
+	repo := setupOpenSearch(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	fresh := Document{CardID: "c1", UserID: userA, ProfileID: profA, State: "review", FieldsText: "fresh", AddedAt: now, Version: 5}
+	if err := repo.Upsert(ctx, fresh); err != nil {
+		t.Fatalf("upsert fresh: %v", err)
+	}
+	stale := fresh
+	stale.State, stale.FieldsText, stale.Version = "new", "stale", 4
+	other := Document{CardID: "c2", UserID: userA, ProfileID: profA, State: "new", FieldsText: "other", AddedAt: now, Version: 1}
+	if err := repo.Upsert(ctx, stale, other); err != nil {
+		t.Fatalf("bulk upsert with a stale doc: %v", err)
+	}
+	if err := repo.Refresh(ctx); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	h := NewHandler(repo)
+	if got := queryAs(t, h, userA, profA, "fresh"); len(got) != 1 || got[0] != "c1" {
+		t.Fatalf("fresh = %v, want [c1]: stale version overwrote it", got)
+	}
+	if got := queryAs(t, h, userA, profA, "other"); len(got) != 1 || got[0] != "c2" {
+		t.Fatalf("other = %v, want [c2]", got)
+	}
+}
+
 // TestIndexer_KafkaPipeline exercises the full asynchronous path: a change event
 // published to Redpanda is consumed by the real events.Consumer + indexer,
 // enriched through Collection, and becomes queryable.

@@ -4022,6 +4022,8 @@ type GetSearchDocsRequest struct {
 	NoteIds       []string               `protobuf:"bytes,2,rep,name=note_ids,json=noteIds,proto3" json:"note_ids,omitempty"`
 	DeckIds       []string               `protobuf:"bytes,3,rep,name=deck_ids,json=deckIds,proto3" json:"deck_ids,omitempty"`
 	UserId        string                 `protobuf:"bytes,4,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"` // tenant a service caller acts for (service-token auth)
+	PageToken     string                 `protobuf:"bytes,5,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	PageSize      int32                  `protobuf:"varint,6,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4084,9 +4086,25 @@ func (x *GetSearchDocsRequest) GetUserId() string {
 	return ""
 }
 
+func (x *GetSearchDocsRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+func (x *GetSearchDocsRequest) GetPageSize() int32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+// A page may hold fewer than page_size docs when their text exceeds the response byte budget.
 type GetSearchDocsResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Docs          []*SearchDoc           `protobuf:"bytes,1,rep,name=docs,proto3" json:"docs,omitempty"`
+	NextPageToken string                 `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4126,6 +4144,13 @@ func (x *GetSearchDocsResponse) GetDocs() []*SearchDoc {
 		return x.Docs
 	}
 	return nil
+}
+
+func (x *GetSearchDocsResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
 }
 
 // SearchDoc is the denormalized card+note+deck projection consumed by the Search
@@ -4600,14 +4625,18 @@ const file_collection_v1_collection_proto_rawDesc = "" +
 	"\auser_id\x18\x04 \x01(\tR\x06userId\"O\n" +
 	"\x13ListCardIDsResponse\x12\x10\n" +
 	"\x03ids\x18\x01 \x03(\tR\x03ids\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\x80\x01\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\xbc\x01\n" +
 	"\x14GetSearchDocsRequest\x12\x19\n" +
 	"\bcard_ids\x18\x01 \x03(\tR\acardIds\x12\x19\n" +
 	"\bnote_ids\x18\x02 \x03(\tR\anoteIds\x12\x19\n" +
 	"\bdeck_ids\x18\x03 \x03(\tR\adeckIds\x12\x17\n" +
-	"\auser_id\x18\x04 \x01(\tR\x06userId\"E\n" +
+	"\auser_id\x18\x04 \x01(\tR\x06userId\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x05 \x01(\tR\tpageToken\x12\x1b\n" +
+	"\tpage_size\x18\x06 \x01(\x05R\bpageSize\"m\n" +
 	"\x15GetSearchDocsResponse\x12,\n" +
-	"\x04docs\x18\x01 \x03(\v2\x18.collection.v1.SearchDocR\x04docs\"\xa6\x05\n" +
+	"\x04docs\x18\x01 \x03(\v2\x18.collection.v1.SearchDocR\x04docs\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\xa6\x05\n" +
 	"\tSearchDoc\x12\x17\n" +
 	"\acard_id\x18\x01 \x01(\tR\x06cardId\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\tR\x06userId\x12\x1d\n" +

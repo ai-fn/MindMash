@@ -635,14 +635,18 @@ message ListCardIDsResponse {
 // those cards; note_ids selects all cards of those notes; deck_ids selects every
 // card in those decks and their descendant decks (subtree).
 message GetSearchDocsRequest {
-  repeated string card_ids = 1;
-  repeated string note_ids = 2;
-  repeated string deck_ids = 3;
-  string          user_id  = 4; // tenant a service caller acts for (service-token auth)
+  repeated string card_ids   = 1;
+  repeated string note_ids   = 2;
+  repeated string deck_ids   = 3;
+  string          user_id    = 4; // tenant a service caller acts for (service-token auth)
+  string          page_token = 5;
+  int32           page_size  = 6;
 }
 
+// A page may hold fewer than page_size docs when their text exceeds the response byte budget.
 message GetSearchDocsResponse {
-  repeated SearchDoc docs = 1;
+  repeated SearchDoc docs            = 1;
+  string             next_page_token = 2;
 }
 
 // SearchDoc is the denormalized card+note+deck projection consumed by the Search

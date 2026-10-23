@@ -172,6 +172,9 @@ func parseClause(s string) (Node, error) {
 	return Term{Field: field, Value: value}, nil
 }
 
+// propNames are the numeric card fields a prop clause may compare.
+var propNames = map[string]bool{"ivl": true, "reps": true, "lapses": true}
+
 // propOps lists the comparison operators a prop clause may use, longest first so
 // ">=" is matched before ">".
 var propOps = []string{">=", "<=", ">", "<", "="}
@@ -183,10 +186,13 @@ func parseProp(s string) (Node, error) {
 		if i < 0 {
 			continue
 		}
-		name := s[:i]
+		name := strings.ToLower(s[:i])
 		numStr := s[i+len(op):]
 		if name == "" {
 			return nil, fmt.Errorf("searchdsl: prop missing field name in %q", s)
+		}
+		if !propNames[name] {
+			return nil, fmt.Errorf("searchdsl: unsupported prop %q", name)
 		}
 		n, err := strconv.Atoi(numStr)
 		if err != nil {

@@ -115,15 +115,15 @@ func TestServiceRejectsInvalidInput(t *testing.T) {
 		{"GetCardsByIDs cap", func() error { _, err := s.GetCardsByIDs(ctx, u, tooManyIDs); return err }},
 		{"ListCardIDs token", func() error { _, _, err := s.ListCardIDs(ctx, u, Page{Token: bad}); return err }},
 		{"GetSearchDocs card", func() error {
-			_, err := s.GetSearchDocs(ctx, u, SearchDocSelector{CardIDs: []string{bad}})
+			_, _, err := s.GetSearchDocs(ctx, u, SearchDocSelector{CardIDs: []string{bad}}, Page{})
 			return err
 		}},
 		{"GetSearchDocs note", func() error {
-			_, err := s.GetSearchDocs(ctx, u, SearchDocSelector{NoteIDs: []string{bad}})
+			_, _, err := s.GetSearchDocs(ctx, u, SearchDocSelector{NoteIDs: []string{bad}}, Page{})
 			return err
 		}},
 		{"GetSearchDocs deck cap", func() error {
-			_, err := s.GetSearchDocs(ctx, u, SearchDocSelector{DeckIDs: tooManyIDs})
+			_, _, err := s.GetSearchDocs(ctx, u, SearchDocSelector{DeckIDs: tooManyIDs}, Page{})
 			return err
 		}},
 

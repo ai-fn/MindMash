@@ -28,9 +28,14 @@ type enricher interface {
 	ListCardIDs(ctx context.Context, in *collectionv1.ListCardIDsRequest, opts ...grpc.CallOption) (*collectionv1.ListCardIDsResponse, error)
 }
 
-// backfillBatch bounds how many card ids are resolved per GetSearchDocs call
-// during a backfill, matching the ListCardIDs page size.
-const backfillBatch = 200
+const (
+	// backfillBatch is the ListCardIDs page size during a backfill.
+	backfillBatch = 200
+	// docsPageSize is the GetSearchDocs page size; Collection also cuts pages at 4 MiB of note text.
+	docsPageSize = 200
+	// docsRecvBytes leaves headroom over the 4 MiB page cap for per-doc metadata.
+	docsRecvBytes = 16 << 20
+)
 
 // ServiceTokens signs the indexer's own service tokens; events carry no user request to forward.
 type ServiceTokens interface {
@@ -41,15 +46,16 @@ type ServiceTokens interface {
 // at-least-once and idempotent: upserts use external_gte versioning and deletes
 // tolerate missing docs, so redelivered or out-of-order events are safe.
 type Indexer struct {
-	repo   *Repo
-	coll   enricher
-	tokens ServiceTokens
-	log    *zap.Logger
+	repo     *Repo
+	coll     enricher
+	tokens   ServiceTokens
+	log      *zap.Logger
+	pageSize int32
 }
 
 // NewIndexer wires an Indexer.
 func NewIndexer(repo *Repo, coll enricher, tokens ServiceTokens, log *zap.Logger) *Indexer {
-	return &Indexer{repo: repo, coll: coll, tokens: tokens, log: log}
+	return &Indexer{repo: repo, coll: coll, tokens: tokens, log: log, pageSize: docsPageSize}
 }
 
 // eventPayload is the common envelope every card/note/deck outbox payload shares
@@ -116,23 +122,40 @@ func (ix *Indexer) Handle(ctx context.Context, msg events.Message) error {
 }
 
 // enrichAndUpsert resolves the changed ids into search documents (as the event's
-// user) and upserts each one.
+// user) page by page and bulk-upserts each page.
 func (ix *Indexer) enrichAndUpsert(ctx context.Context, p eventPayload, req *collectionv1.GetSearchDocsRequest) error {
-	authCtx, err := ix.authContext(ctx)
-	if err != nil {
-		return err
-	}
 	req.UserId = p.UserID
-	resp, err := ix.coll.GetSearchDocs(authCtx, req)
-	if err != nil {
-		return fmt.Errorf("indexer: get search docs: %w", err)
-	}
-	for _, d := range resp.GetDocs() {
-		if err := ix.repo.Upsert(ctx, protoToDocument(d)); err != nil {
-			return err
+	_, err := ix.indexDocs(ctx, req)
+	return err
+}
+
+// indexDocs pages through GetSearchDocs for req and upserts every page, returning the doc count.
+func (ix *Indexer) indexDocs(ctx context.Context, req *collectionv1.GetSearchDocsRequest) (int, error) {
+	req.PageSize = ix.pageSize
+	req.PageToken = ""
+	var indexed int
+	for {
+		// Re-signed per page: a large subtree outlives one service token.
+		authCtx, err := ix.authContext(ctx)
+		if err != nil {
+			return indexed, err
+		}
+		resp, err := ix.coll.GetSearchDocs(authCtx, req, grpc.MaxCallRecvMsgSize(docsRecvBytes))
+		if err != nil {
+			return indexed, fmt.Errorf("indexer: get search docs: %w", err)
+		}
+		docs := make([]Document, len(resp.GetDocs()))
+		for i, d := range resp.GetDocs() {
+			docs[i] = protoToDocument(d)
+		}
+		if err := ix.repo.Upsert(ctx, docs...); err != nil {
+			return indexed, err
+		}
+		indexed += len(docs)
+		if req.PageToken = resp.GetNextPageToken(); req.PageToken == "" {
+			return indexed, nil
 		}
 	}
-	return nil
 }
 
 // Backfill re-indexes every card of one tenant by paging through the tenant's
@@ -146,7 +169,6 @@ func (ix *Indexer) Backfill(ctx context.Context, userID string) (int, error) {
 	var indexed int
 	var pageToken string
 	for {
-		// Re-signed per page: a long backfill outlives one service token.
 		authCtx, err := ix.authContext(ctx)
 		if err != nil {
 			return indexed, err
@@ -159,17 +181,11 @@ func (ix *Indexer) Backfill(ctx context.Context, userID string) (int, error) {
 		if err != nil {
 			return indexed, fmt.Errorf("indexer: backfill list card ids: %w", err)
 		}
-		ids := page.GetIds()
-		if len(ids) > 0 {
-			resp, err := ix.coll.GetSearchDocs(authCtx, &collectionv1.GetSearchDocsRequest{UserId: userID, CardIds: ids})
+		if ids := page.GetIds(); len(ids) > 0 {
+			n, err := ix.indexDocs(ctx, &collectionv1.GetSearchDocsRequest{UserId: userID, CardIds: ids})
+			indexed += n
 			if err != nil {
-				return indexed, fmt.Errorf("indexer: backfill get search docs: %w", err)
-			}
-			for _, d := range resp.GetDocs() {
-				if err := ix.repo.Upsert(ctx, protoToDocument(d)); err != nil {
-					return indexed, err
-				}
-				indexed++
+				return indexed, err
 			}
 		}
 		pageToken = page.GetNextPageToken()

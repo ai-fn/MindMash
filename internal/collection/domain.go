@@ -239,7 +239,7 @@ type Repository interface {
 	ListCardIDs(ctx context.Context, userID string, page Page) (ids []string, next string, err error)
 	// GetSearchDocs resolves the selector into denormalized card documents for
 	// the Search indexer (card+note+deck joined, shard-local).
-	GetSearchDocs(ctx context.Context, userID string, sel SearchDocSelector) ([]SearchDoc, error)
+	GetSearchDocs(ctx context.Context, userID string, sel SearchDocSelector, page Page) (docs []SearchDoc, next string, err error)
 
 	// Deck
 	CreateDeck(ctx context.Context, d *Deck) error

@@ -624,15 +624,15 @@ func (h *InternalHandler) GetSearchDocs(ctx context.Context, req *collectionv1.G
 	if err != nil {
 		return nil, err
 	}
-	docs, err := h.svc.GetSearchDocs(ctx, id.UserID, SearchDocSelector{
+	docs, next, err := h.svc.GetSearchDocs(ctx, id.UserID, SearchDocSelector{
 		CardIDs: req.GetCardIds(),
 		NoteIDs: req.GetNoteIds(),
 		DeckIDs: req.GetDeckIds(),
-	})
+	}, pageFromProto(req.GetPageToken(), req.GetPageSize()))
 	if err != nil {
 		return nil, err
 	}
-	resp := &collectionv1.GetSearchDocsResponse{}
+	resp := &collectionv1.GetSearchDocsResponse{NextPageToken: next}
 	for i := range docs {
 		resp.Docs = append(resp.Docs, searchDocToProto(&docs[i]))
 	}

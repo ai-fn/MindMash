@@ -4,6 +4,8 @@ package collection
 
 import (
 	"context"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -523,13 +525,13 @@ func TestGetSearchDocs_ByCardAndNote(t *testing.T) {
 		}
 	}
 
-	byCard, err := c.repo.GetSearchDocs(ctx, testUserID, SearchDocSelector{CardIDs: []string{card.ID}})
+	byCard, _, err := c.repo.GetSearchDocs(ctx, testUserID, SearchDocSelector{CardIDs: []string{card.ID}}, Page{})
 	if err != nil {
 		t.Fatalf("GetSearchDocs by card: %v", err)
 	}
 	want(byCard)
 
-	byNote, err := c.repo.GetSearchDocs(ctx, testUserID, SearchDocSelector{NoteIDs: []string{note.ID}})
+	byNote, _, err := c.repo.GetSearchDocs(ctx, testUserID, SearchDocSelector{NoteIDs: []string{note.ID}}, Page{})
 	if err != nil {
 		t.Fatalf("GetSearchDocs by note: %v", err)
 	}
@@ -537,7 +539,7 @@ func TestGetSearchDocs_ByCardAndNote(t *testing.T) {
 
 	// Tenant isolation: another user sees nothing for the same card id.
 	const otherUser = "00000000-0000-0000-0000-0000000000ff"
-	other, err := c.repo.GetSearchDocs(ctx, otherUser, SearchDocSelector{CardIDs: []string{card.ID}})
+	other, _, err := c.repo.GetSearchDocs(ctx, otherUser, SearchDocSelector{CardIDs: []string{card.ID}}, Page{})
 	if err != nil {
 		t.Fatalf("GetSearchDocs other user: %v", err)
 	}
@@ -567,7 +569,7 @@ func TestGetSearchDocs_ByDeckSubtree(t *testing.T) {
 
 	// Selecting the parent deck reindexes the whole subtree, so the card in the
 	// child deck must come back.
-	docs, err := c.repo.GetSearchDocs(ctx, testUserID, SearchDocSelector{DeckIDs: []string{parent.ID}})
+	docs, _, err := c.repo.GetSearchDocs(ctx, testUserID, SearchDocSelector{DeckIDs: []string{parent.ID}}, Page{})
 	if err != nil {
 		t.Fatalf("GetSearchDocs by deck subtree: %v", err)
 	}
@@ -580,6 +582,71 @@ func TestGetSearchDocs_ByDeckSubtree(t *testing.T) {
 	// The name path joins ancestor names root→leaf with "::".
 	if docs[0].DeckPath != "Spanish::Verbs" {
 		t.Errorf("DeckPath = %q, want %q", docs[0].DeckPath, "Spanish::Verbs")
+	}
+}
+
+// searchDocPages collects every page of a deck's search docs, returning the page sizes.
+func searchDocPages(t *testing.T, c integrationComponents, deckID string, size int) ([]SearchDoc, []int) {
+	t.Helper()
+	var all []SearchDoc
+	var sizes []int
+	page := Page{Size: size}
+	for {
+		docs, next, err := c.repo.GetSearchDocs(context.Background(), testUserID, SearchDocSelector{DeckIDs: []string{deckID}}, page)
+		if err != nil {
+			t.Fatalf("GetSearchDocs: %v", err)
+		}
+		all = append(all, docs...)
+		sizes = append(sizes, len(docs))
+		if next == "" {
+			return all, sizes
+		}
+		page.Token = next
+	}
+}
+
+func TestGetSearchDocs_Pages(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+	deck := defaultDeck(t, c)
+	nt := basicNoteType(t, c)
+	for i := range 3 {
+		if _, err := c.svc.CreateNote(ctx, testUserID, testProfileID, nt.ID, deck.ID,
+			map[string]string{"Front": fmt.Sprint("q", i), "Back": "a"}, nil, 0); err != nil {
+			t.Fatalf("CreateNote: %v", err)
+		}
+	}
+
+	docs, sizes := searchDocPages(t, c, deck.ID, 2)
+	if !slices.Equal(sizes, []int{2, 1}) {
+		t.Fatalf("page sizes = %v, want [2 1]", sizes)
+	}
+	seen := map[string]bool{}
+	for _, d := range docs {
+		seen[d.CardID] = true
+	}
+	if len(seen) != 3 {
+		t.Fatalf("distinct cards = %d, want 3", len(seen))
+	}
+}
+
+func TestGetSearchDocs_PageStopsAtByteBudget(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+	deck := defaultDeck(t, c)
+	nt := basicNoteType(t, c)
+	const notes = 5
+	big := strings.Repeat("a", maxNoteBytes-1024)
+	for range notes {
+		if _, err := c.svc.CreateNote(ctx, testUserID, testProfileID, nt.ID, deck.ID,
+			map[string]string{"Front": big}, nil, 0); err != nil {
+			t.Fatalf("CreateNote: %v", err)
+		}
+	}
+
+	docs, sizes := searchDocPages(t, c, deck.ID, 0)
+	if len(docs) != notes || len(sizes) < 2 {
+		t.Fatalf("got %d docs in pages %v, want %d docs over several pages", len(docs), sizes, notes)
 	}
 }
 

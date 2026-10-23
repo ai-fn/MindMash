@@ -61,6 +61,7 @@ func TestParseProp(t *testing.T) {
 		{"lte", "prop:reps<=5", Prop{Name: "reps", Op: "<=", Value: 5}},
 		{"gt", "prop:lapses>0", Prop{Name: "lapses", Op: ">", Value: 0}},
 		{"eq", "prop:ivl=1", Prop{Name: "ivl", Op: "=", Value: 1}},
+		{"case-insensitive name", "prop:IVL>5", Prop{Name: "ivl", Op: ">", Value: 5}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -76,7 +77,7 @@ func TestParseProp(t *testing.T) {
 }
 
 func TestParsePropInvalid(t *testing.T) {
-	for _, in := range []string{"prop:ivl", "prop:ivl>=", "prop:ivl>=abc", "prop:>=5"} {
+	for _, in := range []string{"prop:ivl", "prop:ivl>=", "prop:ivl>=abc", "prop:>=5", "prop:user_id=1", "prop:due>1", "prop:version>0"} {
 		if _, err := Parse(in); err == nil {
 			t.Errorf("Parse(%q) expected error, got nil", in)
 		}
