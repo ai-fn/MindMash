@@ -146,6 +146,7 @@ type Repository interface {
 	// (shared user_usn table with Collection).
 	NextUSN(ctx context.Context, userID string) (int64, error)
 
+	GetCard(ctx context.Context, userID, cardID string) (*Card, error)
 	// LoadCardForUpdate locks the card row for the duration of the answer
 	// transaction so concurrent answers on the same card serialize.
 	LoadCardForUpdate(ctx context.Context, userID, cardID string) (*Card, error)
@@ -163,6 +164,8 @@ type Repository interface {
 	// ListNewCards returns unsuspended, unburied new cards in deckIDs ordered by id (ULID, time-sortable)
 	// ascending, capped at limit.
 	ListNewCards(ctx context.Context, userID string, deckIDs []string, limit int) ([]Card, error)
+	// CountAvailable counts queueable new cards and learning/review cards due by now.
+	CountAvailable(ctx context.Context, userID string, deckIDs []string, now time.Time) (Counts, error)
 	// ListBuriedCardIDs locks and returns cards in deckIDs buried before the given time.
 	ListBuriedCardIDs(ctx context.Context, userID string, deckIDs []string, before time.Time) ([]string, error)
 	// UnburyCards returns the given buried cards to the queue and returns the cards it changed.

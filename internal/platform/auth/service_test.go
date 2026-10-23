@@ -22,7 +22,7 @@ import (
 
 const (
 	searchMethod = "/collection.v1.CollectionInternalService/GetSearchDocs"
-	renderMethod = "/collection.v1.CollectionInternalService/RenderCard"
+	renderMethod = "/collection.v1.CollectionInternalService/RenderCards"
 	testUser     = "0190a5b2-7c3d-7e4f-8a1b-2c3d4e5f6a7b"
 )
 

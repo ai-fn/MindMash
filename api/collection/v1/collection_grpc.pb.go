@@ -1249,7 +1249,7 @@ var FilteredDeckService_ServiceDesc = grpc.ServiceDesc{
 const (
 	CollectionInternalService_GetCardsByIDs_FullMethodName = "/collection.v1.CollectionInternalService/GetCardsByIDs"
 	CollectionInternalService_GetNote_FullMethodName       = "/collection.v1.CollectionInternalService/GetNote"
-	CollectionInternalService_RenderCard_FullMethodName    = "/collection.v1.CollectionInternalService/RenderCard"
+	CollectionInternalService_RenderCards_FullMethodName   = "/collection.v1.CollectionInternalService/RenderCards"
 	CollectionInternalService_ListCardIDs_FullMethodName   = "/collection.v1.CollectionInternalService/ListCardIDs"
 	CollectionInternalService_GetSearchDocs_FullMethodName = "/collection.v1.CollectionInternalService/GetSearchDocs"
 )
@@ -1260,7 +1260,8 @@ const (
 type CollectionInternalServiceClient interface {
 	GetCardsByIDs(ctx context.Context, in *GetCardsByIDsRequest, opts ...grpc.CallOption) (*GetCardsByIDsResponse, error)
 	GetNote(ctx context.Context, in *CollectionInternalServiceGetNoteRequest, opts ...grpc.CallOption) (*CollectionInternalServiceGetNoteResponse, error)
-	RenderCard(ctx context.Context, in *RenderCardRequest, opts ...grpc.CallOption) (*RenderCardResponse, error)
+	// RenderCards renders the fronts of a batch of cards; ids that don't exist are omitted.
+	RenderCards(ctx context.Context, in *RenderCardsRequest, opts ...grpc.CallOption) (*RenderCardsResponse, error)
 	ListCardIDs(ctx context.Context, in *ListCardIDsRequest, opts ...grpc.CallOption) (*ListCardIDsResponse, error)
 	// GetSearchDocs resolves a set of card/note/deck ids into the denormalized
 	// card documents the Search service indexes. Exactly one of the id lists is
@@ -1297,10 +1298,10 @@ func (c *collectionInternalServiceClient) GetNote(ctx context.Context, in *Colle
 	return out, nil
 }
 
-func (c *collectionInternalServiceClient) RenderCard(ctx context.Context, in *RenderCardRequest, opts ...grpc.CallOption) (*RenderCardResponse, error) {
+func (c *collectionInternalServiceClient) RenderCards(ctx context.Context, in *RenderCardsRequest, opts ...grpc.CallOption) (*RenderCardsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(RenderCardResponse)
-	err := c.cc.Invoke(ctx, CollectionInternalService_RenderCard_FullMethodName, in, out, cOpts...)
+	out := new(RenderCardsResponse)
+	err := c.cc.Invoke(ctx, CollectionInternalService_RenderCards_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1333,7 +1334,8 @@ func (c *collectionInternalServiceClient) GetSearchDocs(ctx context.Context, in 
 type CollectionInternalServiceServer interface {
 	GetCardsByIDs(context.Context, *GetCardsByIDsRequest) (*GetCardsByIDsResponse, error)
 	GetNote(context.Context, *CollectionInternalServiceGetNoteRequest) (*CollectionInternalServiceGetNoteResponse, error)
-	RenderCard(context.Context, *RenderCardRequest) (*RenderCardResponse, error)
+	// RenderCards renders the fronts of a batch of cards; ids that don't exist are omitted.
+	RenderCards(context.Context, *RenderCardsRequest) (*RenderCardsResponse, error)
 	ListCardIDs(context.Context, *ListCardIDsRequest) (*ListCardIDsResponse, error)
 	// GetSearchDocs resolves a set of card/note/deck ids into the denormalized
 	// card documents the Search service indexes. Exactly one of the id lists is
@@ -1355,8 +1357,8 @@ func (UnimplementedCollectionInternalServiceServer) GetCardsByIDs(context.Contex
 func (UnimplementedCollectionInternalServiceServer) GetNote(context.Context, *CollectionInternalServiceGetNoteRequest) (*CollectionInternalServiceGetNoteResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetNote not implemented")
 }
-func (UnimplementedCollectionInternalServiceServer) RenderCard(context.Context, *RenderCardRequest) (*RenderCardResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method RenderCard not implemented")
+func (UnimplementedCollectionInternalServiceServer) RenderCards(context.Context, *RenderCardsRequest) (*RenderCardsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RenderCards not implemented")
 }
 func (UnimplementedCollectionInternalServiceServer) ListCardIDs(context.Context, *ListCardIDsRequest) (*ListCardIDsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListCardIDs not implemented")
@@ -1420,20 +1422,20 @@ func _CollectionInternalService_GetNote_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
-func _CollectionInternalService_RenderCard_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(RenderCardRequest)
+func _CollectionInternalService_RenderCards_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RenderCardsRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(CollectionInternalServiceServer).RenderCard(ctx, in)
+		return srv.(CollectionInternalServiceServer).RenderCards(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: CollectionInternalService_RenderCard_FullMethodName,
+		FullMethod: CollectionInternalService_RenderCards_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(CollectionInternalServiceServer).RenderCard(ctx, req.(*RenderCardRequest))
+		return srv.(CollectionInternalServiceServer).RenderCards(ctx, req.(*RenderCardsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1490,8 +1492,8 @@ var CollectionInternalService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _CollectionInternalService_GetNote_Handler,
 		},
 		{
-			MethodName: "RenderCard",
-			Handler:    _CollectionInternalService_RenderCard_Handler,
+			MethodName: "RenderCards",
+			Handler:    _CollectionInternalService_RenderCards_Handler,
 		},
 		{
 			MethodName: "ListCardIDs",

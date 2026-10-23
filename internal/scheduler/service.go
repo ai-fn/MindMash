@@ -3,9 +3,11 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
 
 	collectionv1 "github.com/mindmesh/mindmesh/api/collection/v1"
 	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
@@ -17,8 +19,11 @@ import (
 
 const (
 	defaultQueueLimit = 20
-	maxQueueLimit     = 200    // each queued card costs a RenderCard call
-	maxAnswerTimeMs   = 60_000 // Anki's default cap, so an idle tab doesn't skew time stats
+	maxQueueLimit     = 200
+	// Fronts are rendered in chunks: 20 fronts of a 1 MiB note plus 64 KiB template fit renderRecvBytes.
+	renderBatch     = 20
+	renderRecvBytes = 32 << 20
+	maxAnswerTimeMs = 60_000 // Anki's default cap, so an idle tab doesn't skew time stats
 )
 
 // Service orchestrates the Scheduler domain: study queue assembly, FSRS
@@ -62,16 +67,14 @@ func subtreeDeckIDs(decks []Deck) []string {
 	return ids
 }
 
-func minInt32(a, b int32) int32 {
-	if a < b {
-		return a
-	}
-	return b
+// remaining is what's left of a daily limit, in int64 so a negative limit can't wrap.
+func remaining(available, perDay, done int32) int32 {
+	return int32(max(0, min(int64(available), int64(perDay)-int64(done))))
 }
 
 // BuildQueue resolves the deck subtree rooted at deckID and pulls due learning
 // cards, then reviews and new cards within what today's review_logs leave of the
-// daily limits, and renders each card's front HTML via Collection's RenderCard RPC.
+// daily limits, and renders their front HTML via Collection's RenderCards RPC.
 // Fetching reserves nothing: only answers consume the limits.
 func (s *Service) BuildQueue(ctx context.Context, userID, profileID, deckID string, limit int) ([]QueueCard, error) {
 	if err := validate.ID("deck_id", deckID); err != nil {
@@ -130,13 +133,30 @@ func (s *Service) BuildQueue(ctx context.Context, userID, profileID, deckID stri
 	}
 
 	all := append(due, newCards...)
+	if len(all) == 0 {
+		return nil, nil
+	}
+	cardIDs := make([]string, len(all))
+	for i, c := range all {
+		cardIDs[i] = c.ID
+	}
+	front := make(map[string]string, len(cardIDs))
+	for chunk := range slices.Chunk(cardIDs, renderBatch) {
+		resp, err := s.collClient.RenderCards(ctx, &collectionv1.RenderCardsRequest{CardIds: chunk},
+			grpc.MaxCallRecvMsgSize(renderRecvBytes))
+		if err != nil {
+			return nil, fmt.Errorf("scheduler: render cards: %w", err)
+		}
+		for _, r := range resp.GetCards() {
+			front[r.GetCardId()] = r.GetFrontHtml()
+		}
+	}
 	queue := make([]QueueCard, 0, len(all))
 	for _, c := range all {
-		resp, err := s.collClient.RenderCard(ctx, &collectionv1.RenderCardRequest{CardId: c.ID})
-		if err != nil {
-			return nil, fmt.Errorf("scheduler: render card %s: %w", c.ID, err)
+		// A card deleted since it was listed is missing from the render; drop it.
+		if html, ok := front[c.ID]; ok {
+			queue = append(queue, QueueCard{Card: c, FrontHTML: html})
 		}
-		queue = append(queue, QueueCard{Card: c, FrontHTML: resp.FrontHtml})
 	}
 	return queue, nil
 }
@@ -175,7 +195,7 @@ func (s *Service) Preview(ctx context.Context, userID, cardID string) (fsrs.Inte
 	if err := validate.ID("card_id", cardID); err != nil {
 		return fsrs.IntervalPreview{}, err
 	}
-	c, err := s.repo.LoadCardForUpdate(ctx, userID, cardID)
+	c, err := s.repo.GetCard(ctx, userID, cardID)
 	if err != nil {
 		return fsrs.IntervalPreview{}, err
 	}
@@ -309,8 +329,6 @@ func (s *Service) GetCounts(ctx context.Context, userID, deckID string) (Counts,
 	if err := validate.ID("deck_id", deckID); err != nil {
 		return Counts{}, err
 	}
-	const availabilityCap = 9999
-
 	deck, err := s.repo.GetDeck(ctx, userID, deckID)
 	if err != nil {
 		return Counts{}, err
@@ -336,33 +354,15 @@ func (s *Service) GetCounts(ctx context.Context, userID, deckID string) (Counts,
 		return Counts{}, err
 	}
 
-	due, err := s.repo.ListDueCards(ctx, userID, deckIDs, []CardState{StateLearning, StateReview, StateRelearning}, now, availabilityCap)
+	avail, err := s.repo.CountAvailable(ctx, userID, deckIDs, now)
 	if err != nil {
 		return Counts{}, err
 	}
-	var learningDue, reviewDue int32
-	for _, c := range due {
-		if c.State == StateLearning || c.State == StateRelearning {
-			learningDue++
-		} else {
-			reviewDue++
-		}
-	}
-	newAvail, err := s.repo.ListNewCards(ctx, userID, deckIDs, availabilityCap)
-	if err != nil {
-		return Counts{}, err
-	}
-
-	newRemaining := minInt32(int32(len(newAvail)), dc.NewPerDay-reviewed.New)
-	reviewRemaining := minInt32(reviewDue, dc.RevPerDay-reviewed.Review)
-	if newRemaining < 0 {
-		newRemaining = 0
-	}
-	if reviewRemaining < 0 {
-		reviewRemaining = 0
-	}
-
-	return Counts{New: newRemaining, Learning: learningDue, Review: reviewRemaining}, nil
+	return Counts{
+		New:      remaining(avail.New, dc.NewPerDay, reviewed.New),
+		Learning: avail.Learning,
+		Review:   remaining(avail.Review, dc.RevPerDay, reviewed.Review),
+	}, nil
 }
 
 // Reschedule applies a manual suspend/bury/reset action to a card.

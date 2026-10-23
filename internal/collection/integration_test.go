@@ -284,6 +284,45 @@ func TestRenderCard_NotFound(t *testing.T) {
 	}
 }
 
+func TestRenderCards_RendersBatchAndSkipsMissing(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+
+	deck := defaultDeck(t, c)
+	nt := basicNoteType(t, c)
+	var ids []string
+	for _, q := range []string{"q1", "q2"} {
+		note, err := c.svc.CreateNote(ctx, testUserID, testProfileID, nt.ID, deck.ID,
+			map[string]string{"Front": q, "Back": "a-" + q}, nil, 0)
+		if err != nil {
+			t.Fatalf("CreateNote: %v", err)
+		}
+		cards, err := c.repo.ListCardsByNote(ctx, testUserID, note.ID)
+		if err != nil || len(cards) != 1 {
+			t.Fatalf("ListCardsByNote: %v, %d cards", err, len(cards))
+		}
+		ids = append(ids, cards[0].ID)
+	}
+	const missing = "00000000-0000-0000-0000-0000000000ff"
+
+	got, err := c.svc.RenderCards(ctx, testUserID, []string{ids[1], missing, ids[0]})
+	if err != nil {
+		t.Fatalf("RenderCards: %v", err)
+	}
+	byID := map[string]RenderedFront{}
+	for _, r := range got {
+		byID[r.CardID] = r
+	}
+	if len(got) != 2 || byID[ids[0]].Front != "q1" || byID[ids[1]].Front != "q2" {
+		t.Fatalf("want both cards rendered and the missing id skipped, got %+v", got)
+	}
+
+	const otherUser = "00000000-0000-0000-0000-0000000000aa"
+	if got, err := c.svc.RenderCards(ctx, otherUser, ids); err != nil || len(got) != 0 {
+		t.Fatalf("other user's cards: got %+v, %v; want none", got, err)
+	}
+}
+
 // ─── UpdateNote produces delta cards ──────────────────────────────────────────
 
 func TestNote_UpdateDeltaCards(t *testing.T) {

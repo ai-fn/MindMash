@@ -3753,27 +3753,27 @@ func (x *CollectionInternalServiceGetNoteResponse) GetNote() *Note {
 	return nil
 }
 
-type RenderCardRequest struct {
+type RenderCardsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	CardId        string                 `protobuf:"bytes,1,opt,name=card_id,json=cardId,proto3" json:"card_id,omitempty"`
+	CardIds       []string               `protobuf:"bytes,1,rep,name=card_ids,json=cardIds,proto3" json:"card_ids,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *RenderCardRequest) Reset() {
-	*x = RenderCardRequest{}
+func (x *RenderCardsRequest) Reset() {
+	*x = RenderCardsRequest{}
 	mi := &file_collection_v1_collection_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *RenderCardRequest) String() string {
+func (x *RenderCardsRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*RenderCardRequest) ProtoMessage() {}
+func (*RenderCardsRequest) ProtoMessage() {}
 
-func (x *RenderCardRequest) ProtoReflect() protoreflect.Message {
+func (x *RenderCardsRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_collection_v1_collection_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -3785,41 +3785,92 @@ func (x *RenderCardRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use RenderCardRequest.ProtoReflect.Descriptor instead.
-func (*RenderCardRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use RenderCardsRequest.ProtoReflect.Descriptor instead.
+func (*RenderCardsRequest) Descriptor() ([]byte, []int) {
 	return file_collection_v1_collection_proto_rawDescGZIP(), []int{62}
 }
 
-func (x *RenderCardRequest) GetCardId() string {
+func (x *RenderCardsRequest) GetCardIds() []string {
+	if x != nil {
+		return x.CardIds
+	}
+	return nil
+}
+
+type RenderedCard struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	CardId        string                 `protobuf:"bytes,1,opt,name=card_id,json=cardId,proto3" json:"card_id,omitempty"`
+	FrontHtml     string                 `protobuf:"bytes,2,opt,name=front_html,json=frontHtml,proto3" json:"front_html,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RenderedCard) Reset() {
+	*x = RenderedCard{}
+	mi := &file_collection_v1_collection_proto_msgTypes[63]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RenderedCard) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RenderedCard) ProtoMessage() {}
+
+func (x *RenderedCard) ProtoReflect() protoreflect.Message {
+	mi := &file_collection_v1_collection_proto_msgTypes[63]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RenderedCard.ProtoReflect.Descriptor instead.
+func (*RenderedCard) Descriptor() ([]byte, []int) {
+	return file_collection_v1_collection_proto_rawDescGZIP(), []int{63}
+}
+
+func (x *RenderedCard) GetCardId() string {
 	if x != nil {
 		return x.CardId
 	}
 	return ""
 }
 
-type RenderCardResponse struct {
+func (x *RenderedCard) GetFrontHtml() string {
+	if x != nil {
+		return x.FrontHtml
+	}
+	return ""
+}
+
+type RenderCardsResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	FrontHtml     string                 `protobuf:"bytes,1,opt,name=front_html,json=frontHtml,proto3" json:"front_html,omitempty"`
-	BackHtml      string                 `protobuf:"bytes,2,opt,name=back_html,json=backHtml,proto3" json:"back_html,omitempty"`
+	Cards         []*RenderedCard        `protobuf:"bytes,1,rep,name=cards,proto3" json:"cards,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *RenderCardResponse) Reset() {
-	*x = RenderCardResponse{}
-	mi := &file_collection_v1_collection_proto_msgTypes[63]
+func (x *RenderCardsResponse) Reset() {
+	*x = RenderCardsResponse{}
+	mi := &file_collection_v1_collection_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *RenderCardResponse) String() string {
+func (x *RenderCardsResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*RenderCardResponse) ProtoMessage() {}
+func (*RenderCardsResponse) ProtoMessage() {}
 
-func (x *RenderCardResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_collection_v1_collection_proto_msgTypes[63]
+func (x *RenderCardsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_collection_v1_collection_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3830,23 +3881,16 @@ func (x *RenderCardResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use RenderCardResponse.ProtoReflect.Descriptor instead.
-func (*RenderCardResponse) Descriptor() ([]byte, []int) {
-	return file_collection_v1_collection_proto_rawDescGZIP(), []int{63}
+// Deprecated: Use RenderCardsResponse.ProtoReflect.Descriptor instead.
+func (*RenderCardsResponse) Descriptor() ([]byte, []int) {
+	return file_collection_v1_collection_proto_rawDescGZIP(), []int{64}
 }
 
-func (x *RenderCardResponse) GetFrontHtml() string {
+func (x *RenderCardsResponse) GetCards() []*RenderedCard {
 	if x != nil {
-		return x.FrontHtml
+		return x.Cards
 	}
-	return ""
-}
-
-func (x *RenderCardResponse) GetBackHtml() string {
-	if x != nil {
-		return x.BackHtml
-	}
-	return ""
+	return nil
 }
 
 type ListCardIDsRequest struct {
@@ -3861,7 +3905,7 @@ type ListCardIDsRequest struct {
 
 func (x *ListCardIDsRequest) Reset() {
 	*x = ListCardIDsRequest{}
-	mi := &file_collection_v1_collection_proto_msgTypes[64]
+	mi := &file_collection_v1_collection_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3873,7 +3917,7 @@ func (x *ListCardIDsRequest) String() string {
 func (*ListCardIDsRequest) ProtoMessage() {}
 
 func (x *ListCardIDsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_collection_v1_collection_proto_msgTypes[64]
+	mi := &file_collection_v1_collection_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3886,7 +3930,7 @@ func (x *ListCardIDsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListCardIDsRequest.ProtoReflect.Descriptor instead.
 func (*ListCardIDsRequest) Descriptor() ([]byte, []int) {
-	return file_collection_v1_collection_proto_rawDescGZIP(), []int{64}
+	return file_collection_v1_collection_proto_rawDescGZIP(), []int{65}
 }
 
 func (x *ListCardIDsRequest) GetQuery() string {
@@ -3927,7 +3971,7 @@ type ListCardIDsResponse struct {
 
 func (x *ListCardIDsResponse) Reset() {
 	*x = ListCardIDsResponse{}
-	mi := &file_collection_v1_collection_proto_msgTypes[65]
+	mi := &file_collection_v1_collection_proto_msgTypes[66]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3939,7 +3983,7 @@ func (x *ListCardIDsResponse) String() string {
 func (*ListCardIDsResponse) ProtoMessage() {}
 
 func (x *ListCardIDsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_collection_v1_collection_proto_msgTypes[65]
+	mi := &file_collection_v1_collection_proto_msgTypes[66]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3952,7 +3996,7 @@ func (x *ListCardIDsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListCardIDsResponse.ProtoReflect.Descriptor instead.
 func (*ListCardIDsResponse) Descriptor() ([]byte, []int) {
-	return file_collection_v1_collection_proto_rawDescGZIP(), []int{65}
+	return file_collection_v1_collection_proto_rawDescGZIP(), []int{66}
 }
 
 func (x *ListCardIDsResponse) GetIds() []string {
@@ -3984,7 +4028,7 @@ type GetSearchDocsRequest struct {
 
 func (x *GetSearchDocsRequest) Reset() {
 	*x = GetSearchDocsRequest{}
-	mi := &file_collection_v1_collection_proto_msgTypes[66]
+	mi := &file_collection_v1_collection_proto_msgTypes[67]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3996,7 +4040,7 @@ func (x *GetSearchDocsRequest) String() string {
 func (*GetSearchDocsRequest) ProtoMessage() {}
 
 func (x *GetSearchDocsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_collection_v1_collection_proto_msgTypes[66]
+	mi := &file_collection_v1_collection_proto_msgTypes[67]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4009,7 +4053,7 @@ func (x *GetSearchDocsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSearchDocsRequest.ProtoReflect.Descriptor instead.
 func (*GetSearchDocsRequest) Descriptor() ([]byte, []int) {
-	return file_collection_v1_collection_proto_rawDescGZIP(), []int{66}
+	return file_collection_v1_collection_proto_rawDescGZIP(), []int{67}
 }
 
 func (x *GetSearchDocsRequest) GetCardIds() []string {
@@ -4049,7 +4093,7 @@ type GetSearchDocsResponse struct {
 
 func (x *GetSearchDocsResponse) Reset() {
 	*x = GetSearchDocsResponse{}
-	mi := &file_collection_v1_collection_proto_msgTypes[67]
+	mi := &file_collection_v1_collection_proto_msgTypes[68]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4061,7 +4105,7 @@ func (x *GetSearchDocsResponse) String() string {
 func (*GetSearchDocsResponse) ProtoMessage() {}
 
 func (x *GetSearchDocsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_collection_v1_collection_proto_msgTypes[67]
+	mi := &file_collection_v1_collection_proto_msgTypes[68]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4074,7 +4118,7 @@ func (x *GetSearchDocsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSearchDocsResponse.ProtoReflect.Descriptor instead.
 func (*GetSearchDocsResponse) Descriptor() ([]byte, []int) {
-	return file_collection_v1_collection_proto_rawDescGZIP(), []int{67}
+	return file_collection_v1_collection_proto_rawDescGZIP(), []int{68}
 }
 
 func (x *GetSearchDocsResponse) GetDocs() []*SearchDoc {
@@ -4117,7 +4161,7 @@ type SearchDoc struct {
 
 func (x *SearchDoc) Reset() {
 	*x = SearchDoc{}
-	mi := &file_collection_v1_collection_proto_msgTypes[68]
+	mi := &file_collection_v1_collection_proto_msgTypes[69]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4129,7 +4173,7 @@ func (x *SearchDoc) String() string {
 func (*SearchDoc) ProtoMessage() {}
 
 func (x *SearchDoc) ProtoReflect() protoreflect.Message {
-	mi := &file_collection_v1_collection_proto_msgTypes[68]
+	mi := &file_collection_v1_collection_proto_msgTypes[69]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4142,7 +4186,7 @@ func (x *SearchDoc) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SearchDoc.ProtoReflect.Descriptor instead.
 func (*SearchDoc) Descriptor() ([]byte, []int) {
-	return file_collection_v1_collection_proto_rawDescGZIP(), []int{68}
+	return file_collection_v1_collection_proto_rawDescGZIP(), []int{69}
 }
 
 func (x *SearchDoc) GetCardId() string {
@@ -4539,13 +4583,15 @@ const file_collection_v1_collection_proto_rawDesc = "" +
 	"'CollectionInternalServiceGetNoteRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"S\n" +
 	"(CollectionInternalServiceGetNoteResponse\x12'\n" +
-	"\x04note\x18\x01 \x01(\v2\x13.collection.v1.NoteR\x04note\",\n" +
-	"\x11RenderCardRequest\x12\x17\n" +
-	"\acard_id\x18\x01 \x01(\tR\x06cardId\"P\n" +
-	"\x12RenderCardResponse\x12\x1d\n" +
+	"\x04note\x18\x01 \x01(\v2\x13.collection.v1.NoteR\x04note\"/\n" +
+	"\x12RenderCardsRequest\x12\x19\n" +
+	"\bcard_ids\x18\x01 \x03(\tR\acardIds\"F\n" +
+	"\fRenderedCard\x12\x17\n" +
+	"\acard_id\x18\x01 \x01(\tR\x06cardId\x12\x1d\n" +
 	"\n" +
-	"front_html\x18\x01 \x01(\tR\tfrontHtml\x12\x1b\n" +
-	"\tback_html\x18\x02 \x01(\tR\bbackHtml\"\x7f\n" +
+	"front_html\x18\x02 \x01(\tR\tfrontHtml\"H\n" +
+	"\x13RenderCardsResponse\x121\n" +
+	"\x05cards\x18\x01 \x03(\v2\x1b.collection.v1.RenderedCardR\x05cards\"\x7f\n" +
 	"\x12ListCardIDsRequest\x12\x14\n" +
 	"\x05query\x18\x01 \x01(\tR\x05query\x12\x1d\n" +
 	"\n" +
@@ -4636,12 +4682,11 @@ const file_collection_v1_collection_proto_rawDesc = "" +
 	"\x13FilteredDeckService\x12\x82\x01\n" +
 	"\x11ListFilteredDecks\x12'.collection.v1.ListFilteredDecksRequest\x1a(.collection.v1.ListFilteredDecksResponse\"\x1a\x82\xd3\xe4\x93\x02\x14\x12\x12/v1/filtered-decks\x12\x88\x01\n" +
 	"\x12CreateFilteredDeck\x12(.collection.v1.CreateFilteredDeckRequest\x1a).collection.v1.CreateFilteredDeckResponse\"\x1d\x82\xd3\xe4\x93\x02\x17:\x01*\"\x12/v1/filtered-decks\x12\x8a\x01\n" +
-	"\x12DeleteFilteredDeck\x12(.collection.v1.DeleteFilteredDeckRequest\x1a).collection.v1.DeleteFilteredDeckResponse\"\x1f\x82\xd3\xe4\x93\x02\x19*\x17/v1/filtered-decks/{id}2\xf8\x03\n" +
+	"\x12DeleteFilteredDeck\x12(.collection.v1.DeleteFilteredDeckRequest\x1a).collection.v1.DeleteFilteredDeckResponse\"\x1f\x82\xd3\xe4\x93\x02\x19*\x17/v1/filtered-decks/{id}2\xfb\x03\n" +
 	"\x19CollectionInternalService\x12Z\n" +
 	"\rGetCardsByIDs\x12#.collection.v1.GetCardsByIDsRequest\x1a$.collection.v1.GetCardsByIDsResponse\x12z\n" +
-	"\aGetNote\x126.collection.v1.CollectionInternalServiceGetNoteRequest\x1a7.collection.v1.CollectionInternalServiceGetNoteResponse\x12Q\n" +
-	"\n" +
-	"RenderCard\x12 .collection.v1.RenderCardRequest\x1a!.collection.v1.RenderCardResponse\x12T\n" +
+	"\aGetNote\x126.collection.v1.CollectionInternalServiceGetNoteRequest\x1a7.collection.v1.CollectionInternalServiceGetNoteResponse\x12T\n" +
+	"\vRenderCards\x12!.collection.v1.RenderCardsRequest\x1a\".collection.v1.RenderCardsResponse\x12T\n" +
 	"\vListCardIDs\x12!.collection.v1.ListCardIDsRequest\x1a\".collection.v1.ListCardIDsResponse\x12Z\n" +
 	"\rGetSearchDocs\x12#.collection.v1.GetSearchDocsRequest\x1a$.collection.v1.GetSearchDocsResponseB\xb6\x01\n" +
 	"\x11com.collection.v1B\x0fCollectionProtoP\x01Z;github.com/mindmesh/mindmesh/api/collection/v1;collectionv1\xa2\x02\x03CXX\xaa\x02\rCollection.V1\xca\x02\rCollection\\V1\xe2\x02\x19Collection\\V1\\GPBMetadata\xea\x02\x0eCollection::V1b\x06proto3"
@@ -4659,7 +4704,7 @@ func file_collection_v1_collection_proto_rawDescGZIP() []byte {
 }
 
 var file_collection_v1_collection_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_collection_v1_collection_proto_msgTypes = make([]protoimpl.MessageInfo, 73)
+var file_collection_v1_collection_proto_msgTypes = make([]protoimpl.MessageInfo, 74)
 var file_collection_v1_collection_proto_goTypes = []any{
 	(CardState)(0),                                   // 0: collection.v1.CardState
 	(BulkOp)(0),                                      // 1: collection.v1.BulkOp
@@ -4725,32 +4770,33 @@ var file_collection_v1_collection_proto_goTypes = []any{
 	(*GetCardsByIDsResponse)(nil),                    // 61: collection.v1.GetCardsByIDsResponse
 	(*CollectionInternalServiceGetNoteRequest)(nil),  // 62: collection.v1.CollectionInternalServiceGetNoteRequest
 	(*CollectionInternalServiceGetNoteResponse)(nil), // 63: collection.v1.CollectionInternalServiceGetNoteResponse
-	(*RenderCardRequest)(nil),                        // 64: collection.v1.RenderCardRequest
-	(*RenderCardResponse)(nil),                       // 65: collection.v1.RenderCardResponse
-	(*ListCardIDsRequest)(nil),                       // 66: collection.v1.ListCardIDsRequest
-	(*ListCardIDsResponse)(nil),                      // 67: collection.v1.ListCardIDsResponse
-	(*GetSearchDocsRequest)(nil),                     // 68: collection.v1.GetSearchDocsRequest
-	(*GetSearchDocsResponse)(nil),                    // 69: collection.v1.GetSearchDocsResponse
-	(*SearchDoc)(nil),                                // 70: collection.v1.SearchDoc
-	nil,                                              // 71: collection.v1.Note.FieldsEntry
-	nil,                                              // 72: collection.v1.CreateNoteRequest.FieldsEntry
-	nil,                                              // 73: collection.v1.UpdateNoteRequest.FieldsEntry
-	nil,                                              // 74: collection.v1.SearchDoc.LangTextEntry
-	(*timestamppb.Timestamp)(nil),                    // 75: google.protobuf.Timestamp
+	(*RenderCardsRequest)(nil),                       // 64: collection.v1.RenderCardsRequest
+	(*RenderedCard)(nil),                             // 65: collection.v1.RenderedCard
+	(*RenderCardsResponse)(nil),                      // 66: collection.v1.RenderCardsResponse
+	(*ListCardIDsRequest)(nil),                       // 67: collection.v1.ListCardIDsRequest
+	(*ListCardIDsResponse)(nil),                      // 68: collection.v1.ListCardIDsResponse
+	(*GetSearchDocsRequest)(nil),                     // 69: collection.v1.GetSearchDocsRequest
+	(*GetSearchDocsResponse)(nil),                    // 70: collection.v1.GetSearchDocsResponse
+	(*SearchDoc)(nil),                                // 71: collection.v1.SearchDoc
+	nil,                                              // 72: collection.v1.Note.FieldsEntry
+	nil,                                              // 73: collection.v1.CreateNoteRequest.FieldsEntry
+	nil,                                              // 74: collection.v1.UpdateNoteRequest.FieldsEntry
+	nil,                                              // 75: collection.v1.SearchDoc.LangTextEntry
+	(*timestamppb.Timestamp)(nil),                    // 76: google.protobuf.Timestamp
 }
 var file_collection_v1_collection_proto_depIdxs = []int32{
 	2,  // 0: collection.v1.NoteType.fields:type_name -> collection.v1.Field
 	3,  // 1: collection.v1.NoteType.card_templates:type_name -> collection.v1.CardTemplate
-	75, // 2: collection.v1.NoteType.mtime:type_name -> google.protobuf.Timestamp
-	71, // 3: collection.v1.Note.fields:type_name -> collection.v1.Note.FieldsEntry
-	75, // 4: collection.v1.Note.mtime:type_name -> google.protobuf.Timestamp
+	76, // 2: collection.v1.NoteType.mtime:type_name -> google.protobuf.Timestamp
+	72, // 3: collection.v1.Note.fields:type_name -> collection.v1.Note.FieldsEntry
+	76, // 4: collection.v1.Note.mtime:type_name -> google.protobuf.Timestamp
 	0,  // 5: collection.v1.Card.state:type_name -> collection.v1.CardState
-	75, // 6: collection.v1.Card.due:type_name -> google.protobuf.Timestamp
-	75, // 7: collection.v1.Card.last_review:type_name -> google.protobuf.Timestamp
-	75, // 8: collection.v1.Card.mtime:type_name -> google.protobuf.Timestamp
-	75, // 9: collection.v1.Deck.mtime:type_name -> google.protobuf.Timestamp
-	75, // 10: collection.v1.DeckConfig.mtime:type_name -> google.protobuf.Timestamp
-	75, // 11: collection.v1.FilteredDeck.mtime:type_name -> google.protobuf.Timestamp
+	76, // 6: collection.v1.Card.due:type_name -> google.protobuf.Timestamp
+	76, // 7: collection.v1.Card.last_review:type_name -> google.protobuf.Timestamp
+	76, // 8: collection.v1.Card.mtime:type_name -> google.protobuf.Timestamp
+	76, // 9: collection.v1.Deck.mtime:type_name -> google.protobuf.Timestamp
+	76, // 10: collection.v1.DeckConfig.mtime:type_name -> google.protobuf.Timestamp
+	76, // 11: collection.v1.FilteredDeck.mtime:type_name -> google.protobuf.Timestamp
 	4,  // 12: collection.v1.ListNoteTypesResponse.items:type_name -> collection.v1.NoteType
 	4,  // 13: collection.v1.GetNoteTypeResponse.note_type:type_name -> collection.v1.NoteType
 	2,  // 14: collection.v1.CreateNoteTypeRequest.fields:type_name -> collection.v1.Field
@@ -4760,9 +4806,9 @@ var file_collection_v1_collection_proto_depIdxs = []int32{
 	3,  // 18: collection.v1.UpdateNoteTypeRequest.card_templates:type_name -> collection.v1.CardTemplate
 	4,  // 19: collection.v1.UpdateNoteTypeResponse.note_type:type_name -> collection.v1.NoteType
 	5,  // 20: collection.v1.GetNoteResponse.note:type_name -> collection.v1.Note
-	72, // 21: collection.v1.CreateNoteRequest.fields:type_name -> collection.v1.CreateNoteRequest.FieldsEntry
+	73, // 21: collection.v1.CreateNoteRequest.fields:type_name -> collection.v1.CreateNoteRequest.FieldsEntry
 	5,  // 22: collection.v1.CreateNoteResponse.note:type_name -> collection.v1.Note
-	73, // 23: collection.v1.UpdateNoteRequest.fields:type_name -> collection.v1.UpdateNoteRequest.FieldsEntry
+	74, // 23: collection.v1.UpdateNoteRequest.fields:type_name -> collection.v1.UpdateNoteRequest.FieldsEntry
 	5,  // 24: collection.v1.UpdateNoteResponse.note:type_name -> collection.v1.Note
 	6,  // 25: collection.v1.GetCardResponse.card:type_name -> collection.v1.Card
 	32, // 26: collection.v1.BulkCardsRequest.ids_list:type_name -> collection.v1.CardIDList
@@ -4780,74 +4826,75 @@ var file_collection_v1_collection_proto_depIdxs = []int32{
 	9,  // 38: collection.v1.CreateFilteredDeckResponse.filtered_deck:type_name -> collection.v1.FilteredDeck
 	6,  // 39: collection.v1.GetCardsByIDsResponse.cards:type_name -> collection.v1.Card
 	5,  // 40: collection.v1.CollectionInternalServiceGetNoteResponse.note:type_name -> collection.v1.Note
-	70, // 41: collection.v1.GetSearchDocsResponse.docs:type_name -> collection.v1.SearchDoc
-	0,  // 42: collection.v1.SearchDoc.state:type_name -> collection.v1.CardState
-	75, // 43: collection.v1.SearchDoc.due:type_name -> google.protobuf.Timestamp
-	75, // 44: collection.v1.SearchDoc.added_at:type_name -> google.protobuf.Timestamp
-	74, // 45: collection.v1.SearchDoc.lang_text:type_name -> collection.v1.SearchDoc.LangTextEntry
-	11, // 46: collection.v1.NoteTypeService.ListNoteTypes:input_type -> collection.v1.ListNoteTypesRequest
-	13, // 47: collection.v1.NoteTypeService.GetNoteType:input_type -> collection.v1.GetNoteTypeRequest
-	15, // 48: collection.v1.NoteTypeService.CreateNoteType:input_type -> collection.v1.CreateNoteTypeRequest
-	17, // 49: collection.v1.NoteTypeService.UpdateNoteType:input_type -> collection.v1.UpdateNoteTypeRequest
-	19, // 50: collection.v1.NoteTypeService.DeleteNoteType:input_type -> collection.v1.DeleteNoteTypeRequest
-	21, // 51: collection.v1.NoteService.GetNote:input_type -> collection.v1.GetNoteRequest
-	23, // 52: collection.v1.NoteService.CreateNote:input_type -> collection.v1.CreateNoteRequest
-	25, // 53: collection.v1.NoteService.UpdateNote:input_type -> collection.v1.UpdateNoteRequest
-	27, // 54: collection.v1.NoteService.DeleteNote:input_type -> collection.v1.DeleteNoteRequest
-	29, // 55: collection.v1.CardService.GetCard:input_type -> collection.v1.GetCardRequest
-	31, // 56: collection.v1.CardService.BulkCards:input_type -> collection.v1.BulkCardsRequest
-	34, // 57: collection.v1.DeckService.ListDecks:input_type -> collection.v1.ListDecksRequest
-	36, // 58: collection.v1.DeckService.GetDeck:input_type -> collection.v1.GetDeckRequest
-	38, // 59: collection.v1.DeckService.CreateDeck:input_type -> collection.v1.CreateDeckRequest
-	40, // 60: collection.v1.DeckService.UpdateDeck:input_type -> collection.v1.UpdateDeckRequest
-	42, // 61: collection.v1.DeckService.DeleteDeck:input_type -> collection.v1.DeleteDeckRequest
-	44, // 62: collection.v1.DeckService.ListDeckConfigs:input_type -> collection.v1.ListDeckConfigsRequest
-	46, // 63: collection.v1.DeckService.GetDeckConfig:input_type -> collection.v1.GetDeckConfigRequest
-	48, // 64: collection.v1.DeckService.CreateDeckConfig:input_type -> collection.v1.CreateDeckConfigRequest
-	50, // 65: collection.v1.DeckService.UpdateDeckConfig:input_type -> collection.v1.UpdateDeckConfigRequest
-	52, // 66: collection.v1.DeckService.DeleteDeckConfig:input_type -> collection.v1.DeleteDeckConfigRequest
-	54, // 67: collection.v1.FilteredDeckService.ListFilteredDecks:input_type -> collection.v1.ListFilteredDecksRequest
-	56, // 68: collection.v1.FilteredDeckService.CreateFilteredDeck:input_type -> collection.v1.CreateFilteredDeckRequest
-	58, // 69: collection.v1.FilteredDeckService.DeleteFilteredDeck:input_type -> collection.v1.DeleteFilteredDeckRequest
-	60, // 70: collection.v1.CollectionInternalService.GetCardsByIDs:input_type -> collection.v1.GetCardsByIDsRequest
-	62, // 71: collection.v1.CollectionInternalService.GetNote:input_type -> collection.v1.CollectionInternalServiceGetNoteRequest
-	64, // 72: collection.v1.CollectionInternalService.RenderCard:input_type -> collection.v1.RenderCardRequest
-	66, // 73: collection.v1.CollectionInternalService.ListCardIDs:input_type -> collection.v1.ListCardIDsRequest
-	68, // 74: collection.v1.CollectionInternalService.GetSearchDocs:input_type -> collection.v1.GetSearchDocsRequest
-	12, // 75: collection.v1.NoteTypeService.ListNoteTypes:output_type -> collection.v1.ListNoteTypesResponse
-	14, // 76: collection.v1.NoteTypeService.GetNoteType:output_type -> collection.v1.GetNoteTypeResponse
-	16, // 77: collection.v1.NoteTypeService.CreateNoteType:output_type -> collection.v1.CreateNoteTypeResponse
-	18, // 78: collection.v1.NoteTypeService.UpdateNoteType:output_type -> collection.v1.UpdateNoteTypeResponse
-	20, // 79: collection.v1.NoteTypeService.DeleteNoteType:output_type -> collection.v1.DeleteNoteTypeResponse
-	22, // 80: collection.v1.NoteService.GetNote:output_type -> collection.v1.GetNoteResponse
-	24, // 81: collection.v1.NoteService.CreateNote:output_type -> collection.v1.CreateNoteResponse
-	26, // 82: collection.v1.NoteService.UpdateNote:output_type -> collection.v1.UpdateNoteResponse
-	28, // 83: collection.v1.NoteService.DeleteNote:output_type -> collection.v1.DeleteNoteResponse
-	30, // 84: collection.v1.CardService.GetCard:output_type -> collection.v1.GetCardResponse
-	33, // 85: collection.v1.CardService.BulkCards:output_type -> collection.v1.BulkCardsResponse
-	35, // 86: collection.v1.DeckService.ListDecks:output_type -> collection.v1.ListDecksResponse
-	37, // 87: collection.v1.DeckService.GetDeck:output_type -> collection.v1.GetDeckResponse
-	39, // 88: collection.v1.DeckService.CreateDeck:output_type -> collection.v1.CreateDeckResponse
-	41, // 89: collection.v1.DeckService.UpdateDeck:output_type -> collection.v1.UpdateDeckResponse
-	43, // 90: collection.v1.DeckService.DeleteDeck:output_type -> collection.v1.DeleteDeckResponse
-	45, // 91: collection.v1.DeckService.ListDeckConfigs:output_type -> collection.v1.ListDeckConfigsResponse
-	47, // 92: collection.v1.DeckService.GetDeckConfig:output_type -> collection.v1.GetDeckConfigResponse
-	49, // 93: collection.v1.DeckService.CreateDeckConfig:output_type -> collection.v1.CreateDeckConfigResponse
-	51, // 94: collection.v1.DeckService.UpdateDeckConfig:output_type -> collection.v1.UpdateDeckConfigResponse
-	53, // 95: collection.v1.DeckService.DeleteDeckConfig:output_type -> collection.v1.DeleteDeckConfigResponse
-	55, // 96: collection.v1.FilteredDeckService.ListFilteredDecks:output_type -> collection.v1.ListFilteredDecksResponse
-	57, // 97: collection.v1.FilteredDeckService.CreateFilteredDeck:output_type -> collection.v1.CreateFilteredDeckResponse
-	59, // 98: collection.v1.FilteredDeckService.DeleteFilteredDeck:output_type -> collection.v1.DeleteFilteredDeckResponse
-	61, // 99: collection.v1.CollectionInternalService.GetCardsByIDs:output_type -> collection.v1.GetCardsByIDsResponse
-	63, // 100: collection.v1.CollectionInternalService.GetNote:output_type -> collection.v1.CollectionInternalServiceGetNoteResponse
-	65, // 101: collection.v1.CollectionInternalService.RenderCard:output_type -> collection.v1.RenderCardResponse
-	67, // 102: collection.v1.CollectionInternalService.ListCardIDs:output_type -> collection.v1.ListCardIDsResponse
-	69, // 103: collection.v1.CollectionInternalService.GetSearchDocs:output_type -> collection.v1.GetSearchDocsResponse
-	75, // [75:104] is the sub-list for method output_type
-	46, // [46:75] is the sub-list for method input_type
-	46, // [46:46] is the sub-list for extension type_name
-	46, // [46:46] is the sub-list for extension extendee
-	0,  // [0:46] is the sub-list for field type_name
+	65, // 41: collection.v1.RenderCardsResponse.cards:type_name -> collection.v1.RenderedCard
+	71, // 42: collection.v1.GetSearchDocsResponse.docs:type_name -> collection.v1.SearchDoc
+	0,  // 43: collection.v1.SearchDoc.state:type_name -> collection.v1.CardState
+	76, // 44: collection.v1.SearchDoc.due:type_name -> google.protobuf.Timestamp
+	76, // 45: collection.v1.SearchDoc.added_at:type_name -> google.protobuf.Timestamp
+	75, // 46: collection.v1.SearchDoc.lang_text:type_name -> collection.v1.SearchDoc.LangTextEntry
+	11, // 47: collection.v1.NoteTypeService.ListNoteTypes:input_type -> collection.v1.ListNoteTypesRequest
+	13, // 48: collection.v1.NoteTypeService.GetNoteType:input_type -> collection.v1.GetNoteTypeRequest
+	15, // 49: collection.v1.NoteTypeService.CreateNoteType:input_type -> collection.v1.CreateNoteTypeRequest
+	17, // 50: collection.v1.NoteTypeService.UpdateNoteType:input_type -> collection.v1.UpdateNoteTypeRequest
+	19, // 51: collection.v1.NoteTypeService.DeleteNoteType:input_type -> collection.v1.DeleteNoteTypeRequest
+	21, // 52: collection.v1.NoteService.GetNote:input_type -> collection.v1.GetNoteRequest
+	23, // 53: collection.v1.NoteService.CreateNote:input_type -> collection.v1.CreateNoteRequest
+	25, // 54: collection.v1.NoteService.UpdateNote:input_type -> collection.v1.UpdateNoteRequest
+	27, // 55: collection.v1.NoteService.DeleteNote:input_type -> collection.v1.DeleteNoteRequest
+	29, // 56: collection.v1.CardService.GetCard:input_type -> collection.v1.GetCardRequest
+	31, // 57: collection.v1.CardService.BulkCards:input_type -> collection.v1.BulkCardsRequest
+	34, // 58: collection.v1.DeckService.ListDecks:input_type -> collection.v1.ListDecksRequest
+	36, // 59: collection.v1.DeckService.GetDeck:input_type -> collection.v1.GetDeckRequest
+	38, // 60: collection.v1.DeckService.CreateDeck:input_type -> collection.v1.CreateDeckRequest
+	40, // 61: collection.v1.DeckService.UpdateDeck:input_type -> collection.v1.UpdateDeckRequest
+	42, // 62: collection.v1.DeckService.DeleteDeck:input_type -> collection.v1.DeleteDeckRequest
+	44, // 63: collection.v1.DeckService.ListDeckConfigs:input_type -> collection.v1.ListDeckConfigsRequest
+	46, // 64: collection.v1.DeckService.GetDeckConfig:input_type -> collection.v1.GetDeckConfigRequest
+	48, // 65: collection.v1.DeckService.CreateDeckConfig:input_type -> collection.v1.CreateDeckConfigRequest
+	50, // 66: collection.v1.DeckService.UpdateDeckConfig:input_type -> collection.v1.UpdateDeckConfigRequest
+	52, // 67: collection.v1.DeckService.DeleteDeckConfig:input_type -> collection.v1.DeleteDeckConfigRequest
+	54, // 68: collection.v1.FilteredDeckService.ListFilteredDecks:input_type -> collection.v1.ListFilteredDecksRequest
+	56, // 69: collection.v1.FilteredDeckService.CreateFilteredDeck:input_type -> collection.v1.CreateFilteredDeckRequest
+	58, // 70: collection.v1.FilteredDeckService.DeleteFilteredDeck:input_type -> collection.v1.DeleteFilteredDeckRequest
+	60, // 71: collection.v1.CollectionInternalService.GetCardsByIDs:input_type -> collection.v1.GetCardsByIDsRequest
+	62, // 72: collection.v1.CollectionInternalService.GetNote:input_type -> collection.v1.CollectionInternalServiceGetNoteRequest
+	64, // 73: collection.v1.CollectionInternalService.RenderCards:input_type -> collection.v1.RenderCardsRequest
+	67, // 74: collection.v1.CollectionInternalService.ListCardIDs:input_type -> collection.v1.ListCardIDsRequest
+	69, // 75: collection.v1.CollectionInternalService.GetSearchDocs:input_type -> collection.v1.GetSearchDocsRequest
+	12, // 76: collection.v1.NoteTypeService.ListNoteTypes:output_type -> collection.v1.ListNoteTypesResponse
+	14, // 77: collection.v1.NoteTypeService.GetNoteType:output_type -> collection.v1.GetNoteTypeResponse
+	16, // 78: collection.v1.NoteTypeService.CreateNoteType:output_type -> collection.v1.CreateNoteTypeResponse
+	18, // 79: collection.v1.NoteTypeService.UpdateNoteType:output_type -> collection.v1.UpdateNoteTypeResponse
+	20, // 80: collection.v1.NoteTypeService.DeleteNoteType:output_type -> collection.v1.DeleteNoteTypeResponse
+	22, // 81: collection.v1.NoteService.GetNote:output_type -> collection.v1.GetNoteResponse
+	24, // 82: collection.v1.NoteService.CreateNote:output_type -> collection.v1.CreateNoteResponse
+	26, // 83: collection.v1.NoteService.UpdateNote:output_type -> collection.v1.UpdateNoteResponse
+	28, // 84: collection.v1.NoteService.DeleteNote:output_type -> collection.v1.DeleteNoteResponse
+	30, // 85: collection.v1.CardService.GetCard:output_type -> collection.v1.GetCardResponse
+	33, // 86: collection.v1.CardService.BulkCards:output_type -> collection.v1.BulkCardsResponse
+	35, // 87: collection.v1.DeckService.ListDecks:output_type -> collection.v1.ListDecksResponse
+	37, // 88: collection.v1.DeckService.GetDeck:output_type -> collection.v1.GetDeckResponse
+	39, // 89: collection.v1.DeckService.CreateDeck:output_type -> collection.v1.CreateDeckResponse
+	41, // 90: collection.v1.DeckService.UpdateDeck:output_type -> collection.v1.UpdateDeckResponse
+	43, // 91: collection.v1.DeckService.DeleteDeck:output_type -> collection.v1.DeleteDeckResponse
+	45, // 92: collection.v1.DeckService.ListDeckConfigs:output_type -> collection.v1.ListDeckConfigsResponse
+	47, // 93: collection.v1.DeckService.GetDeckConfig:output_type -> collection.v1.GetDeckConfigResponse
+	49, // 94: collection.v1.DeckService.CreateDeckConfig:output_type -> collection.v1.CreateDeckConfigResponse
+	51, // 95: collection.v1.DeckService.UpdateDeckConfig:output_type -> collection.v1.UpdateDeckConfigResponse
+	53, // 96: collection.v1.DeckService.DeleteDeckConfig:output_type -> collection.v1.DeleteDeckConfigResponse
+	55, // 97: collection.v1.FilteredDeckService.ListFilteredDecks:output_type -> collection.v1.ListFilteredDecksResponse
+	57, // 98: collection.v1.FilteredDeckService.CreateFilteredDeck:output_type -> collection.v1.CreateFilteredDeckResponse
+	59, // 99: collection.v1.FilteredDeckService.DeleteFilteredDeck:output_type -> collection.v1.DeleteFilteredDeckResponse
+	61, // 100: collection.v1.CollectionInternalService.GetCardsByIDs:output_type -> collection.v1.GetCardsByIDsResponse
+	63, // 101: collection.v1.CollectionInternalService.GetNote:output_type -> collection.v1.CollectionInternalServiceGetNoteResponse
+	66, // 102: collection.v1.CollectionInternalService.RenderCards:output_type -> collection.v1.RenderCardsResponse
+	68, // 103: collection.v1.CollectionInternalService.ListCardIDs:output_type -> collection.v1.ListCardIDsResponse
+	70, // 104: collection.v1.CollectionInternalService.GetSearchDocs:output_type -> collection.v1.GetSearchDocsResponse
+	76, // [76:105] is the sub-list for method output_type
+	47, // [47:76] is the sub-list for method input_type
+	47, // [47:47] is the sub-list for extension type_name
+	47, // [47:47] is the sub-list for extension extendee
+	0,  // [0:47] is the sub-list for field type_name
 }
 
 func init() { file_collection_v1_collection_proto_init() }
@@ -4865,7 +4912,7 @@ func file_collection_v1_collection_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_collection_v1_collection_proto_rawDesc), len(file_collection_v1_collection_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   73,
+			NumMessages:   74,
 			NumExtensions: 0,
 			NumServices:   6,
 		},

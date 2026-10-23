@@ -400,24 +400,48 @@ func (r *PostgresRepository) GetCard(ctx context.Context, userID, id string) (*C
 }
 
 func (r *PostgresRepository) GetCardRenderSource(ctx context.Context, userID, id string) (*CardRenderSource, error) {
-	var fields, templates []byte
-	c, err := scanCard(r.db.QueryRow(ctx, `
+	srcs, err := r.ListCardRenderSources(ctx, userID, []string{id})
+	if err != nil {
+		return nil, err
+	}
+	if len(srcs) == 0 {
+		return nil, platformerrors.NotFound("card not found")
+	}
+	return &srcs[0], nil
+}
+
+func (r *PostgresRepository) ListCardRenderSources(ctx context.Context, userID string, ids []string) ([]CardRenderSource, error) {
+	rows, err := r.db.Query(ctx, `
 		SELECT `+qualify("c", cardColumns)+`, n.fields, nt.card_templates
 		FROM cards c
 		JOIN notes n ON n.user_id = c.user_id AND n.id = c.note_id
 		JOIN note_types nt ON nt.user_id = n.user_id AND nt.id = n.note_type_id
-		WHERE c.user_id = $1 AND c.id = $2`, userID, id), &fields, &templates)
+		WHERE c.user_id = $1 AND c.id = ANY($2::uuid[])`, userID, ids)
 	if err != nil {
-		return nil, fmt.Errorf("collection: get card render source: %w", mapNoRows(err, "card not found"))
+		return nil, fmt.Errorf("collection: list card render sources: %w", err)
 	}
-	src := &CardRenderSource{Card: c}
-	if err := json.Unmarshal(fields, &src.Fields); err != nil {
-		return nil, fmt.Errorf("collection: decode note fields: %w", err)
+	defer rows.Close()
+
+	var srcs []CardRenderSource
+	for rows.Next() {
+		var fields, templates []byte
+		c, err := scanCard(rows, &fields, &templates)
+		if err != nil {
+			return nil, fmt.Errorf("collection: list card render sources scan: %w", err)
+		}
+		src := CardRenderSource{Card: c}
+		if err := json.Unmarshal(fields, &src.Fields); err != nil {
+			return nil, fmt.Errorf("collection: decode note fields: %w", err)
+		}
+		if err := json.Unmarshal(templates, &src.Templates); err != nil {
+			return nil, fmt.Errorf("collection: decode note type templates: %w", err)
+		}
+		srcs = append(srcs, src)
 	}
-	if err := json.Unmarshal(templates, &src.Templates); err != nil {
-		return nil, fmt.Errorf("collection: decode note type templates: %w", err)
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("collection: list card render sources rows: %w", err)
 	}
-	return src, nil
+	return srcs, nil
 }
 
 func (r *PostgresRepository) GetCardsByIDs(ctx context.Context, userID string, ids []string) ([]Card, error) {

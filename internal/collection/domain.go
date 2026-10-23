@@ -127,6 +127,12 @@ type CardRenderSource struct {
 	Templates []CardTemplate
 }
 
+// RenderedFront is one card's front HTML.
+type RenderedFront struct {
+	CardID string
+	Front  string
+}
+
 // Deck is a node in the hierarchical deck tree. Path is an ltree value encoding
 // the ancestor chain; ParentID/ConfigID are nullable.
 type Deck struct {
@@ -222,6 +228,8 @@ type Repository interface {
 	GetCard(ctx context.Context, userID, id string) (*Card, error)
 	// GetCardRenderSource loads a card with its note fields and note-type templates in one query.
 	GetCardRenderSource(ctx context.Context, userID, id string) (*CardRenderSource, error)
+	// ListCardRenderSources is the batch form; ids that don't exist are omitted.
+	ListCardRenderSources(ctx context.Context, userID string, ids []string) ([]CardRenderSource, error)
 	GetCardsByIDs(ctx context.Context, userID string, ids []string) ([]Card, error)
 	ListCardsByNote(ctx context.Context, userID, noteID string) ([]Card, error)
 	DeleteCard(ctx context.Context, userID, id string) error

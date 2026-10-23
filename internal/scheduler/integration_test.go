@@ -24,16 +24,26 @@ import (
 // stubCollectionClient embeds the interface so unused methods need no stubs.
 type stubCollectionClient struct {
 	collectionv1.CollectionInternalServiceClient
+	calls   int
+	missing map[string]bool // ids to leave out, as Collection does for deleted cards
 }
 
-func (stubCollectionClient) RenderCard(ctx context.Context, in *collectionv1.RenderCardRequest, opts ...grpc.CallOption) (*collectionv1.RenderCardResponse, error) {
-	return &collectionv1.RenderCardResponse{FrontHtml: "<div>front:" + in.GetCardId() + "</div>"}, nil
+func (s *stubCollectionClient) RenderCards(ctx context.Context, in *collectionv1.RenderCardsRequest, opts ...grpc.CallOption) (*collectionv1.RenderCardsResponse, error) {
+	s.calls++
+	resp := &collectionv1.RenderCardsResponse{}
+	for _, id := range in.GetCardIds() {
+		if !s.missing[id] {
+			resp.Cards = append(resp.Cards, &collectionv1.RenderedCard{CardId: id, FrontHtml: "<div>front:" + id + "</div>"})
+		}
+	}
+	return resp, nil
 }
 
 type integrationComponents struct {
 	pool *pgxpool.Pool
 	repo *PostgresRepository
 	svc  *Service
+	coll *stubCollectionClient
 }
 
 func setupIntegration(t *testing.T) integrationComponents {
@@ -77,8 +87,8 @@ func setupIntegration(t *testing.T) integrationComponents {
 	t.Cleanup(pool.Close)
 
 	repo := NewPostgresRepository(pool)
-	svc := NewService(repo, stubCollectionClient{}, zap.NewNop())
-	return integrationComponents{pool: pool, repo: repo, svc: svc}
+	coll := &stubCollectionClient{missing: map[string]bool{}}
+	return integrationComponents{pool: pool, repo: repo, svc: NewService(repo, coll, zap.NewNop()), coll: coll}
 }
 
 const (
@@ -626,5 +636,114 @@ func TestBuildQueue_UnburiesCardsFromPreviousDay(t *testing.T) {
 	}
 	if q := cardQueue(t, c, today); q != QueueBuried {
 		t.Fatalf("want card buried today to stay buried, got %d", q)
+	}
+}
+
+// ─── Rendering, counts and preview ────────────────────────────────────────────
+
+func TestBuildQueue_RendersInOneBatchAndSkipsMissing(t *testing.T) {
+	c := setupIntegration(t)
+	deck := insertDeck(t, c, "deck1", nil)
+	nt := insertNoteType(t, c)
+	var ids []string
+	for range 3 {
+		ids = append(ids, insertCard(t, c, insertNote(t, c, nt), deck, cardFixture{state: StateNew}))
+	}
+	c.coll.missing[ids[1]] = true
+
+	queue, err := c.svc.BuildQueue(context.Background(), testUserID, testProfileID, deck, 10)
+	if err != nil {
+		t.Fatalf("BuildQueue: %v", err)
+	}
+	if c.coll.calls != 1 {
+		t.Fatalf("want 1 render call, got %d", c.coll.calls)
+	}
+	if len(queue) != 2 || queue[0].Card.ID != ids[0] || queue[1].Card.ID != ids[2] {
+		t.Fatalf("want cards %s and %s in order, got %+v", ids[0], ids[2], queue)
+	}
+	if queue[1].FrontHTML != "<div>front:"+ids[2]+"</div>" {
+		t.Fatalf("front html not matched to its card: %q", queue[1].FrontHTML)
+	}
+}
+
+func TestBuildQueue_RendersInChunks(t *testing.T) {
+	c := setupIntegration(t)
+	cfg := insertDeckConfig(t, c, 100, 200)
+	deck := insertDeck(t, c, "deck1", &cfg)
+	newCards(t, c, deck, renderBatch+5)
+
+	queue, err := c.svc.BuildQueue(context.Background(), testUserID, testProfileID, deck, 100)
+	if err != nil {
+		t.Fatalf("BuildQueue: %v", err)
+	}
+	if len(queue) != renderBatch+5 || c.coll.calls != 2 {
+		t.Fatalf("want %d cards in 2 render calls, got %d cards in %d calls", renderBatch+5, len(queue), c.coll.calls)
+	}
+}
+
+func TestGetCounts_CountsBeyondOldCap(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+	cfg := insertDeckConfig(t, c, 20000, 200)
+	deck := insertDeck(t, c, "deck1", &cfg)
+	note := insertNote(t, c, insertNoteType(t, c))
+	if _, err := c.pool.Exec(ctx, `
+		INSERT INTO cards (id, user_id, profile_id, note_id, deck_id, state)
+		SELECT gen_random_uuid(), $1, $2, $3, $4, 0 FROM generate_series(1, 10001)`,
+		testUserID, testProfileID, note, deck); err != nil {
+		t.Fatalf("insert cards: %v", err)
+	}
+
+	counts, err := c.svc.GetCounts(ctx, testUserID, deck)
+	if err != nil {
+		t.Fatalf("GetCounts: %v", err)
+	}
+	if counts.New != 10001 {
+		t.Fatalf("want 10001 new, got %d", counts.New)
+	}
+}
+
+func TestGetCounts_NegativeLimitDoesNotWrap(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+	cfg := insertDeckConfig(t, c, math.MinInt32, 200)
+	deck := insertDeck(t, c, "deck1", &cfg)
+	nt := insertNoteType(t, c)
+	cardID := insertCard(t, c, insertNote(t, c, nt), deck, cardFixture{state: StateNew})
+	insertCard(t, c, insertNote(t, c, nt), deck, cardFixture{state: StateNew})
+	if _, err := c.pool.Exec(ctx, `
+		INSERT INTO review_logs (id, user_id, profile_id, card_id, deck_id, grade, prev_state, new_ivl)
+		VALUES ($1, $2, $3, $4, $5, 3, 0, 600)`,
+		ids.NewUUID(), testUserID, testProfileID, cardID, deck); err != nil {
+		t.Fatalf("insert review_log: %v", err)
+	}
+
+	counts, err := c.svc.GetCounts(ctx, testUserID, deck)
+	if err != nil {
+		t.Fatalf("GetCounts: %v", err)
+	}
+	if counts.New != 0 {
+		t.Fatalf("want 0 new under a negative limit, got %d", counts.New)
+	}
+}
+
+func TestPreview_DoesNotLockCard(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+	_, cardID := singleCard(t, c, cardFixture{state: StateNew})
+
+	tx, err := c.pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM cards WHERE user_id = $1 AND id = $2 FOR UPDATE`, testUserID, cardID); err != nil {
+		t.Fatalf("lock card: %v", err)
+	}
+
+	pctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	if _, err := c.svc.Preview(pctx, testUserID, cardID); err != nil {
+		t.Fatalf("Preview blocked behind a locked card: %v", err)
 	}
 }

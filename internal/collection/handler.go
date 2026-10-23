@@ -588,16 +588,20 @@ func (h *InternalHandler) GetNote(ctx context.Context, req *collectionv1.Collect
 	return &collectionv1.CollectionInternalServiceGetNoteResponse{Note: noteToProto(n)}, nil
 }
 
-func (h *InternalHandler) RenderCard(ctx context.Context, req *collectionv1.RenderCardRequest) (*collectionv1.RenderCardResponse, error) {
+func (h *InternalHandler) RenderCards(ctx context.Context, req *collectionv1.RenderCardsRequest) (*collectionv1.RenderCardsResponse, error) {
 	id, err := identity(ctx)
 	if err != nil {
 		return nil, err
 	}
-	_, front, back, err := h.svc.RenderCard(ctx, id.UserID, req.GetCardId())
+	rendered, err := h.svc.RenderCards(ctx, id.UserID, req.GetCardIds())
 	if err != nil {
 		return nil, err
 	}
-	return &collectionv1.RenderCardResponse{FrontHtml: front, BackHtml: back}, nil
+	resp := &collectionv1.RenderCardsResponse{Cards: make([]*collectionv1.RenderedCard, len(rendered))}
+	for i, r := range rendered {
+		resp.Cards[i] = &collectionv1.RenderedCard{CardId: r.CardID, FrontHtml: r.Front}
+	}
+	return resp, nil
 }
 
 func (h *InternalHandler) ListCardIDs(ctx context.Context, req *collectionv1.ListCardIDsRequest) (*collectionv1.ListCardIDsResponse, error) {

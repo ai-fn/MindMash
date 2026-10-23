@@ -113,6 +113,15 @@ func collectCards(rows pgx.Rows, op string) ([]Card, error) {
 	return cards, nil
 }
 
+func (r *PostgresRepository) GetCard(ctx context.Context, userID, cardID string) (*Card, error) {
+	c, err := scanCard(r.db.QueryRow(ctx,
+		`SELECT `+cardColumns+` FROM cards WHERE user_id = $1 AND id = $2`, userID, cardID))
+	if err != nil {
+		return nil, fmt.Errorf("scheduler: get card: %w", mapNoRows(err, "card not found"))
+	}
+	return c, nil
+}
+
 // LoadCardForUpdate locks the card row for the duration of the answer
 // transaction; must be called inside WithTx.
 func (r *PostgresRepository) LoadCardForUpdate(ctx context.Context, userID, cardID string) (*Card, error) {
@@ -173,6 +182,24 @@ func (r *PostgresRepository) ListNewCards(ctx context.Context, userID string, de
 		return nil, fmt.Errorf("scheduler: list new cards: %w", err)
 	}
 	return collectCards(rows, "list new cards")
+}
+
+// CountAvailable splits into two scans so each uses its partial index (cards_new, cards_due).
+func (r *PostgresRepository) CountAvailable(ctx context.Context, userID string, deckIDs []string, now time.Time) (Counts, error) {
+	var counts Counts
+	err := r.db.QueryRow(ctx, `
+		SELECT n.new, d.learning, d.review
+		FROM (SELECT COUNT(*) AS new FROM cards
+		      WHERE user_id = $1 AND deck_id = ANY($2::uuid[]) AND state = 0 AND queue >= 0) n,
+		     (SELECT COUNT(*) FILTER (WHERE state IN (1, 3)) AS learning,
+		             COUNT(*) FILTER (WHERE state = 2) AS review
+		      FROM cards
+		      WHERE user_id = $1 AND deck_id = ANY($2::uuid[]) AND queue >= 0 AND state <> 0 AND due <= $3) d`,
+		userID, deckIDs, now).Scan(&counts.New, &counts.Learning, &counts.Review)
+	if err != nil {
+		return Counts{}, fmt.Errorf("scheduler: count available: %w", err)
+	}
+	return counts, nil
 }
 
 // ListBuriedCardIDs reads the bury time from mtime, so any later write to a buried

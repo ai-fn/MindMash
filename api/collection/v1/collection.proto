@@ -189,7 +189,8 @@ service FilteredDeckService {
 service CollectionInternalService {
   rpc GetCardsByIDs(GetCardsByIDsRequest) returns (GetCardsByIDsResponse);
   rpc GetNote(CollectionInternalServiceGetNoteRequest) returns (CollectionInternalServiceGetNoteResponse);
-  rpc RenderCard(RenderCardRequest) returns (RenderCardResponse);
+  // RenderCards renders the fronts of a batch of cards; ids that don't exist are omitted.
+  rpc RenderCards(RenderCardsRequest) returns (RenderCardsResponse);
   rpc ListCardIDs(ListCardIDsRequest) returns (ListCardIDsResponse);
   // GetSearchDocs resolves a set of card/note/deck ids into the denormalized
   // card documents the Search service indexes. Exactly one of the id lists is
@@ -605,13 +606,17 @@ message CollectionInternalServiceGetNoteResponse {
   Note note = 1;
 }
 
-message RenderCardRequest {
-  string card_id = 1;
+message RenderCardsRequest {
+  repeated string card_ids = 1;
 }
 
-message RenderCardResponse {
-  string front_html = 1;
-  string back_html  = 2;
+message RenderedCard {
+  string card_id    = 1;
+  string front_html = 2;
+}
+
+message RenderCardsResponse {
+  repeated RenderedCard cards = 1;
 }
 
 message ListCardIDsRequest {

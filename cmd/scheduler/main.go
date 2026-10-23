@@ -1,7 +1,7 @@
 // Command scheduler runs the MindMesh Scheduler service: gRPC (StudyService)
 // plus a grpc-gateway REST edge, with health, metrics, JWKS JWT auth,
 // migrations, an outbox relay goroutine, and a
-// client connection to Collection's internal RenderCard RPC.
+// client connection to Collection's internal RenderCards RPC.
 package main
 
 import (
@@ -122,7 +122,7 @@ func run() error {
 
 	relay := events.NewRelay(pool, producer, logger, events.RelayConfig{Store: "scheduler"})
 
-	// Collection internal client (RenderCard), forwarding the caller's JWT.
+	// Collection internal client (RenderCards), forwarding the caller's JWT.
 	collAddr := envOr("COLLECTION_GRPC_ADDR", "localhost:9090")
 	collConn, err := grpcx.Dial(ctx, collAddr,
 		grpc.WithChainUnaryInterceptor(grpcx.ForwardAuthInterceptor()),

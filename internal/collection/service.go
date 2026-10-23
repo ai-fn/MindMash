@@ -402,28 +402,55 @@ func (s *Service) RenderCard(ctx context.Context, userID, cardID string) (card *
 	if err != nil {
 		return nil, "", "", err
 	}
-	card = src.Card
-
-	var tmplIdx, clozeOrd int
-	if isCloze(src.Templates) {
-		clozeOrd = card.TemplateOrd + 1
-	} else {
-		tmplIdx = card.TemplateOrd
-	}
-	if tmplIdx >= len(src.Templates) {
-		return nil, "", "", platformerrors.Internal("template ordinal out of range")
-	}
-	tmpl := src.Templates[tmplIdx]
-
-	front, err = template.Render(tmpl.Front, src.Fields, template.Opts{ClozeOrd: clozeOrd})
+	front, tmpl, clozeOrd, err := renderFront(src)
 	if err != nil {
-		return nil, "", "", platformerrors.Internal("render front: " + err.Error())
+		return nil, "", "", err
 	}
 	back, err = template.Render(tmpl.Back, src.Fields, template.Opts{ClozeOrd: clozeOrd, FrontSide: front, Back: true})
 	if err != nil {
 		return nil, "", "", platformerrors.Internal("render back: " + err.Error())
 	}
-	return card, front, back, nil
+	return src.Card, front, back, nil
+}
+
+// RenderCards renders the fronts of the caller's cards among cardIDs, skipping ids that don't exist.
+func (s *Service) RenderCards(ctx context.Context, userID string, cardIDs []string) ([]RenderedFront, error) {
+	if err := validate.IDs("card_ids", cardIDs); err != nil {
+		return nil, err
+	}
+	srcs, err := s.repo.ListCardRenderSources(ctx, userID, cardIDs)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]RenderedFront, len(srcs))
+	for i := range srcs {
+		front, _, _, err := renderFront(&srcs[i])
+		if err != nil {
+			return nil, err
+		}
+		out[i] = RenderedFront{CardID: srcs[i].Card.ID, Front: front}
+	}
+	return out, nil
+}
+
+// renderFront also returns the template and cloze ordinal the back render needs.
+func renderFront(src *CardRenderSource) (front string, tmpl CardTemplate, clozeOrd int, err error) {
+	var tmplIdx int
+	if isCloze(src.Templates) {
+		clozeOrd = src.Card.TemplateOrd + 1
+	} else {
+		tmplIdx = src.Card.TemplateOrd
+	}
+	if tmplIdx >= len(src.Templates) {
+		return "", CardTemplate{}, 0, platformerrors.Internal("template ordinal out of range")
+	}
+	tmpl = src.Templates[tmplIdx]
+
+	front, err = template.Render(tmpl.Front, src.Fields, template.Opts{ClozeOrd: clozeOrd})
+	if err != nil {
+		return "", CardTemplate{}, 0, platformerrors.Internal("render front: " + err.Error())
+	}
+	return front, tmpl, clozeOrd, nil
 }
 
 func (s *Service) GetCardsByIDs(ctx context.Context, userID string, cardIDs []string) ([]Card, error) {

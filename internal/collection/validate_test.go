@@ -109,6 +109,8 @@ func TestServiceRejectsInvalidInput(t *testing.T) {
 		{"DeleteNote id", func() error { return s.DeleteNote(ctx, u, bad, 1) }},
 
 		{"RenderCard id", func() error { _, _, _, err := s.RenderCard(ctx, u, bad); return err }},
+		{"RenderCards element", func() error { _, err := s.RenderCards(ctx, u, []string{u, bad}); return err }},
+		{"RenderCards cap", func() error { _, err := s.RenderCards(ctx, u, tooManyIDs); return err }},
 		{"GetCardsByIDs element", func() error { _, err := s.GetCardsByIDs(ctx, u, []string{u, bad}); return err }},
 		{"GetCardsByIDs cap", func() error { _, err := s.GetCardsByIDs(ctx, u, tooManyIDs); return err }},
 		{"ListCardIDs token", func() error { _, _, err := s.ListCardIDs(ctx, u, Page{Token: bad}); return err }},
