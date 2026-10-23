@@ -198,7 +198,7 @@ func GRPCServiceOrUserAuthInterceptor(users Verifier, services *ServiceVerifier,
 		}
 		r, ok := req.(interface{ GetUserId() string })
 		if !ok || !validate.IsUUID(r.GetUserId()) {
-			return nil, reject(caller, "invalid_user_id", status.Error(codes.InvalidArgument, "user_id must be a canonical UUID"), nil)
+			return nil, reject(caller, "invalid_user_id", errors.InvalidArgument("user_id must be a canonical UUID"), nil)
 		}
 		ctx = WithIdentity(ctx, IdentityContext{UserID: r.GetUserId(), Roles: []string{"service:" + caller}})
 		return handler(ctx, req)

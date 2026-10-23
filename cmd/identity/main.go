@@ -150,7 +150,7 @@ func run() error {
 	})
 
 	// REST gateway, registered in-process (no extra network hop), so it bypasses the gRPC interceptors.
-	gwMux := runtime.NewServeMux(runtime.WithErrorHandler(localizedErrorHandler), httpx.GatewayRoutes())
+	gwMux := runtime.NewServeMux(httpx.GatewayErrors(localizedErrorHandler), httpx.GatewayRoutes())
 	if err := identityv1.RegisterAuthServiceHandlerServer(ctx, gwMux, handler); err != nil {
 		return fmt.Errorf("identity: register auth gateway: %w", err)
 	}

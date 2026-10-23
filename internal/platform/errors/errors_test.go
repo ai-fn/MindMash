@@ -2,7 +2,6 @@ package errors_test
 
 import (
 	stderrors "errors"
-	"net/http"
 	"testing"
 
 	"google.golang.org/grpc/codes"
@@ -17,68 +16,57 @@ func TestAppErrorConstructors(t *testing.T) {
 		name         string
 		err          *apperrors.AppError
 		wantGRPC     codes.Code
-		wantHTTP     int
 		wantMsgInErr bool
 	}{
 		{
 			name:     "NotFound",
 			err:      apperrors.NotFound("user not found", sentinel),
 			wantGRPC: codes.NotFound,
-			wantHTTP: http.StatusNotFound,
 		},
 		{
 			name:     "AlreadyExists",
 			err:      apperrors.AlreadyExists("email taken", sentinel),
 			wantGRPC: codes.AlreadyExists,
-			wantHTTP: http.StatusConflict,
 		},
 		{
 			name:     "InvalidArgument",
 			err:      apperrors.InvalidArgument("bad input", sentinel),
 			wantGRPC: codes.InvalidArgument,
-			wantHTTP: http.StatusBadRequest,
 		},
 		{
 			name:     "FailedPrecondition",
 			err:      apperrors.FailedPrecondition("note type in use", sentinel),
 			wantGRPC: codes.FailedPrecondition,
-			wantHTTP: http.StatusBadRequest,
 		},
 		{
 			name:     "Aborted",
 			err:      apperrors.Aborted("stale write", sentinel),
 			wantGRPC: codes.Aborted,
-			wantHTTP: http.StatusConflict,
 		},
 		{
 			name:     "Unauthenticated",
 			err:      apperrors.Unauthenticated("missing token", sentinel),
 			wantGRPC: codes.Unauthenticated,
-			wantHTTP: http.StatusUnauthorized,
 		},
 		{
 			name:     "PermissionDenied",
 			err:      apperrors.PermissionDenied("forbidden", sentinel),
 			wantGRPC: codes.PermissionDenied,
-			wantHTTP: http.StatusForbidden,
 		},
 		{
 			name:     "Internal",
 			err:      apperrors.Internal("db failure", sentinel),
 			wantGRPC: codes.Internal,
-			wantHTTP: http.StatusInternalServerError,
 		},
 		{
 			name:     "Unavailable",
 			err:      apperrors.Unavailable("service down", sentinel),
 			wantGRPC: codes.Unavailable,
-			wantHTTP: http.StatusServiceUnavailable,
 		},
 		{
 			name:     "ResourceExhausted",
 			err:      apperrors.ResourceExhausted("slow down", sentinel),
 			wantGRPC: codes.ResourceExhausted,
-			wantHTTP: http.StatusTooManyRequests,
 		},
 	}
 
@@ -90,10 +78,6 @@ func TestAppErrorConstructors(t *testing.T) {
 
 			if tc.err.Message == "" {
 				t.Error("Message must not be empty")
-			}
-
-			if got := apperrors.HTTPStatus(tc.err); got != tc.wantHTTP {
-				t.Errorf("HTTPStatus: got %d, want %d", got, tc.wantHTTP)
 			}
 
 			// GRPCStatus must carry the same code and message.
@@ -121,23 +105,6 @@ func TestErrorsAsWrapping(t *testing.T) {
 	}
 	if target.Code != codes.Internal {
 		t.Errorf("expected Internal, got %v", target.Code)
-	}
-}
-
-func TestHTTPStatusNoCause(t *testing.T) {
-	err := apperrors.NotFound("not found")
-	if err.Unwrap() != nil {
-		t.Error("Unwrap should return nil when no cause provided")
-	}
-	if got := apperrors.HTTPStatus(err); got != http.StatusNotFound {
-		t.Errorf("HTTPStatus without cause: got %d, want 404", got)
-	}
-}
-
-func TestHTTPStatusUnknownError(t *testing.T) {
-	plain := stderrors.New("something went wrong")
-	if got := apperrors.HTTPStatus(plain); got != http.StatusInternalServerError {
-		t.Errorf("HTTPStatus for non-AppError: got %d, want 500", got)
 	}
 }
 

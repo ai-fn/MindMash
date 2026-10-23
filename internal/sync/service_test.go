@@ -1186,3 +1186,45 @@ func TestApply_FilteredDeckDelete_HappyPath_WiredToDeleteFilteredDeck(t *testing
 // Subscribe/Notify are Redis-backed (see internal/sync's package doc on why
 // an in-process map doesn't work across replicas) and so need a real Redis;
 // they're exercised in integration_test.go instead of here.
+
+func TestApply_FailureReasonHidesDownstreamDetail(t *testing.T) {
+	coll := &fakeCollectionClient{
+		getNote: func(context.Context, *collectionv1.GetNoteRequest) (*collectionv1.GetNoteResponse, error) {
+			return nil, status.Error(codes.Unavailable, "connection error: dial tcp 10.0.3.7:9090: connect: connection refused")
+		},
+	}
+	svc := newApplyTestService(&fakeRepository{}, coll)
+	m := Mutation{
+		OpID: "op1", Type: MutationNoteUpdate, EntityID: "n1", BaseUSN: 1,
+		ClientMtime: mustTime(t, "2024-01-02T00:00:00Z"),
+		Note:        &NotePayload{Fields: map[string]string{"Front": "new"}},
+	}
+	results, _, err := svc.Apply(context.Background(), "u1", []Mutation{m})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if len(results) != 1 || results[0].Outcome != OutcomeFailed || results[0].Reason != "service unavailable" {
+		t.Fatalf("want a failed result with only the public reason, got %+v", results)
+	}
+}
+
+func TestApply_FailureReasonKeepsCollectionsVerdictOnTheMutation(t *testing.T) {
+	coll := &fakeCollectionClient{
+		getNote: func(context.Context, *collectionv1.GetNoteRequest) (*collectionv1.GetNoteResponse, error) {
+			return nil, fmt.Errorf("sync: get note: %w", status.Error(codes.FailedPrecondition, "note type has notes"))
+		},
+	}
+	svc := newApplyTestService(&fakeRepository{}, coll)
+	m := Mutation{
+		OpID: "op1", Type: MutationNoteUpdate, EntityID: "n1", BaseUSN: 1,
+		ClientMtime: mustTime(t, "2024-01-02T00:00:00Z"),
+		Note:        &NotePayload{Fields: map[string]string{"Front": "new"}},
+	}
+	results, _, err := svc.Apply(context.Background(), "u1", []Mutation{m})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if len(results) != 1 || results[0].Reason != "note type has notes" {
+		t.Fatalf("want collection's own message on the user's mutation, got %+v", results)
+	}
+}

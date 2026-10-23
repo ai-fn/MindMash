@@ -9,8 +9,10 @@ import (
 	"runtime/debug"
 	"time"
 
+	apperrors "github.com/mindmesh/mindmesh/internal/platform/errors"
 	"github.com/mindmesh/mindmesh/internal/platform/log"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -38,7 +40,7 @@ func DefaultConfig(addr string) Config {
 
 // Options configure the gRPC server.
 type Options struct {
-	UnaryInterceptors  []grpc.UnaryServerInterceptor  // applied in order (after the built-in logging/metrics + recovery)
+	UnaryInterceptors  []grpc.UnaryServerInterceptor  // applied in order (after the built-in logging/metrics, sanitizing, recovery)
 	StreamInterceptors []grpc.StreamServerInterceptor // same, for streaming RPCs
 	Register           func(*grpc.Server)             // registers application services; called in New
 	Reflection         bool                           // dev only: exposes the full API schema unauthenticated
@@ -51,7 +53,7 @@ type Server struct {
 	health     *health.Server
 }
 
-// New builds a Server with logging/metrics + recovery interceptors prepended to
+// New builds a Server with logging/metrics, error sanitizing and recovery interceptors prepended to
 // opts.Unary/StreamInterceptors, registers the health service (and reflection
 // when enabled), and calls opts.Register to register application services.
 func New(cfg Config, opts Options) *Server {
@@ -80,12 +82,20 @@ func New(cfg Config, opts Options) *Server {
 		return err
 	}
 
+	sanitizeInterceptor := func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		resp, err := handler(ctx, req)
+		return resp, sanitize(ctx, info.FullMethod, err)
+	}
+	streamSanitizeInterceptor := func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		return sanitize(ss.Context(), info.FullMethod, handler(srv, ss))
+	}
+
 	unary := append(
-		[]grpc.UnaryServerInterceptor{observeInterceptor, recoveryInterceptor},
+		[]grpc.UnaryServerInterceptor{observeInterceptor, sanitizeInterceptor, recoveryInterceptor},
 		opts.UnaryInterceptors...,
 	)
 	stream := append(
-		[]grpc.StreamServerInterceptor{streamObserveInterceptor, streamRecoveryInterceptor},
+		[]grpc.StreamServerInterceptor{streamObserveInterceptor, streamSanitizeInterceptor, streamRecoveryInterceptor},
 		opts.StreamInterceptors...,
 	)
 
@@ -122,6 +132,16 @@ func recoverPanic(method string, err *error) {
 		)
 		*err = status.Error(codes.Internal, "internal")
 	}
+}
+
+// sanitize keeps causes server-side: clients get a fixed message for server faults.
+func sanitize(ctx context.Context, method string, err error) error {
+	pub, logCause := apperrors.Public(err)
+	if logCause {
+		log.L().Error("grpcx: internal error", zap.String("method", method), zap.Error(err),
+			zap.String("trace_id", trace.SpanContextFromContext(ctx).TraceID().String()))
+	}
+	return pub
 }
 
 func observe(method string, start time.Time, err error) {

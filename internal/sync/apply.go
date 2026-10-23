@@ -2,9 +2,12 @@ package sync
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	"go.opentelemetry.io/otel/trace"
+	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -155,7 +158,7 @@ func (s *Service) applyNoteTypeUpdate(ctx context.Context, m Mutation) (ApplyRes
 		if st, ok := status.FromError(err); ok && st.Code() == codes.NotFound {
 			return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: "note type not found"}, true
 		}
-		return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: err.Error()}, false
+		return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: s.failureReason(ctx, m, err)}, false
 	}
 	server := getResp.GetNoteType()
 
@@ -184,7 +187,7 @@ func (s *Service) applyNoteTypeUpdate(ctx context.Context, m Mutation) (ApplyRes
 		if st, ok := status.FromError(err); ok && st.Code() == codes.Aborted {
 			return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: "concurrent write race, retry"}, false
 		}
-		return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: err.Error()}, false
+		return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: s.failureReason(ctx, m, err)}, false
 	}
 
 	outcome := OutcomeApplied
@@ -203,7 +206,7 @@ func (s *Service) applyNoteTypeDelete(ctx context.Context, m Mutation) (ApplyRes
 		if st, ok := status.FromError(err); ok && st.Code() == codes.NotFound {
 			return ApplyResult{OpID: m.OpID, Outcome: OutcomeApplied, Reason: "already deleted"}, true
 		}
-		return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: err.Error()}, false
+		return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: s.failureReason(ctx, m, err)}, false
 	}
 	server := getResp.GetNoteType()
 
@@ -219,7 +222,7 @@ func (s *Service) applyNoteTypeDelete(ctx context.Context, m Mutation) (ApplyRes
 		if st, ok := status.FromError(err); ok && st.Code() == codes.Aborted {
 			return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: "concurrent write race, retry"}, false
 		}
-		return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: err.Error()}, false
+		return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: s.failureReason(ctx, m, err)}, false
 	}
 	return ApplyResult{OpID: m.OpID, Outcome: OutcomeApplied}, true
 }
@@ -247,7 +250,7 @@ func (s *Service) applyNoteUpdate(ctx context.Context, m Mutation) (ApplyResult,
 		if st, ok := status.FromError(err); ok && st.Code() == codes.NotFound {
 			return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: "note not found"}, true
 		}
-		return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: err.Error()}, false
+		return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: s.failureReason(ctx, m, err)}, false
 	}
 	server := getResp.GetNote()
 
@@ -267,7 +270,7 @@ func (s *Service) applyNoteUpdate(ctx context.Context, m Mutation) (ApplyResult,
 		if st, ok := status.FromError(err); ok && st.Code() == codes.Aborted {
 			return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: "concurrent write race, retry"}, false
 		}
-		return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: err.Error()}, false
+		return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: s.failureReason(ctx, m, err)}, false
 	}
 
 	outcome := OutcomeApplied
@@ -283,7 +286,7 @@ func (s *Service) applyNoteDelete(ctx context.Context, m Mutation) (ApplyResult,
 		if st, ok := status.FromError(err); ok && st.Code() == codes.NotFound {
 			return ApplyResult{OpID: m.OpID, Outcome: OutcomeApplied, Reason: "already deleted"}, true
 		}
-		return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: err.Error()}, false
+		return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: s.failureReason(ctx, m, err)}, false
 	}
 	server := getResp.GetNote()
 
@@ -299,7 +302,7 @@ func (s *Service) applyNoteDelete(ctx context.Context, m Mutation) (ApplyResult,
 		if st, ok := status.FromError(err); ok && st.Code() == codes.Aborted {
 			return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: "concurrent write race, retry"}, false
 		}
-		return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: err.Error()}, false
+		return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: s.failureReason(ctx, m, err)}, false
 	}
 	return ApplyResult{OpID: m.OpID, Outcome: OutcomeApplied}, true
 }
@@ -334,7 +337,7 @@ func (s *Service) applyDeckUpdate(ctx context.Context, m Mutation) (ApplyResult,
 		if st, ok := status.FromError(err); ok && st.Code() == codes.NotFound {
 			return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: "deck not found"}, true
 		}
-		return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: err.Error()}, false
+		return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: s.failureReason(ctx, m, err)}, false
 	}
 	server := getResp.GetDeck()
 
@@ -354,7 +357,7 @@ func (s *Service) applyDeckUpdate(ctx context.Context, m Mutation) (ApplyResult,
 		if st, ok := status.FromError(err); ok && st.Code() == codes.Aborted {
 			return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: "concurrent write race, retry"}, false
 		}
-		return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: err.Error()}, false
+		return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: s.failureReason(ctx, m, err)}, false
 	}
 
 	outcome := OutcomeApplied
@@ -370,7 +373,7 @@ func (s *Service) applyDeckDelete(ctx context.Context, m Mutation) (ApplyResult,
 		if st, ok := status.FromError(err); ok && st.Code() == codes.NotFound {
 			return ApplyResult{OpID: m.OpID, Outcome: OutcomeApplied, Reason: "already deleted"}, true
 		}
-		return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: err.Error()}, false
+		return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: s.failureReason(ctx, m, err)}, false
 	}
 	server := getResp.GetDeck()
 
@@ -386,7 +389,7 @@ func (s *Service) applyDeckDelete(ctx context.Context, m Mutation) (ApplyResult,
 		if st, ok := status.FromError(err); ok && st.Code() == codes.Aborted {
 			return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: "concurrent write race, retry"}, false
 		}
-		return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: err.Error()}, false
+		return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: s.failureReason(ctx, m, err)}, false
 	}
 	return ApplyResult{OpID: m.OpID, Outcome: OutcomeApplied}, true
 }
@@ -418,7 +421,7 @@ func (s *Service) applyDeckConfigUpdate(ctx context.Context, m Mutation) (ApplyR
 		if st, ok := status.FromError(err); ok && st.Code() == codes.NotFound {
 			return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: "deck config not found"}, true
 		}
-		return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: err.Error()}, false
+		return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: s.failureReason(ctx, m, err)}, false
 	}
 	server := getResp.GetDeckConfig()
 
@@ -440,7 +443,7 @@ func (s *Service) applyDeckConfigUpdate(ctx context.Context, m Mutation) (ApplyR
 		if st, ok := status.FromError(err); ok && st.Code() == codes.Aborted {
 			return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: "concurrent write race, retry"}, false
 		}
-		return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: err.Error()}, false
+		return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: s.failureReason(ctx, m, err)}, false
 	}
 
 	outcome := OutcomeApplied
@@ -459,7 +462,7 @@ func (s *Service) applyDeckConfigDelete(ctx context.Context, m Mutation) (ApplyR
 		if st, ok := status.FromError(err); ok && st.Code() == codes.NotFound {
 			return ApplyResult{OpID: m.OpID, Outcome: OutcomeApplied, Reason: "already deleted"}, true
 		}
-		return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: err.Error()}, false
+		return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: s.failureReason(ctx, m, err)}, false
 	}
 	server := getResp.GetDeckConfig()
 
@@ -475,7 +478,7 @@ func (s *Service) applyDeckConfigDelete(ctx context.Context, m Mutation) (ApplyR
 		if st, ok := status.FromError(err); ok && st.Code() == codes.Aborted {
 			return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: "concurrent write race, retry"}, false
 		}
-		return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: err.Error()}, false
+		return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: s.failureReason(ctx, m, err)}, false
 	}
 	return ApplyResult{OpID: m.OpID, Outcome: OutcomeApplied}, true
 }
@@ -518,7 +521,7 @@ func (s *Service) applyFilteredDeckDelete(ctx context.Context, _ string, m Mutat
 				return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: "concurrent write race, retry"}, false
 			}
 		}
-		return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: err.Error()}, false
+		return ApplyResult{OpID: m.OpID, Outcome: OutcomeFailed, Reason: s.failureReason(ctx, m, err)}, false
 	}
 	return ApplyResult{OpID: m.OpID, Outcome: OutcomeApplied}, true
 }
@@ -559,4 +562,20 @@ func (s *Service) replayResult(ctx context.Context, m Mutation, prior AppliedOp)
 	}
 
 	return res
+}
+
+// failureReason is what the client sees in an apply result, which no error edge sanitizes.
+func (s *Service) failureReason(ctx context.Context, m Mutation, err error) string {
+	// Collection judged the user's own mutation (sync forwards their JWT), so its client errors
+	// are about the request and their messages, already sanitized there, pass through.
+	var gs interface{ GRPCStatus() *status.Status }
+	if errors.As(err, &gs) && !platformerrors.ServerFault(gs.GRPCStatus().Code()) {
+		return gs.GRPCStatus().Message()
+	}
+	pub, logCause := platformerrors.Public(err)
+	if logCause {
+		s.log.Error("sync: apply mutation failed", zap.String("op_id", m.OpID), zap.Int("type", int(m.Type)),
+			zap.Error(err), zap.String("trace_id", trace.SpanContextFromContext(ctx).TraceID().String()))
+	}
+	return status.Convert(pub).Message()
 }

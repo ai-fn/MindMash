@@ -408,7 +408,7 @@ func (s *Service) RenderCard(ctx context.Context, userID, cardID string) (card *
 	}
 	back, err = template.Render(tmpl.Back, src.Fields, template.Opts{ClozeOrd: clozeOrd, FrontSide: front, Back: true})
 	if err != nil {
-		return nil, "", "", platformerrors.Internal("render back: " + err.Error())
+		return nil, "", "", platformerrors.Internal("render back", err)
 	}
 	return src.Card, front, back, nil
 }
@@ -448,7 +448,7 @@ func renderFront(src *CardRenderSource) (front string, tmpl CardTemplate, clozeO
 
 	front, err = template.Render(tmpl.Front, src.Fields, template.Opts{ClozeOrd: clozeOrd})
 	if err != nil {
-		return "", CardTemplate{}, 0, platformerrors.Internal("render front: " + err.Error())
+		return "", CardTemplate{}, 0, platformerrors.Internal("render front", err)
 	}
 	return front, tmpl, clozeOrd, nil
 }

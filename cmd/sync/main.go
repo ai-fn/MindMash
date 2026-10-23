@@ -168,7 +168,7 @@ func run() error {
 		},
 	})
 
-	gwMux := runtime.NewServeMux(httpx.GatewayRoutes())
+	gwMux := runtime.NewServeMux(httpx.GatewayRoutes(), httpx.GatewayErrors(nil))
 	if err := syncv1.RegisterSyncServiceHandlerServer(ctx, gwMux, handler); err != nil {
 		return fmt.Errorf("sync: register gateway: %w", err)
 	}

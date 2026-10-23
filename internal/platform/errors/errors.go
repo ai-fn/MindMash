@@ -1,9 +1,11 @@
 package errors
 
 import (
+	"context"
 	"errors"
-	"net/http"
+	"strings"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"golang.org/x/text/message"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -123,34 +125,6 @@ func Unimplemented(msg string, cause ...error) *AppError {
 	return newAppError(codes.Unimplemented, msg, cause)
 }
 
-// grpcToHTTP mirrors the mapping used by grpc-gateway's runtime.HTTPStatusFromCode.
-var grpcToHTTP = map[codes.Code]int{
-	codes.NotFound:           http.StatusNotFound,
-	codes.AlreadyExists:      http.StatusConflict,
-	codes.Aborted:            http.StatusConflict,
-	codes.FailedPrecondition: http.StatusBadRequest,
-	codes.InvalidArgument:    http.StatusBadRequest,
-	codes.Unauthenticated:    http.StatusUnauthorized,
-	codes.PermissionDenied:   http.StatusForbidden,
-	codes.Internal:           http.StatusInternalServerError,
-	codes.Unavailable:        http.StatusServiceUnavailable,
-	codes.ResourceExhausted:  http.StatusTooManyRequests,
-	codes.Unimplemented:      http.StatusNotImplemented,
-}
-
-// HTTPStatus extracts the HTTP status code that corresponds to err.
-// It unwraps the error chain looking for an *AppError; if none is found it
-// returns 500.
-func HTTPStatus(err error) int {
-	var ae *AppError
-	if errors.As(err, &ae) {
-		if code, ok := grpcToHTTP[ae.Code]; ok {
-			return code
-		}
-	}
-	return http.StatusInternalServerError
-}
-
 func is(err error, code codes.Code) bool {
 	var ae *AppError
 	return errors.As(err, &ae) && ae.Code == code
@@ -167,3 +141,75 @@ func IsFailedPrecondition(err error) bool { return is(err, codes.FailedPrecondit
 func IsAborted(err error) bool { return is(err, codes.Aborted) }
 
 func IsUnauthenticated(err error) bool { return is(err, codes.Unauthenticated) }
+
+// serverFaults hide their message from clients: it describes our internals, not the request.
+var serverFaults = map[codes.Code]string{
+	codes.Unknown:          "internal error",
+	codes.Internal:         "internal error",
+	codes.DataLoss:         "internal error",
+	codes.Unavailable:      "service unavailable",
+	codes.DeadlineExceeded: "deadline exceeded",
+}
+
+// ServerFault reports whether code describes our failure rather than the request.
+func ServerFault(code codes.Code) bool { return serverFaults[code] != "" }
+
+// downstreamPassthrough are the codes from an internal call that describe the user's request
+// (its resource, its credentials); any other client code means the calling service erred.
+var downstreamPassthrough = map[codes.Code]bool{
+	codes.NotFound:         true,
+	codes.AlreadyExists:    true,
+	codes.Aborted:          true,
+	codes.PermissionDenied: true,
+	codes.Unauthenticated:  true,
+	codes.Canceled:         true,
+}
+
+// Public returns what a client may see of err: the unwrapped *AppError for client errors (edges
+// localize it), else a status with a fixed message. logCause reports that err itself should be
+// logged: a server fault, or bad input that only SQL caught.
+func Public(err error) (public error, logCause bool) {
+	if err == nil {
+		return nil, false
+	}
+	var ae *AppError
+	if errors.As(err, &ae) {
+		if ServerFault(ae.Code) {
+			return status.Error(ae.Code, serverFaults[ae.Code]), true
+		}
+		return ae, false
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch {
+		case strings.HasPrefix(pgErr.Code, "22"): // data exception: the input, not the server
+			return status.Error(codes.InvalidArgument, "invalid argument"), true
+		case pgErr.Code == "40001" || pgErr.Code == "40P01":
+			return status.Error(codes.Aborted, "conflict, retry"), true
+		}
+		return status.Error(codes.Internal, "internal error"), true
+	}
+	switch {
+	case errors.Is(err, context.Canceled):
+		return status.Error(codes.Canceled, "request canceled"), false
+	case errors.Is(err, context.DeadlineExceeded):
+		return status.Error(codes.DeadlineExceeded, "deadline exceeded"), true
+	}
+	// The inner status, not status.FromError: that one would surface the wrapper's text.
+	var gs interface{ GRPCStatus() *status.Status }
+	if errors.As(err, &gs) {
+		st := gs.GRPCStatus()
+		switch code := st.Code(); {
+		case code == codes.Internal: // our services log their own faults (and recovery logs panics)
+			return status.Error(codes.Internal, "internal error"), false
+		case ServerFault(code):
+			if code == codes.Unknown || code == codes.DataLoss {
+				code = codes.Internal
+			}
+			return status.Error(code, serverFaults[st.Code()]), true
+		case downstreamPassthrough[code]:
+			return status.Error(code, st.Message()), false
+		}
+	}
+	return status.Error(codes.Internal, "internal error"), true
+}

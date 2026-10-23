@@ -128,7 +128,7 @@ func run() error {
 		},
 	})
 
-	gwMux := runtime.NewServeMux(httpx.GatewayRoutes())
+	gwMux := runtime.NewServeMux(httpx.GatewayRoutes(), httpx.GatewayErrors(nil))
 	if err := analyticsv1.RegisterAnalyticsServiceHandlerServer(ctx, gwMux, handler); err != nil {
 		return fmt.Errorf("analytics: register analytics gateway: %w", err)
 	}
