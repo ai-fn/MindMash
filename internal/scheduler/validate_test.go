@@ -12,7 +12,7 @@ import (
 // unreachableRepo panics on any call, so a case passes only if validation rejects the input first.
 type unreachableRepo struct{ Repository }
 
-func TestServiceRejectsInvalidIDs(t *testing.T) {
+func TestServiceRejectsInvalidInput(t *testing.T) {
 	const (
 		u   = "0190f3a8-7b2c-7d4e-9f00-123456789abc"
 		bad = "not-a-uuid"
@@ -27,7 +27,11 @@ func TestServiceRejectsInvalidIDs(t *testing.T) {
 		{"BuildQueue deck", func() error { _, err := s.BuildQueue(ctx, u, u, bad, 10); return err }},
 		{"BuildQueue empty deck", func() error { _, err := s.BuildQueue(ctx, u, u, "", 10); return err }},
 		{"Preview card", func() error { _, err := s.Preview(ctx, u, bad); return err }},
-		{"Answer card", func() error { _, _, err := s.Answer(ctx, u, u, bad, Good, 1000); return err }},
+		{"Answer card", func() error { _, _, err := s.Answer(ctx, u, u, bad, "", Good, 1000); return err }},
+		{"Answer unspecified grade", func() error { _, _, err := s.Answer(ctx, u, u, u, "", 0, 1000); return err }},
+		{"Answer grade above easy", func() error { _, _, err := s.Answer(ctx, u, u, u, "", Easy+1, 1000); return err }},
+		{"Answer client review id", func() error { _, _, err := s.Answer(ctx, u, u, u, bad, Good, 1000); return err }},
+		{"Reschedule unknown action", func() error { _, err := s.Reschedule(ctx, u, u, 0); return err }},
 		{"GetCounts deck", func() error { _, err := s.GetCounts(ctx, u, bad); return err }},
 		{"Reschedule card", func() error { _, err := s.Reschedule(ctx, u, bad, ActionSuspend); return err }},
 	}

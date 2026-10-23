@@ -122,7 +122,7 @@ func (h *Handler) Answer(ctx context.Context, req *schedulerv1.AnswerRequest) (*
 	if err != nil {
 		return nil, err
 	}
-	c, preview, err := h.svc.Answer(ctx, id.UserID, id.ProfileID, req.GetCardId(), gradeFromProto(req.GetGrade()), req.GetTimeMs())
+	c, preview, err := h.svc.Answer(ctx, id.UserID, id.ProfileID, req.GetCardId(), req.GetClientReviewId(), gradeFromProto(req.GetGrade()), req.GetTimeMs())
 	if err != nil {
 		return nil, err
 	}

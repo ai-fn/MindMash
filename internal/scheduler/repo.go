@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -160,18 +161,47 @@ func (r *PostgresRepository) ListDueCards(ctx context.Context, userID string, de
 	return collectCards(rows, "list due cards")
 }
 
-// ListNewCards returns new cards in deckIDs ordered by id (ULID, time-sortable)
-// ascending. Uses the cards_new partial index (state = 0).
+// ListNewCards returns unsuspended, unburied new cards in deckIDs ordered by id
+// (ULID, time-sortable) ascending. Uses the cards_new partial index.
 func (r *PostgresRepository) ListNewCards(ctx context.Context, userID string, deckIDs []string, limit int) ([]Card, error) {
 	rows, err := r.db.Query(ctx,
 		`SELECT `+cardColumns+` FROM cards
-		 WHERE user_id = $1 AND deck_id = ANY($2::uuid[]) AND state = 0
+		 WHERE user_id = $1 AND deck_id = ANY($2::uuid[]) AND state = 0 AND queue >= 0
 		 ORDER BY id ASC LIMIT $3`,
 		userID, deckIDs, limit)
 	if err != nil {
 		return nil, fmt.Errorf("scheduler: list new cards: %w", err)
 	}
 	return collectCards(rows, "list new cards")
+}
+
+// ListBuriedCardIDs reads the bury time from mtime, so any later write to a buried
+// card keeps it buried until the next day. Locks in id order so callers can take user_usn after.
+func (r *PostgresRepository) ListBuriedCardIDs(ctx context.Context, userID string, deckIDs []string, before time.Time) ([]string, error) {
+	rows, err := r.db.Query(ctx,
+		`SELECT id FROM cards WHERE user_id = $1 AND deck_id = ANY($2::uuid[]) AND queue = -2 AND mtime < $3
+		 ORDER BY id FOR UPDATE`,
+		userID, deckIDs, before)
+	if err != nil {
+		return nil, fmt.Errorf("scheduler: list buried cards: %w", err)
+	}
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, fmt.Errorf("scheduler: list buried cards: %w", err)
+	}
+	return ids, nil
+}
+
+func (r *PostgresRepository) UnburyCards(ctx context.Context, userID string, cardIDs []string, usn int64) ([]Card, error) {
+	rows, err := r.db.Query(ctx,
+		`UPDATE cards SET queue = 0, usn = $3, mtime = now()
+		 WHERE user_id = $1 AND id = ANY($2::uuid[]) AND queue = -2
+		 RETURNING `+cardColumns,
+		userID, cardIDs, usn)
+	if err != nil {
+		return nil, fmt.Errorf("scheduler: unbury cards: %w", err)
+	}
+	return collectCards(rows, "unbury cards")
 }
 
 // ─── Deck / DeckConfig ───────────────────────────────────────────────────────
@@ -265,14 +295,34 @@ func (r *PostgresRepository) CountReviewedToday(ctx context.Context, userID stri
 
 func (r *PostgresRepository) InsertReviewLog(ctx context.Context, rl *ReviewLog) error {
 	_, err := r.db.Exec(ctx, `
-		INSERT INTO review_logs (id, user_id, profile_id, card_id, deck_id, grade, prev_state, prev_ivl, new_ivl, time_ms, ts)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+		INSERT INTO review_logs (id, user_id, profile_id, card_id, deck_id, grade, prev_state, prev_ivl, new_ivl, time_ms, ts, client_review_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULLIF($12, '')::uuid)`,
 		rl.ID, rl.UserID, rl.ProfileID, rl.CardID, rl.DeckID, int16(rl.Grade), int16(rl.PrevState),
-		rl.PrevIvl, rl.NewIvl, rl.TimeMs, rl.Ts)
+		rl.PrevIvl, rl.NewIvl, rl.TimeMs, rl.Ts, rl.ClientReviewID)
 	if err != nil {
+		// Reached only when the same key is used concurrently on two cards; the card lock serializes same-card retries.
+		// Prefix match: Citus suffixes shard ids to index names.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && strings.HasPrefix(pgErr.ConstraintName, "rl_client_review") {
+			return platformerrors.InvalidArgument("client_review_id was already used for another card")
+		}
 		return fmt.Errorf("scheduler: insert review log: %w", err)
 	}
 	return nil
+}
+
+func (r *PostgresRepository) ReviewedCardID(ctx context.Context, userID, clientReviewID string) (string, bool, error) {
+	var cardID string
+	err := r.db.QueryRow(ctx,
+		`SELECT card_id FROM review_logs WHERE user_id = $1 AND client_review_id = $2`,
+		userID, clientReviewID).Scan(&cardID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("scheduler: find review by client id: %w", err)
+	}
+	return cardID, true, nil
 }
 
 // ─── Outbox ──────────────────────────────────────────────────────────────────

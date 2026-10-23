@@ -4,7 +4,10 @@
 CREATE INDEX IF NOT EXISTS cards_due ON cards (user_id, deck_id, due) WHERE queue >= 0 AND state <> 0;
 
 -- New-card queue: fetch unseen cards in insertion order within a deck.
-CREATE INDEX IF NOT EXISTS cards_new ON cards (user_id, deck_id, id) WHERE state = 0;
+CREATE INDEX IF NOT EXISTS cards_new ON cards (user_id, deck_id, id) WHERE state = 0 AND queue >= 0;
+
+-- Lazy unbury at day rollover looks up buried cards per deck.
+CREATE INDEX IF NOT EXISTS cards_buried ON cards (user_id, deck_id) WHERE queue = -2;
 
 -- Note→cards lookups: card generation (ListCardsByNote on every note edit), the
 -- bulk tag/flag subqueries, and the ON DELETE RESTRICT FK check on note delete.

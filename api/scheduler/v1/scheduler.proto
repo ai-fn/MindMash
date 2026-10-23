@@ -139,6 +139,8 @@ message AnswerRequest {
   string card_id = 1;
   Grade  grade   = 2;
   int32  time_ms = 3; // time taken to answer (milliseconds)
+  // Optional UUID idempotency key: a retry with the same key returns the card's current state.
+  string client_review_id = 4;
 }
 
 message AnswerResponse {

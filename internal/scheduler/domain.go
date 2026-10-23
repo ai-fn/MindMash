@@ -113,10 +113,12 @@ type ReviewLog struct {
 	Grade     Grade
 	PrevState CardState
 	NewState  CardState
-	PrevIvl   int32
-	NewIvl    int32
+	PrevIvl   int64
+	NewIvl    int64
 	TimeMs    int32
 	Ts        time.Time
+	// ClientReviewID is the optional Answer idempotency key; "" stores NULL.
+	ClientReviewID string
 }
 
 // QueueCard pairs a card with its server-rendered front HTML for the study
@@ -152,13 +154,19 @@ type Repository interface {
 	UpdateCardSchedule(ctx context.Context, c *Card) error
 	// InsertReviewLog appends one review_logs row.
 	InsertReviewLog(ctx context.Context, rl *ReviewLog) error
+	// ReviewedCardID returns the card answered under clientReviewID, if any.
+	ReviewedCardID(ctx context.Context, userID, clientReviewID string) (cardID string, found bool, err error)
 
 	// ListDueCards returns cards in deckIDs with one of states due at or before now,
 	// ordered by due ascending, capped at limit.
 	ListDueCards(ctx context.Context, userID string, deckIDs []string, states []CardState, now time.Time, limit int) ([]Card, error)
-	// ListNewCards returns new cards in deckIDs ordered by id (ULID, time-sortable)
+	// ListNewCards returns unsuspended, unburied new cards in deckIDs ordered by id (ULID, time-sortable)
 	// ascending, capped at limit.
 	ListNewCards(ctx context.Context, userID string, deckIDs []string, limit int) ([]Card, error)
+	// ListBuriedCardIDs locks and returns cards in deckIDs buried before the given time.
+	ListBuriedCardIDs(ctx context.Context, userID string, deckIDs []string, before time.Time) ([]string, error)
+	// UnburyCards returns the given buried cards to the queue and returns the cards it changed.
+	UnburyCards(ctx context.Context, userID string, cardIDs []string, usn int64) ([]Card, error)
 
 	// GetDeck returns a deck's id/path/config_id.
 	GetDeck(ctx context.Context, userID, deckID string) (*Deck, error)

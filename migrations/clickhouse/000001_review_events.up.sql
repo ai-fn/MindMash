@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS review_events
     grade      Int8,
     prev_state Int16,
     new_state  Int16,
-    ivl        Int32,
+    ivl        Int64,
     time_ms    Int32,
     ts         DateTime64(3, 'UTC')
 )

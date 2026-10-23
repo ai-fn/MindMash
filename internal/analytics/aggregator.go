@@ -36,7 +36,7 @@ type reviewPayload struct {
 	Grade     int8      `json:"grade"`
 	PrevState int16     `json:"prev_state"`
 	NewState  int16     `json:"new_state"`
-	NewIvl    int32     `json:"new_ivl"`
+	NewIvl    int64     `json:"new_ivl"`
 	TimeMs    int32     `json:"time_ms"`
 	Ts        time.Time `json:"ts"`
 }

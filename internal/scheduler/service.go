@@ -17,7 +17,8 @@ import (
 
 const (
 	defaultQueueLimit = 20
-	maxQueueLimit     = 200 // each queued card costs a RenderCard call
+	maxQueueLimit     = 200    // each queued card costs a RenderCard call
+	maxAnswerTimeMs   = 60_000 // Anki's default cap, so an idle tab doesn't skew time stats
 )
 
 // Service orchestrates the Scheduler domain: study queue assembly, FSRS
@@ -97,7 +98,11 @@ func (s *Service) BuildQueue(ctx context.Context, userID, profileID, deckID stri
 	}
 
 	now := time.Now().UTC()
-	reviewed, err := s.repo.CountReviewedToday(ctx, userID, deckIDs, DayStart(now, dc.Timezone, dc.RolloverHour))
+	dayStart := DayStart(now, dc.Timezone, dc.RolloverHour)
+	if err := s.unbury(ctx, userID, deckIDs, dayStart); err != nil {
+		return nil, err
+	}
+	reviewed, err := s.repo.CountReviewedToday(ctx, userID, deckIDs, dayStart)
 	if err != nil {
 		return nil, err
 	}
@@ -136,6 +141,34 @@ func (s *Service) BuildQueue(ctx context.Context, userID, profileID, deckID stri
 	return queue, nil
 }
 
+// unbury returns cards buried before dayStart to the queue, as Anki does at rollover.
+func (s *Service) unbury(ctx context.Context, userID string, deckIDs []string, dayStart time.Time) error {
+	// Unlocked pre-check keeps the common no-op path free of a tx and a USN bump.
+	if buried, err := s.repo.ListBuriedCardIDs(ctx, userID, deckIDs, dayStart); err != nil || len(buried) == 0 {
+		return err
+	}
+	return s.repo.WithTx(ctx, func(tx Repository) error {
+		// Cards before user_usn, the same lock order as Answer and Reschedule.
+		buried, err := tx.ListBuriedCardIDs(ctx, userID, deckIDs, dayStart)
+		if err != nil || len(buried) == 0 {
+			return err
+		}
+		usn, err := tx.NextUSN(ctx, userID)
+		if err != nil {
+			return err
+		}
+		cards, err := tx.UnburyCards(ctx, userID, buried, usn)
+		if err != nil {
+			return err
+		}
+		entries := make([]events.OutboxEntry, len(cards))
+		for i := range cards {
+			entries[i] = cardScheduleEntry(&cards[i])
+		}
+		return tx.WriteOutbox(ctx, entries)
+	})
+}
+
 // Preview returns the four hypothetical next-interval estimates for a card
 // without advancing its state.
 func (s *Service) Preview(ctx context.Context, userID, cardID string) (fsrs.IntervalPreview, error) {
@@ -157,11 +190,19 @@ func (s *Service) Preview(ctx context.Context, userID, cardID string) (fsrs.Inte
 // Answer submits a grade for a card: locks the card row, advances its FSRS
 // state, persists the new schedule, appends a review_logs row, and writes
 // the review.recorded outbox entry, all in one transaction. Returns the
-// updated card and the next-answer interval previews.
-func (s *Service) Answer(ctx context.Context, userID, profileID, cardID string, grade Grade, timeMs int32) (*Card, fsrs.IntervalPreview, error) {
+// updated card and the next-answer interval previews. A repeated
+// clientReviewID returns the card's current state without answering again.
+func (s *Service) Answer(ctx context.Context, userID, profileID, cardID, clientReviewID string, grade Grade, timeMs int32) (*Card, fsrs.IntervalPreview, error) {
 	if err := validate.ID("card_id", cardID); err != nil {
 		return nil, fsrs.IntervalPreview{}, err
 	}
+	if err := validate.OptionalID("client_review_id", clientReviewID); err != nil {
+		return nil, fsrs.IntervalPreview{}, err
+	}
+	if grade < Again || grade > Easy {
+		return nil, fsrs.IntervalPreview{}, platformerrors.InvalidArgument("grade must be 1-4")
+	}
+	timeMs = min(max(timeMs, 0), maxAnswerTimeMs)
 	var updated *Card
 	var preview fsrs.IntervalPreview
 
@@ -174,15 +215,37 @@ func (s *Service) Answer(ctx context.Context, userID, profileID, cardID string, 
 		if err != nil {
 			return err
 		}
-
-		prevState := c.State
-		var prevIvl int32
-		if c.Due != nil && c.LastReview != nil {
-			prevIvl = int32(c.Due.Sub(*c.LastReview).Seconds())
-		}
-
 		engine := fsrs.New(fsrsParams(dc))
 		now := time.Now().UTC()
+
+		// Checked under the card lock, so a concurrent retry sees the first attempt's committed log.
+		if clientReviewID != "" {
+			reviewedCard, found, err := tx.ReviewedCardID(ctx, userID, clientReviewID)
+			if err != nil {
+				return err
+			}
+			if found {
+				if reviewedCard != cardID {
+					return platformerrors.InvalidArgument("client_review_id was already used for another card")
+				}
+				preview = engine.Preview(toFSRSInput(c), now)
+				updated = c
+				return nil
+			}
+		}
+
+		if c.Queue == QueueBuried && c.Mtime.Before(DayStart(now, dc.Timezone, dc.RolloverHour)) {
+			c.Queue = 0
+		}
+		if c.Queue < 0 {
+			return platformerrors.FailedPrecondition("card is suspended or buried")
+		}
+
+		prevState := c.State
+		var prevIvl int64
+		if c.Due != nil && c.LastReview != nil {
+			prevIvl = int64(c.Due.Sub(*c.LastReview).Seconds())
+		}
 		result := engine.Next(toFSRSInput(c), fsrs.Grade(grade), now)
 
 		c.State = CardState(result.State)
@@ -217,9 +280,11 @@ func (s *Service) Answer(ctx context.Context, userID, profileID, cardID string, 
 			PrevState: prevState,
 			NewState:  c.State,
 			PrevIvl:   prevIvl,
-			NewIvl:    int32(result.IntervalSec),
+			NewIvl:    result.IntervalSec,
 			TimeMs:    timeMs,
 			Ts:        now,
+
+			ClientReviewID: clientReviewID,
 		}
 		if err := tx.InsertReviewLog(ctx, rl); err != nil {
 			return err
@@ -263,6 +328,9 @@ func (s *Service) GetCounts(ctx context.Context, userID, deckID string) (Counts,
 
 	now := time.Now().UTC()
 	dayStart := DayStart(now, dc.Timezone, dc.RolloverHour)
+	if err := s.unbury(ctx, userID, deckIDs, dayStart); err != nil {
+		return Counts{}, err
+	}
 	reviewed, err := s.repo.CountReviewedToday(ctx, userID, deckIDs, dayStart)
 	if err != nil {
 		return Counts{}, err
@@ -302,6 +370,9 @@ func (s *Service) Reschedule(ctx context.Context, userID, cardID string, action 
 	if err := validate.ID("card_id", cardID); err != nil {
 		return nil, err
 	}
+	if action < ActionSuspend || action > ActionReset {
+		return nil, platformerrors.InvalidArgument("unknown reschedule action")
+	}
 	var updated *Card
 
 	err := s.repo.WithTx(ctx, func(tx Repository) error {
@@ -325,8 +396,6 @@ func (s *Service) Reschedule(ctx context.Context, userID, cardID string, action 
 			c.Reps = 0
 			c.Lapses = 0
 			c.LastReview = nil
-		default:
-			return platformerrors.InvalidArgument("unknown reschedule action")
 		}
 
 		usn, err := tx.NextUSN(ctx, userID)

@@ -4,6 +4,7 @@ package scheduler
 
 import (
 	"context"
+	"math"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 
 	collectionv1 "github.com/mindmesh/mindmesh/api/collection/v1"
 	platformdb "github.com/mindmesh/mindmesh/internal/platform/db"
+	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
 	"github.com/mindmesh/mindmesh/internal/platform/ids"
 )
 
@@ -145,6 +147,7 @@ func insertNote(t *testing.T, c integrationComponents, noteTypeID string) string
 
 type cardFixture struct {
 	state CardState
+	queue int16
 	due   *time.Time
 }
 
@@ -153,8 +156,8 @@ func insertCard(t *testing.T, c integrationComponents, noteID, deckID string, f 
 	id := ids.NewUUID()
 	_, err := c.pool.Exec(context.Background(), `
 		INSERT INTO cards (id, user_id, profile_id, note_id, deck_id, state, queue, due)
-		VALUES ($1, $2, $3, $4, $5, $6, 0, $7)`,
-		id, testUserID, testProfileID, noteID, deckID, int16(f.state), f.due)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		id, testUserID, testProfileID, noteID, deckID, int16(f.state), f.queue, f.due)
 	if err != nil {
 		t.Fatalf("insert card: %v", err)
 	}
@@ -182,7 +185,7 @@ func TestAnswer_RecordsReviewLogAndAdvancesCard(t *testing.T) {
 	note := insertNote(t, c, nt)
 	cardID := insertCard(t, c, note, deck, cardFixture{state: StateNew})
 
-	updated, preview, err := c.svc.Answer(ctx, testUserID, testProfileID, cardID, Good, 1500)
+	updated, preview, err := c.svc.Answer(ctx, testUserID, testProfileID, cardID, "", Good, 1500)
 	if err != nil {
 		t.Fatalf("Answer: %v", err)
 	}
@@ -213,7 +216,7 @@ func TestReviewLogsCountMatchesAnswers(t *testing.T) {
 
 	const answers = 4
 	for i := 0; i < answers; i++ {
-		if _, _, err := c.svc.Answer(ctx, testUserID, testProfileID, cardID, Good, 100); err != nil {
+		if _, _, err := c.svc.Answer(ctx, testUserID, testProfileID, cardID, "", Good, 100); err != nil {
 			t.Fatalf("Answer #%d: %v", i, err)
 		}
 	}
@@ -261,7 +264,7 @@ func TestBuildQueue_NewLimitCountsTodaysAnswers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildQueue: %v", err)
 	}
-	if _, _, err := c.svc.Answer(ctx, testUserID, testProfileID, queue[0].Card.ID, Good, 100); err != nil {
+	if _, _, err := c.svc.Answer(ctx, testUserID, testProfileID, queue[0].Card.ID, "", Good, 100); err != nil {
 		t.Fatalf("Answer: %v", err)
 	}
 
@@ -316,7 +319,7 @@ func TestCountReviewedToday_UsesDeckAtReviewTime(t *testing.T) {
 	nt := insertNoteType(t, c)
 	cardID := insertCard(t, c, insertNote(t, c, nt), deckA, cardFixture{state: StateNew})
 
-	if _, _, err := c.svc.Answer(ctx, testUserID, testProfileID, cardID, Good, 100); err != nil {
+	if _, _, err := c.svc.Answer(ctx, testUserID, testProfileID, cardID, "", Good, 100); err != nil {
 		t.Fatalf("Answer: %v", err)
 	}
 	if _, err := c.pool.Exec(ctx, `UPDATE cards SET deck_id = $3 WHERE user_id = $1 AND id = $2`, testUserID, cardID, deckB); err != nil {
@@ -430,5 +433,198 @@ func TestReschedule_Idempotent(t *testing.T) {
 	}
 	if second.State != first.State {
 		t.Fatalf("want state unchanged across repeated suspend, got %v vs %v", first.State, second.State)
+	}
+}
+
+// ─── Answer guards ────────────────────────────────────────────────────────────
+
+func singleCard(t *testing.T, c integrationComponents, f cardFixture) (deckID, cardID string) {
+	t.Helper()
+	deckID = insertDeck(t, c, "deck1", nil)
+	return deckID, insertCard(t, c, insertNote(t, c, insertNoteType(t, c)), deckID, f)
+}
+
+func cardQueue(t *testing.T, c integrationComponents, cardID string) int16 {
+	t.Helper()
+	var q int16
+	if err := c.pool.QueryRow(context.Background(),
+		`SELECT queue FROM cards WHERE user_id = $1 AND id = $2`, testUserID, cardID).Scan(&q); err != nil {
+		t.Fatalf("read card queue: %v", err)
+	}
+	return q
+}
+
+func TestAnswer_RejectsSuspendedCard(t *testing.T) {
+	c := setupIntegration(t)
+	_, cardID := singleCard(t, c, cardFixture{state: StateNew, queue: QueueSuspended})
+
+	_, _, err := c.svc.Answer(context.Background(), testUserID, testProfileID, cardID, "", Good, 100)
+	if !platformerrors.IsFailedPrecondition(err) {
+		t.Fatalf("want FailedPrecondition, got %v", err)
+	}
+	if n := reviewLogCount(t, c, cardID); n != 0 {
+		t.Fatalf("want no review_logs rows, got %d", n)
+	}
+}
+
+func TestAnswer_RejectsCardBuriedToday(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+	_, cardID := singleCard(t, c, cardFixture{state: StateNew})
+	if _, err := c.svc.Reschedule(ctx, testUserID, cardID, ActionBury); err != nil {
+		t.Fatalf("Reschedule: %v", err)
+	}
+
+	_, _, err := c.svc.Answer(ctx, testUserID, testProfileID, cardID, "", Good, 100)
+	if !platformerrors.IsFailedPrecondition(err) {
+		t.Fatalf("want FailedPrecondition, got %v", err)
+	}
+}
+
+func TestAnswer_UnburiesCardFromPreviousDay(t *testing.T) {
+	c := setupIntegration(t)
+	_, cardID := singleCard(t, c, cardFixture{state: StateNew, queue: QueueBuried})
+	buryAt(t, c, cardID, time.Now().Add(-48*time.Hour))
+
+	updated, _, err := c.svc.Answer(context.Background(), testUserID, testProfileID, cardID, "", Good, 100)
+	if err != nil {
+		t.Fatalf("Answer: %v", err)
+	}
+	if updated.Queue < 0 {
+		t.Fatalf("want card unburied, queue %d", updated.Queue)
+	}
+}
+
+func buryAt(t *testing.T, c integrationComponents, cardID string, at time.Time) {
+	t.Helper()
+	if _, err := c.pool.Exec(context.Background(),
+		`UPDATE cards SET queue = $3, mtime = $4 WHERE user_id = $1 AND id = $2`,
+		testUserID, cardID, QueueBuried, at.UTC()); err != nil {
+		t.Fatalf("bury card: %v", err)
+	}
+}
+
+func TestAnswer_ClientReviewIDIsIdempotent(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+	_, cardID := singleCard(t, c, cardFixture{state: StateNew})
+	key := ids.NewUUID()
+
+	first, _, err := c.svc.Answer(ctx, testUserID, testProfileID, cardID, key, Good, 100)
+	if err != nil {
+		t.Fatalf("Answer (1st): %v", err)
+	}
+	second, _, err := c.svc.Answer(ctx, testUserID, testProfileID, cardID, key, Easy, 100)
+	if err != nil {
+		t.Fatalf("Answer (retry): %v", err)
+	}
+	if n := reviewLogCount(t, c, cardID); n != 1 {
+		t.Fatalf("want 1 review_logs row after retry, got %d", n)
+	}
+	if second.Reps != first.Reps || second.State != first.State || !second.Due.Equal(*first.Due) {
+		t.Fatalf("want retry to return the stored state %+v, got %+v", first, second)
+	}
+
+	if _, err := c.svc.Reschedule(ctx, testUserID, cardID, ActionSuspend); err != nil {
+		t.Fatalf("Reschedule: %v", err)
+	}
+	if _, _, err := c.svc.Answer(ctx, testUserID, testProfileID, cardID, key, Good, 100); err != nil {
+		t.Fatalf("want a retry after suspend to return the stored state, got %v", err)
+	}
+
+	_, other := singleCard(t, c, cardFixture{state: StateNew})
+	if _, _, err := c.svc.Answer(ctx, testUserID, testProfileID, other, key, Good, 100); !platformerrors.IsInvalidArgument(err) {
+		t.Fatalf("want InvalidArgument for a key reused on another card, got %v", err)
+	}
+}
+
+func TestAnswer_ClampsTimeMs(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+	for _, tt := range []struct{ in, want int32 }{{-5, 0}, {math.MaxInt32, maxAnswerTimeMs}} {
+		_, cardID := singleCard(t, c, cardFixture{state: StateNew})
+		if _, _, err := c.svc.Answer(ctx, testUserID, testProfileID, cardID, "", Good, tt.in); err != nil {
+			t.Fatalf("Answer: %v", err)
+		}
+		var got int32
+		if err := c.pool.QueryRow(ctx, `SELECT time_ms FROM review_logs WHERE user_id = $1 AND card_id = $2`,
+			testUserID, cardID).Scan(&got); err != nil {
+			t.Fatalf("read time_ms: %v", err)
+		}
+		if got != tt.want {
+			t.Fatalf("time_ms %d stored as %d, want %d", tt.in, got, tt.want)
+		}
+	}
+}
+
+// Intervals near the 36500-day FSRS cap exceed int32 seconds.
+func TestAnswer_StoresLongInterval(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+	due := time.Now().Add(-time.Hour)
+	_, cardID := singleCard(t, c, cardFixture{state: StateReview, due: &due})
+	if _, err := c.pool.Exec(ctx, `
+		UPDATE cards SET stability = 1e6, difficulty = 1, reps = 50, last_review = $3
+		WHERE user_id = $1 AND id = $2`, testUserID, cardID, due.AddDate(-50, 0, 0)); err != nil {
+		t.Fatalf("set stability: %v", err)
+	}
+
+	if _, _, err := c.svc.Answer(ctx, testUserID, testProfileID, cardID, "", Easy, 100); err != nil {
+		t.Fatalf("Answer: %v", err)
+	}
+	var newIvl int64
+	if err := c.pool.QueryRow(ctx, `SELECT new_ivl FROM review_logs WHERE user_id = $1 AND card_id = $2`,
+		testUserID, cardID).Scan(&newIvl); err != nil {
+		t.Fatalf("read new_ivl: %v", err)
+	}
+	if newIvl <= math.MaxInt32 {
+		t.Fatalf("want new_ivl beyond int32, got %d", newIvl)
+	}
+}
+
+// ─── Buried and suspended cards in the queue ──────────────────────────────────
+
+func TestBuildQueue_SkipsSuspendedNewCards(t *testing.T) {
+	c := setupIntegration(t)
+	deck, _ := singleCard(t, c, cardFixture{state: StateNew, queue: QueueSuspended})
+
+	queue, err := c.svc.BuildQueue(context.Background(), testUserID, testProfileID, deck, 10)
+	if err != nil {
+		t.Fatalf("BuildQueue: %v", err)
+	}
+	if len(queue) != 0 {
+		t.Fatalf("want suspended new card excluded, got %d cards", len(queue))
+	}
+}
+
+func TestBuildQueue_UnburiesCardsFromPreviousDay(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+	deck, old := singleCard(t, c, cardFixture{state: StateNew, queue: QueueBuried})
+	buryAt(t, c, old, time.Now().Add(-48*time.Hour))
+	today := insertCard(t, c, insertNote(t, c, insertNoteType(t, c)), deck, cardFixture{state: StateNew})
+	if _, err := c.svc.Reschedule(ctx, testUserID, today, ActionBury); err != nil {
+		t.Fatalf("Reschedule: %v", err)
+	}
+
+	counts, err := c.svc.GetCounts(ctx, testUserID, deck)
+	if err != nil {
+		t.Fatalf("GetCounts: %v", err)
+	}
+	if counts.New != 1 {
+		t.Fatalf("want 1 new card counted after unbury, got %d", counts.New)
+	}
+	queue, err := c.svc.BuildQueue(ctx, testUserID, testProfileID, deck, 10)
+	if err != nil {
+		t.Fatalf("BuildQueue: %v", err)
+	}
+	if len(queue) != 1 || queue[0].Card.ID != old {
+		t.Fatalf("want only the card buried on a previous day, got %+v", queue)
+	}
+	if q := cardQueue(t, c, old); q != 0 {
+		t.Fatalf("want unburied card stored with queue 0, got %d", q)
+	}
+	if q := cardQueue(t, c, today); q != QueueBuried {
+		t.Fatalf("want card buried today to stay buried, got %d", q)
 	}
 }

@@ -607,12 +607,14 @@ func (x *GetPreviewResponse) GetPreview() *IntervalPreview {
 }
 
 type AnswerRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	CardId        string                 `protobuf:"bytes,1,opt,name=card_id,json=cardId,proto3" json:"card_id,omitempty"`
-	Grade         Grade                  `protobuf:"varint,2,opt,name=grade,proto3,enum=scheduler.v1.Grade" json:"grade,omitempty"`
-	TimeMs        int32                  `protobuf:"varint,3,opt,name=time_ms,json=timeMs,proto3" json:"time_ms,omitempty"` // time taken to answer (milliseconds)
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	CardId string                 `protobuf:"bytes,1,opt,name=card_id,json=cardId,proto3" json:"card_id,omitempty"`
+	Grade  Grade                  `protobuf:"varint,2,opt,name=grade,proto3,enum=scheduler.v1.Grade" json:"grade,omitempty"`
+	TimeMs int32                  `protobuf:"varint,3,opt,name=time_ms,json=timeMs,proto3" json:"time_ms,omitempty"` // time taken to answer (milliseconds)
+	// Optional UUID idempotency key: a retry with the same key returns the card's current state.
+	ClientReviewId string `protobuf:"bytes,4,opt,name=client_review_id,json=clientReviewId,proto3" json:"client_review_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *AnswerRequest) Reset() {
@@ -664,6 +666,13 @@ func (x *AnswerRequest) GetTimeMs() int32 {
 		return x.TimeMs
 	}
 	return 0
+}
+
+func (x *AnswerRequest) GetClientReviewId() string {
+	if x != nil {
+		return x.ClientReviewId
+	}
+	return ""
 }
 
 type AnswerResponse struct {
@@ -944,11 +953,12 @@ const file_scheduler_v1_scheduler_proto_rawDesc = "" +
 	"\x11GetPreviewRequest\x12\x17\n" +
 	"\acard_id\x18\x01 \x01(\tR\x06cardId\"M\n" +
 	"\x12GetPreviewResponse\x127\n" +
-	"\apreview\x18\x01 \x01(\v2\x1d.scheduler.v1.IntervalPreviewR\apreview\"l\n" +
+	"\apreview\x18\x01 \x01(\v2\x1d.scheduler.v1.IntervalPreviewR\apreview\"\x96\x01\n" +
 	"\rAnswerRequest\x12\x17\n" +
 	"\acard_id\x18\x01 \x01(\tR\x06cardId\x12)\n" +
 	"\x05grade\x18\x02 \x01(\x0e2\x13.scheduler.v1.GradeR\x05grade\x12\x17\n" +
-	"\atime_ms\x18\x03 \x01(\x05R\x06timeMs\"\x87\x01\n" +
+	"\atime_ms\x18\x03 \x01(\x05R\x06timeMs\x12(\n" +
+	"\x10client_review_id\x18\x04 \x01(\tR\x0eclientReviewId\"\x87\x01\n" +
 	"\x0eAnswerResponse\x12<\n" +
 	"\n" +
 	"scheduling\x18\x01 \x01(\v2\x1c.scheduler.v1.SchedulingInfoR\n" +

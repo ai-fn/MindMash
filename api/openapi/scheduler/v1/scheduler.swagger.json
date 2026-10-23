@@ -207,6 +207,10 @@
           "type": "integer",
           "format": "int32",
           "title": "time taken to answer (milliseconds)"
+        },
+        "clientReviewId": {
+          "type": "string",
+          "description": "Optional UUID idempotency key: a retry with the same key returns the card's current state."
         }
       }
     },
