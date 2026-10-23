@@ -234,3 +234,21 @@ func (rv *RemoteVerifier) fetchKeysRaw(ctx context.Context) (map[string]ed25519.
 	}
 	return newKeys, nil
 }
+
+// Ready fails until the first JWKS fetch succeeds; later failures keep the cached keys, so it stays ready.
+func (rv *RemoteVerifier) Ready() error {
+	rv.mu.RLock()
+	defer rv.mu.RUnlock()
+	if len(rv.keys) == 0 {
+		return fmt.Errorf("auth: JWKS not loaded from %s", rv.jwksURL)
+	}
+	return nil
+}
+
+// Ready reports whether v can verify tokens yet; verifiers without remote keys always can.
+func Ready(v Verifier) error {
+	if r, ok := v.(interface{ Ready() error }); ok {
+		return r.Ready()
+	}
+	return nil
+}

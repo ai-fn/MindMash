@@ -78,7 +78,7 @@ func newServiceKeys(t *testing.T) (*auth.ServiceSigner, *auth.ServiceVerifier) {
 		t.Fatalf("generate key: %v", err)
 	}
 	return auth.NewServiceSignerFromKey("search", priv),
-		auth.NewServiceVerifierFromKeys(auth.CollectionInternalAudience, map[string]ed25519.PublicKey{"search": pub})
+		auth.NewServiceVerifierFromKeys(auth.CollectionInternalAudience, map[string][]ed25519.PublicKey{"search": {pub}})
 }
 
 // rejectUsers fails any user-token method: the indexer must only reach service-policy methods.

@@ -179,6 +179,9 @@ func run() error {
 	rootMux.Handle("/", gwMux)
 
 	readiness := func(ctx context.Context) error {
+		if err := auth.Ready(verifier); err != nil {
+			return err
+		}
 		if err := pool.Ping(ctx); err != nil {
 			return fmt.Errorf("postgres: %w", err)
 		}

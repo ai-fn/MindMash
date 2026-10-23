@@ -173,7 +173,11 @@ serving against the migrated schema during the rollout. Tune via `<svc>.strategy
 Search calls Collection's internal API with its **own** Ed25519 key, never Identity's. Create two
 Secrets out-of-band (as for `mindmesh-jwt-keys`): `mindmesh-search-service-key` (`search.pem`,
 mounted only into search) and `mindmesh-service-pubkeys` (`search.pub.pem`, mounted into collection
-and listed in its `SERVICE_TRUSTED_KEYS=name=path,...`). Service tokens last a minute and are
+and listed in its `SERVICE_TRUSTED_KEYS=name=path,...`). To rotate, list both keys as
+`search=old.pub.pem|new.pub.pem` and roll collection first; only then roll search onto the new
+private key, and finally drop the old public key. Rejected service calls are counted in
+`mindmesh_service_auth_rejections_total` by method, caller and reason (logs are rate-limited); for
+`reason="invalid_token"` the caller is the token's unverified issuer. Service tokens last a minute and are
 accepted only for the methods in `collection.InternalServicePolicy`. Tokens aren't bound to a
 request and have no replay store, so keep gRPC on a trusted network (or mTLS). Every other service
 verifies user JWTs via JWKS only; just Identity mounts the user signing key.

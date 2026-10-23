@@ -133,6 +133,9 @@ func run() error {
 	}
 
 	readiness := func(ctx context.Context) error {
+		if err := auth.Ready(verifier); err != nil {
+			return err
+		}
 		if err := chConn.Ping(ctx); err != nil {
 			return fmt.Errorf("clickhouse: %w", err)
 		}

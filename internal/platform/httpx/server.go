@@ -73,6 +73,7 @@ func New(cfg Config, opts Options) *Server {
 	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
 		if opts.Readiness != nil {
 			if err := opts.Readiness(r.Context()); err != nil {
+				log.L().Warn("httpx: not ready", zap.Error(err))
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusServiceUnavailable)
 				_, _ = w.Write([]byte(`{"status":"not ready"}`))

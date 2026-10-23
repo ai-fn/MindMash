@@ -288,16 +288,52 @@ func TestRemoteVerifier_StartsWithoutJWKSAndRecovers(t *testing.T) {
 	if _, err := rv.Verify(tok); err == nil {
 		t.Fatal("want tokens rejected while no keys are loaded")
 	}
+	if Ready(rv) == nil {
+		t.Fatal("want not ready while no keys are loaded, so no traffic is routed to a pod that rejects every token")
+	}
 
 	up.Store(true)
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		if _, err := rv.Verify(tok); err == nil {
+			if err := Ready(rv); err != nil {
+				t.Fatalf("want ready once keys are loaded: %v", err)
+			}
 			return
 		} else if time.Now().After(deadline) {
 			t.Fatalf("keys never loaded after the endpoint came up: %v", err)
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestRemoteVerifier_StaysReadyThroughIdentityOutage(t *testing.T) {
+	s := newTestSigner(t)
+	var down atomic.Bool
+	var failures atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if down.Load() {
+			failures.Add(1)
+			http.Error(w, "down", http.StatusServiceUnavailable)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(BuildJWKS(s))
+	}))
+	t.Cleanup(srv.Close)
+	rv, err := newRemoteVerifier(testCtx(t), srv.URL, "mindmesh-test", 10*time.Millisecond)
+	if err != nil || Ready(rv) != nil {
+		t.Fatalf("want ready after the first fetch: %v, %v", err, Ready(rv))
+	}
+	down.Store(true)
+	deadline := time.Now().Add(5 * time.Second)
+	for failures.Load() < 2 {
+		if time.Now().After(deadline) {
+			t.Fatal("background refresh never hit the failing endpoint")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := Ready(rv); err != nil {
+		t.Fatalf("cached keys still verify, so an Identity outage must not unready the fleet: %v", err)
 	}
 }
 
@@ -578,5 +614,11 @@ func TestRemoteVerifier_UnknownKidDoesNotQueueBehindSlowFetch(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("an unknown-kid request queued behind the slow refresh")
+	}
+}
+
+func TestReady_LocalVerifierIsAlwaysReady(t *testing.T) {
+	if err := Ready(newTestSigner(t)); err != nil {
+		t.Fatalf("a local key verifier has its key from startup: %v", err)
 	}
 }

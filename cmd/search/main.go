@@ -139,6 +139,9 @@ func run() error {
 	}
 
 	readiness := func(ctx context.Context) error {
+		if err := auth.Ready(verifier); err != nil {
+			return err
+		}
 		if err := repo.Ping(ctx); err != nil {
 			return fmt.Errorf("opensearch: %w", err)
 		}

@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -57,7 +59,7 @@ func signWith(t *testing.T, priv ed25519.PrivateKey, mutate func(*Claims)) strin
 func TestServiceVerifier(t *testing.T) {
 	pub, priv := newServiceKey(t)
 	_, otherPriv := newServiceKey(t)
-	v := NewServiceVerifierFromKeys(CollectionInternalAudience, map[string]ed25519.PublicKey{"search": pub})
+	v := NewServiceVerifierFromKeys(CollectionInternalAudience, map[string][]ed25519.PublicKey{"search": {pub}})
 
 	good, err := NewServiceSignerFromKey("search", priv).Sign(CollectionInternalAudience)
 	if err != nil {
@@ -124,8 +126,103 @@ func TestNewServiceVerifierLoadsKeys(t *testing.T) {
 	if err != nil || len(v.keys) != 1 {
 		t.Fatalf("want one trusted key, got %v, %v", v, err)
 	}
-	if _, err := NewServiceVerifier(CollectionInternalAudience, "search"); err == nil {
-		t.Fatal("want an error for an entry without a path")
+	for _, bad := range []string{"search", "search=" + path + "|", "search=" + path + ",search=" + path} {
+		if _, err := NewServiceVerifier(CollectionInternalAudience, bad); err == nil {
+			t.Errorf("%q: want an error", bad)
+		}
+	}
+}
+
+func TestNewServiceVerifier_AcceptsEitherKeyDuringRotation(t *testing.T) {
+	dir := t.TempDir()
+	privs := make([]ed25519.PrivateKey, 3)
+	paths := make([]string, 3)
+	for i := range privs {
+		var pub ed25519.PublicKey
+		pub, privs[i] = newServiceKey(t)
+		paths[i] = filepath.Join(dir, fmt.Sprintf("k%d.pub.pem", i))
+		if err := os.WriteFile(paths[i], mustPublicPEM(t, pub), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	v, err := NewServiceVerifier(CollectionInternalAudience, "search="+paths[0]+"|"+paths[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, priv := range privs {
+		tok, _ := NewServiceSignerFromKey("search", priv).Sign(CollectionInternalAudience)
+		_, err := v.Verify(tok)
+		if trusted := i < 2; trusted != (err == nil) {
+			t.Errorf("key %d: trusted=%v, verify err=%v", i, trusted, err)
+		}
+	}
+}
+
+func TestGRPCServiceAuth_CountsRejectionsByCaller(t *testing.T) {
+	pub, priv := newServiceKey(t)
+	_, otherPriv := newServiceKey(t)
+	services := NewServiceVerifierFromKeys(CollectionInternalAudience, map[string][]ed25519.PublicKey{
+		"search": {pub}, "scheduler": {pub},
+	})
+	ic := GRPCServiceOrUserAuthInterceptor(newEphemeralSigner(t, defaultCfg()), services, ServicePolicy{searchMethod: {"search"}})
+	sign := func(name string, k ed25519.PrivateKey) string {
+		tok, _ := NewServiceSignerFromKey(name, k).Sign(CollectionInternalAudience)
+		return tok
+	}
+	tests := []struct {
+		name, token, caller, reason string
+		req                         any
+	}{
+		{"no token", "", "unknown", "missing_token", userIDReq{testUser}},
+		{"untrusted name", sign("evil-"+testUser, priv), "unknown", "invalid_token", userIDReq{testUser}},
+		{"trusted name, wrong key", sign("search", otherPriv), "search", "invalid_token", userIDReq{testUser}},
+		{"caller not allowed", sign("scheduler", priv), "scheduler", "forbidden", userIDReq{testUser}},
+		{"bad user_id", sign("search", priv), "search", "invalid_user_id", userIDReq{"x"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := serviceAuthRejections.WithLabelValues(searchMethod, tc.caller, tc.reason)
+			before := testutil.ToFloat64(c)
+			md := metadata.MD{}
+			if tc.token != "" {
+				md = metadata.Pairs("authorization", "Bearer "+tc.token)
+			}
+			ctx := metadata.NewIncomingContext(context.Background(), md)
+			if _, err := ic(ctx, tc.req, &grpc.UnaryServerInfo{FullMethod: searchMethod}, nil); err == nil {
+				t.Fatal("want rejection")
+			}
+			if d := testutil.ToFloat64(c) - before; d != 1 {
+				t.Fatalf("rejections{caller=%q,reason=%q} delta = %v, want 1", tc.caller, tc.reason, d)
+			}
+		})
+	}
+
+	c := serviceAuthRejections.WithLabelValues(searchMethod, "unknown", "no_service_verifier")
+	before := testutil.ToFloat64(c)
+	none := GRPCServiceOrUserAuthInterceptor(newEphemeralSigner(t, defaultCfg()), nil, ServicePolicy{searchMethod: {"search"}})
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", "Bearer "+sign("search", priv)))
+	_, _ = none(ctx, userIDReq{testUser}, &grpc.UnaryServerInfo{FullMethod: searchMethod}, nil)
+	if d := testutil.ToFloat64(c) - before; d != 1 {
+		t.Fatalf("a policy without trusted services must be visible as such, delta = %v", d)
+	}
+}
+
+func TestLogLimiter_OneLinePerIntervalWithDroppedCount(t *testing.T) {
+	l := &logLimiter{every: time.Hour, last: map[string]time.Time{}, dropped: map[string]int{}}
+	if _, ok := l.allow("a"); !ok {
+		t.Fatal("first line must log")
+	}
+	for range 3 {
+		if _, ok := l.allow("a"); ok {
+			t.Fatal("repeat within the interval must be dropped")
+		}
+	}
+	if _, ok := l.allow("b"); !ok {
+		t.Fatal("keys are limited independently")
+	}
+	l.last["a"] = time.Now().Add(-2 * time.Hour)
+	if n, ok := l.allow("a"); !ok || n != 3 {
+		t.Fatalf("after the interval: allowed=%v dropped=%d, want true, 3", ok, n)
 	}
 }
 
@@ -135,8 +232,8 @@ func (r userIDReq) GetUserId() string { return r.id }
 
 func TestGRPCServiceOrUserAuthInterceptor(t *testing.T) {
 	pub, priv := newServiceKey(t)
-	services := NewServiceVerifierFromKeys(CollectionInternalAudience, map[string]ed25519.PublicKey{
-		"search": pub, "scheduler": pub,
+	services := NewServiceVerifierFromKeys(CollectionInternalAudience, map[string][]ed25519.PublicKey{
+		"search": {pub}, "scheduler": {pub},
 	})
 	user := newEphemeralSigner(t, defaultCfg())
 	ic := GRPCServiceOrUserAuthInterceptor(user, services, ServicePolicy{searchMethod: {"search"}})
