@@ -59,10 +59,16 @@ type RefreshToken struct {
 	CreatedAt time.Time
 }
 
+// Email token purposes.
+const (
+	purposeVerifyEmail   = "verify_email"
+	purposePasswordReset = "password_reset"
+)
+
 // EmailVerification is a one-time token sent via email for address verification
-// or password-reset flows.
+// or password-reset flows. Only the token's hash is stored.
 type EmailVerification struct {
-	Token      string
+	TokenHash  string
 	UserID     string
 	Purpose    string
 	ExpiresAt  time.Time
@@ -79,10 +85,15 @@ type Repository interface {
 	// User operations
 	CreateUser(ctx context.Context, u *User) error
 	GetUserByID(ctx context.Context, id string) (*User, error)
+	// GetUserForUpdate and GetUserForShare lock the user row until the transaction ends.
+	// Anything that revokes or mints sessions takes them (update / share) so a revoke cannot miss a concurrent mint.
+	GetUserForUpdate(ctx context.Context, id string) (*User, error)
+	GetUserForShare(ctx context.Context, id string) (*User, error)
 	// GetUserByEmail returns errors.NotFound when no user matches.
 	GetUserByEmail(ctx context.Context, email string) (*User, error)
 	SetEmailVerified(ctx context.Context, userID string) error
 	UpdatePassword(ctx context.Context, userID, hash string) error
+	ClearPassword(ctx context.Context, userID string) error
 
 	// OAuth operations
 	CreateOAuthIdentity(ctx context.Context, o *OAuthIdentity) error
@@ -103,14 +114,19 @@ type Repository interface {
 	// RevokeFamily marks every token in the family as revoked and returns their
 	// JTIs so the caller can evict them from the session store.
 	RevokeFamily(ctx context.Context, familyID string) ([]string, error)
+	// RevokeUserTokens revokes every live refresh token of the user and returns their JTIs.
+	RevokeUserTokens(ctx context.Context, userID string) ([]string, error)
 
 	// EmailVerification operations
 	CreateEmailVerification(ctx context.Context, ev *EmailVerification) error
-	// ConsumeEmailVerification atomically marks the token consumed and returns
-	// the userID and purpose it was issued for.  Returns errors.InvalidArgument
-	// when the token is missing, already consumed, or expired so that a single
-	// round-trip to the DB is the only gate — no separate read is needed.
-	ConsumeEmailVerification(ctx context.Context, token string) (userID, purpose string, err error)
+	// ConsumeEmailVerification atomically marks the token consumed and returns its user.
+	// Fails when the hash is unknown, already consumed, expired, or issued for another purpose.
+	ConsumeEmailVerification(ctx context.Context, tokenHash, purpose string) (userID string, err error)
+	// EmailVerificationUser returns the user a live token belongs to without consuming it,
+	// so callers can lock the user row before the token row.
+	EmailVerificationUser(ctx context.Context, tokenHash, purpose string) (userID string, err error)
+	// InvalidateEmailVerifications consumes every outstanding token of the user.
+	InvalidateEmailVerifications(ctx context.Context, userID string) error
 
 	// WithTx executes fn inside a single database transaction.  The Repository
 	// passed to fn is scoped to that transaction; callers must not use the

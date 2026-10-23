@@ -82,16 +82,28 @@ func (r *PostgresRepository) CreateUser(ctx context.Context, u *User) error {
 	return nil
 }
 
-func (r *PostgresRepository) GetUserByID(ctx context.Context, id string) (*User, error) {
+func (r *PostgresRepository) getUser(ctx context.Context, id, lock string) (*User, error) {
 	u := &User{}
 	err := r.db.QueryRow(ctx, `
 		SELECT id, email, email_verified, password_hash, locale, status, created_at, updated_at
-		FROM users WHERE id = $1`, id).
+		FROM users WHERE id = $1 `+lock, id).
 		Scan(&u.ID, &u.Email, &u.EmailVerified, &u.PasswordHash, &u.Locale, &u.Status, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("identity: get user by id: %w", mapNoRows(err, "user not found"))
 	}
 	return u, nil
+}
+
+func (r *PostgresRepository) GetUserByID(ctx context.Context, id string) (*User, error) {
+	return r.getUser(ctx, id, "")
+}
+
+func (r *PostgresRepository) GetUserForUpdate(ctx context.Context, id string) (*User, error) {
+	return r.getUser(ctx, id, "FOR UPDATE")
+}
+
+func (r *PostgresRepository) GetUserForShare(ctx context.Context, id string) (*User, error) {
+	return r.getUser(ctx, id, "FOR SHARE")
 }
 
 func (r *PostgresRepository) GetUserByEmail(ctx context.Context, email string) (*User, error) {
@@ -110,6 +122,14 @@ func (r *PostgresRepository) SetEmailVerified(ctx context.Context, userID string
 	_, err := r.db.Exec(ctx, `UPDATE users SET email_verified = true, updated_at = now() WHERE id = $1`, userID)
 	if err != nil {
 		return fmt.Errorf("identity: set email verified: %w", err)
+	}
+	return nil
+}
+
+func (r *PostgresRepository) ClearPassword(ctx context.Context, userID string) error {
+	_, err := r.db.Exec(ctx, `UPDATE users SET password_hash = NULL, updated_at = now() WHERE id = $1`, userID)
+	if err != nil {
+		return fmt.Errorf("identity: clear password: %w", err)
 	}
 	return nil
 }
@@ -258,13 +278,28 @@ func (r *PostgresRepository) RevokeFamily(ctx context.Context, familyID string) 
 	return jtis, nil
 }
 
+func (r *PostgresRepository) RevokeUserTokens(ctx context.Context, userID string) ([]string, error) {
+	rows, err := r.db.Query(ctx, `
+		UPDATE refresh_tokens SET revoked = true
+		WHERE user_id = $1 AND revoked = false
+		RETURNING jti`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("identity: revoke user tokens: %w", err)
+	}
+	jtis, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, fmt.Errorf("identity: revoke user tokens rows: %w", err)
+	}
+	return jtis, nil
+}
+
 // ─── EmailVerification ───────────────────────────────────────────────────────
 
 func (r *PostgresRepository) CreateEmailVerification(ctx context.Context, ev *EmailVerification) error {
 	_, err := r.db.Exec(ctx, `
-		INSERT INTO email_verifications (token, user_id, purpose, expires_at, consumed_at, created_at)
+		INSERT INTO email_verifications (token_hash, user_id, purpose, expires_at, consumed_at, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6)`,
-		ev.Token, ev.UserID, ev.Purpose, ev.ExpiresAt, ev.ConsumedAt, ev.CreatedAt,
+		ev.TokenHash, ev.UserID, ev.Purpose, ev.ExpiresAt, ev.ConsumedAt, ev.CreatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("identity: create email verification: %w", err)
@@ -272,21 +307,42 @@ func (r *PostgresRepository) CreateEmailVerification(ctx context.Context, ev *Em
 	return nil
 }
 
-// ConsumeEmailVerification atomically marks the token consumed and returns the
-// userID and purpose it was issued for.  A single conditional UPDATE is used so
-// that concurrent requests cannot both pass the validity check (TOCTOU-safe).
-func (r *PostgresRepository) ConsumeEmailVerification(ctx context.Context, token string) (userID, purpose string, err error) {
-	err = r.db.QueryRow(ctx, `
+// ConsumeEmailVerification is a single conditional UPDATE so concurrent requests cannot both pass the check.
+func (r *PostgresRepository) ConsumeEmailVerification(ctx context.Context, tokenHash, purpose string) (string, error) {
+	var userID string
+	err := r.db.QueryRow(ctx, `
 		UPDATE email_verifications
 		SET consumed_at = now()
-		WHERE token = $1
+		WHERE token_hash = $1
+		  AND purpose = $2
 		  AND consumed_at IS NULL
 		  AND expires_at > now()
-		RETURNING user_id, purpose`, token).
-		Scan(&userID, &purpose)
+		RETURNING user_id`, tokenHash, purpose).Scan(&userID)
 	if err != nil {
-		return "", "", fmt.Errorf("identity: consume email verification: %w",
+		return "", fmt.Errorf("identity: consume email verification: %w",
 			mapNoRows(err, "invalid or expired token"))
 	}
-	return userID, purpose, nil
+	return userID, nil
+}
+
+func (r *PostgresRepository) EmailVerificationUser(ctx context.Context, tokenHash, purpose string) (string, error) {
+	var userID string
+	err := r.db.QueryRow(ctx, `
+		SELECT user_id FROM email_verifications
+		WHERE token_hash = $1 AND purpose = $2 AND consumed_at IS NULL AND expires_at > now()`,
+		tokenHash, purpose).Scan(&userID)
+	if err != nil {
+		return "", fmt.Errorf("identity: email verification user: %w", mapNoRows(err, "invalid or expired token"))
+	}
+	return userID, nil
+}
+
+func (r *PostgresRepository) InvalidateEmailVerifications(ctx context.Context, userID string) error {
+	_, err := r.db.Exec(ctx, `
+		UPDATE email_verifications SET consumed_at = now()
+		WHERE user_id = $1 AND consumed_at IS NULL`, userID)
+	if err != nil {
+		return fmt.Errorf("identity: invalidate email verifications: %w", err)
+	}
+	return nil
 }

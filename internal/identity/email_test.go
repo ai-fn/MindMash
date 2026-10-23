@@ -2,6 +2,7 @@ package identity
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -32,7 +33,7 @@ func TestLogEmailSenderLocalizesVerification(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.locale, func(t *testing.T) {
 			core, logs := observer.New(zap.InfoLevel)
-			sender := NewLogEmailSender(zap.New(core))
+			sender := NewLogEmailSender(zap.New(core), true)
 
 			if err := sender.SendVerification(context.Background(), "rin@example.com", "TOK123", tc.locale); err != nil {
 				t.Fatalf("SendVerification: %v", err)
@@ -56,7 +57,7 @@ func TestLogEmailSenderLocalizesVerification(t *testing.T) {
 
 func TestLogEmailSenderLocalizesPasswordReset(t *testing.T) {
 	core, logs := observer.New(zap.InfoLevel)
-	sender := NewLogEmailSender(zap.New(core))
+	sender := NewLogEmailSender(zap.New(core), true)
 
 	if err := sender.SendPasswordReset(context.Background(), "rin@example.com", "RST9", "ru"); err != nil {
 		t.Fatalf("SendPasswordReset: %v", err)
@@ -70,5 +71,26 @@ func TestLogEmailSenderLocalizesPasswordReset(t *testing.T) {
 	}
 	if !strings.Contains(body, "RST9") {
 		t.Errorf("body %q did not interpolate the token", body)
+	}
+}
+
+func TestLogEmailSenderKeepsSecretsOutOfLogsByDefault(t *testing.T) {
+	core, logs := observer.New(zap.InfoLevel)
+	sender := NewLogEmailSender(zap.New(core), false)
+
+	if err := sender.SendVerification(context.Background(), "rin@example.com", "SECRET-TOKEN", "en"); err != nil {
+		t.Fatal(err)
+	}
+	if err := sender.SendPasswordReset(context.Background(), "rin@example.com", "SECRET-TOKEN", "en"); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range logs.All() {
+		dump := fmt.Sprint(e.Message, e.ContextMap())
+		if strings.Contains(dump, "SECRET-TOKEN") || strings.Contains(dump, "rin@example.com") {
+			t.Fatalf("log entry leaks token or address: %s", dump)
+		}
+	}
+	if logs.Len() != 2 {
+		t.Fatalf("expected a warning per dropped message, got %d entries", logs.Len())
 	}
 }

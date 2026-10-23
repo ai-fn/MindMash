@@ -17,6 +17,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"go.uber.org/zap"
@@ -121,7 +122,7 @@ func run() error {
 	repo := identity.NewPostgresRepository(pool)
 	sessions := identity.NewRedisSessionStore(rdb)
 	exchanger := identity.NewOIDCExchanger(oauthProvidersFromEnv())
-	email := identity.NewLogEmailSender(logger)
+	email := identity.NewLogEmailSender(logger, os.Getenv("LOG_EMAIL_SECRETS") == "true")
 	svc := identity.NewService(repo, sessions, signer, exchanger, email, logger, authCfg,
 		identity.WithRateLimiter(identity.NewRedisRateLimiter(rdb)))
 	if err := svc.WarmUp(); err != nil {
@@ -185,7 +186,11 @@ func run() error {
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return grpcSrv.Start(gctx) })
 	g.Go(func() error { return httpSrv.Start(gctx) })
-	if err := g.Wait(); err != nil {
+	err = g.Wait()
+	drainCtx, cancelDrain := context.WithTimeout(context.Background(), 10*time.Second)
+	svc.Drain(drainCtx)
+	cancelDrain()
+	if err != nil {
 		return fmt.Errorf("identity: server: %w", err)
 	}
 	logger.Info("identity: stopped")

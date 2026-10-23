@@ -67,6 +67,14 @@ func (r *fakeRepo) GetUserByID(_ context.Context, id string) (*User, error) {
 	return &cp, nil
 }
 
+func (r *fakeRepo) GetUserForUpdate(ctx context.Context, id string) (*User, error) {
+	return r.GetUserByID(ctx, id)
+}
+
+func (r *fakeRepo) GetUserForShare(ctx context.Context, id string) (*User, error) {
+	return r.GetUserByID(ctx, id)
+}
+
 func (r *fakeRepo) GetUserByEmail(_ context.Context, email string) (*User, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -204,24 +212,66 @@ func (r *fakeRepo) CreateEmailVerification(_ context.Context, ev *EmailVerificat
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	cp := *ev
-	r.verifications[ev.Token] = &cp
+	r.verifications[ev.TokenHash] = &cp
 	return nil
 }
 
-// ConsumeEmailVerification mirrors the real DB's single conditional UPDATE: it
-// atomically marks the token consumed only when it exists, has not been
-// consumed yet, and has not expired.  Returns the userID and purpose on
-// success, or errors.InvalidArgument on any failure.
-func (r *fakeRepo) ConsumeEmailVerification(_ context.Context, token string) (userID, purpose string, err error) {
+func (r *fakeRepo) ClearPassword(_ context.Context, userID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	ev, ok := r.verifications[token]
-	if !ok || ev.ConsumedAt != nil || time.Now().After(ev.ExpiresAt) {
-		return "", "", platformerrors.InvalidArgument("invalid or expired token")
+	u, ok := r.users[userID]
+	if !ok {
+		return platformerrors.NotFound("user not found")
+	}
+	u.PasswordHash = nil
+	return nil
+}
+
+func (r *fakeRepo) RevokeUserTokens(_ context.Context, userID string) ([]string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var jtis []string
+	for _, rt := range r.refreshTokens {
+		if rt.UserID == userID && !rt.Revoked {
+			rt.Revoked = true
+			jtis = append(jtis, rt.JTI)
+		}
+	}
+	return jtis, nil
+}
+
+func (r *fakeRepo) InvalidateEmailVerifications(_ context.Context, userID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := time.Now()
+	for _, ev := range r.verifications {
+		if ev.UserID == userID && ev.ConsumedAt == nil {
+			ev.ConsumedAt = &now
+		}
+	}
+	return nil
+}
+
+func (r *fakeRepo) EmailVerificationUser(_ context.Context, tokenHash, purpose string) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	ev, ok := r.verifications[tokenHash]
+	if !ok || ev.Purpose != purpose || ev.ConsumedAt != nil || time.Now().After(ev.ExpiresAt) {
+		return "", platformerrors.NotFound("invalid or expired token")
+	}
+	return ev.UserID, nil
+}
+
+func (r *fakeRepo) ConsumeEmailVerification(_ context.Context, tokenHash, purpose string) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	ev, ok := r.verifications[tokenHash]
+	if !ok || ev.Purpose != purpose || ev.ConsumedAt != nil || time.Now().After(ev.ExpiresAt) {
+		return "", platformerrors.NotFound("invalid or expired token")
 	}
 	now := time.Now()
 	ev.ConsumedAt = &now
-	return ev.UserID, ev.Purpose, nil
+	return ev.UserID, nil
 }
 
 // WithTx simulates transaction semantics: it snapshots all in-memory maps
@@ -383,7 +433,7 @@ func newTestService(t *testing.T, opts ...Option) (*Service, *fakeRepo, *fakeSes
 		AccessTokenTTL:  15 * time.Minute,
 		RefreshTokenTTL: 7 * 24 * time.Hour,
 	}
-	svc := NewService(repo, sessions, signer, exchanger, emailer, log, cfg, opts...)
+	svc := NewService(repo, sessions, signer, exchanger, emailer, log, cfg, append([]Option{WithSyncEmail()}, opts...)...)
 	return svc, repo, sessions, emailer, exchanger, signer
 }
 
@@ -791,7 +841,6 @@ func TestOAuthExchange_RefusesUnverifiedEmails(t *testing.T) {
 		providerVerified bool
 		want             codes.Code
 	}{
-		{"link: account email unverified", true, false, true, codes.AlreadyExists},
 		{"link: provider email unverified", true, true, false, codes.FailedPrecondition},
 		{"link: both unverified", true, false, false, codes.FailedPrecondition},
 		{"create: provider email unverified would squat the address", false, false, false, codes.FailedPrecondition},
@@ -1047,7 +1096,7 @@ func TestVerifyEmail(t *testing.T) {
 		// Insert an expired verification directly.
 		past := time.Now().Add(-time.Hour)
 		ev := &EmailVerification{
-			Token:     "expired-tok",
+			TokenHash: HashToken("expired-tok"),
 			UserID:    "user-x",
 			Purpose:   "verify_email",
 			ExpiresAt: past,

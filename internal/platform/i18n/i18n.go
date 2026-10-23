@@ -31,7 +31,6 @@ const (
 	MsgEmailAlreadyExists    = "error.email_already_exists"
 	MsgInvalidOrExpiredToken = "error.invalid_or_expired_token"
 	MsgOAuthEmailUnverified  = "error.oauth_email_unverified"
-	MsgOAuthLinkUnverified   = "error.oauth_link_unverified"
 	MsgTooManyAttempts       = "error.too_many_attempts"
 
 	MsgVerificationSubject  = "email.verification.subject"
@@ -56,7 +55,6 @@ func buildCatalog() catalog.Catalog {
 		MsgEmailAlreadyExists:    "An account with that email already exists.",
 		MsgInvalidOrExpiredToken: "This link is invalid or has expired. Request a new one.",
 		MsgOAuthEmailUnverified:  "Your email isn't verified with this provider. Verify it there and try again.",
-		MsgOAuthLinkUnverified:   "An account with this email already exists. Verify its email, then sign in with this provider.",
 		MsgTooManyAttempts:       "Too many attempts. Try again later.",
 		MsgVerificationSubject:   "Verify your MindMesh email",
 		MsgVerificationBody:      "Welcome to MindMesh! Confirm your email with this token: %s",
@@ -68,7 +66,6 @@ func buildCatalog() catalog.Catalog {
 		MsgEmailAlreadyExists:    "Аккаунт с такой почтой уже существует.",
 		MsgInvalidOrExpiredToken: "Ссылка недействительна или устарела. Запросите новую.",
 		MsgOAuthEmailUnverified:  "Почта не подтверждена у этого провайдера. Подтвердите её там и попробуйте снова.",
-		MsgOAuthLinkUnverified:   "Аккаунт с такой почтой уже существует. Подтвердите его почту, затем войдите через этого провайдера.",
 		MsgTooManyAttempts:       "Слишком много попыток. Попробуйте позже.",
 		MsgVerificationSubject:   "Подтвердите вашу почту в MindMesh",
 		MsgVerificationBody:      "Добро пожаловать в MindMesh! Подтвердите почту с помощью этого токена: %s",
@@ -80,7 +77,6 @@ func buildCatalog() catalog.Catalog {
 		MsgEmailAlreadyExists:    "该邮箱的账号已存在。",
 		MsgInvalidOrExpiredToken: "此链接无效或已过期。请重新申请。",
 		MsgOAuthEmailUnverified:  "你的邮箱尚未在该登录提供方验证。请先在那里验证后重试。",
-		MsgOAuthLinkUnverified:   "该邮箱的账号已存在。请先验证该账号的邮箱，再使用此提供方登录。",
 		MsgTooManyAttempts:       "尝试次数过多。请稍后再试。",
 		MsgVerificationSubject:   "验证你的 MindMesh 邮箱",
 		MsgVerificationBody:      "欢迎使用 MindMesh！请使用此令牌确认邮箱：%s",

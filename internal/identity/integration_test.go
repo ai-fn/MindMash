@@ -81,7 +81,7 @@ type integrationComponents struct {
 // wires up a *Service using the default LogEmailSender and a no-op OAuth stub.
 func setupIntegration(t *testing.T) integrationComponents {
 	t.Helper()
-	return setupFull(t, NewLogEmailSender(zap.NewNop()), &stubOAuthExchanger{})
+	return setupFull(t, NewLogEmailSender(zap.NewNop(), true), &stubOAuthExchanger{})
 }
 
 // setupWithEmail is like setupIntegration but accepts a custom EmailSender so
@@ -160,7 +160,7 @@ func setupFull(t *testing.T, emailSender EmailSender, exchanger OAuthExchanger) 
 
 	// ── Service ──────────────────────────────────────────────────────────────
 	limiter := NewRedisRateLimiter(redisClient)
-	svc := NewService(repo, sessions, signer, exchanger, emailSender, zap.NewNop(), authCfg, WithRateLimiter(limiter))
+	svc := NewService(repo, sessions, signer, exchanger, emailSender, zap.NewNop(), authCfg, WithRateLimiter(limiter), WithSyncEmail())
 
 	return integrationComponents{
 		svc:      svc,
@@ -222,9 +222,10 @@ func setupWithNilSessions(t *testing.T) *Service {
 		nilSessionStore{},
 		signer,
 		&stubOAuthExchanger{},
-		NewLogEmailSender(zap.NewNop()),
+		NewLogEmailSender(zap.NewNop(), true),
 		zap.NewNop(),
 		authCfg,
+		WithSyncEmail(),
 	)
 }
 
@@ -437,7 +438,7 @@ func TestOAuthExchange_Integration(t *testing.T) {
 			EmailVerified: true,
 		},
 	}
-	c := setupFull(t, NewLogEmailSender(zap.NewNop()), stub)
+	c := setupFull(t, NewLogEmailSender(zap.NewNop(), true), stub)
 
 	// First call: brand-new OAuth user.
 	access, refresh, _, userID, profileID, isNew, err := c.svc.OAuthExchange(ctx, "google", "code-abc", "https://example.com/cb")
@@ -544,4 +545,165 @@ func TestLoginRateLimit_Integration(t *testing.T) {
 	}
 	_, _, _, _, _, err = c.svc.Login(ctx, "frank@example.com", "correct-horse")
 	assert.Equal(t, codes.ResourceExhausted, status.Code(err))
+}
+
+// TestAccountRecoveryRevokesSessions_Integration covers the SQL behind reset and OAuth claiming.
+func TestAccountRecoveryRevokesSessions_Integration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	sender := &captureEmailSender{}
+	stub := &stubOAuthExchanger{info: OAuthUserInfo{
+		Provider: "google", Subject: "owner-sub", Email: "victim@example.com", EmailVerified: true,
+	}}
+	c := setupFull(t, sender, stub)
+
+	// Reset: a stolen session dies, tokens are stored hashed and bound to their purpose.
+	uid, err := c.svc.Register(ctx, "stolen@example.com", "password-one", "en")
+	require.NoError(t, err)
+	_, stolenRefresh, _, _, _, err := c.svc.Login(ctx, "stolen@example.com", "password-one")
+	require.NoError(t, err)
+	require.NoError(t, c.svc.RequestPasswordReset(ctx, "stolen@example.com"))
+
+	assert.Equal(t, codes.InvalidArgument, status.Code(c.svc.VerifyEmail(ctx, sender.resetToken)), "purpose binding")
+	require.NoError(t, c.svc.ResetPassword(ctx, sender.resetToken, "password-two"))
+	_, _, _, err = c.svc.Refresh(ctx, stolenRefresh)
+	assert.Error(t, err, "sessions must not survive a reset")
+	user, err := c.repo.GetUserByID(ctx, uid)
+	require.NoError(t, err)
+	assert.True(t, user.EmailVerified)
+
+	var storedRaw int
+	require.NoError(t, c.repo.pool.QueryRow(ctx,
+		`SELECT count(*) FROM email_verifications WHERE token_hash = $1`, sender.resetToken).Scan(&storedRaw))
+	assert.Zero(t, storedRaw, "raw tokens must not be stored")
+	var storedHashed int
+	require.NoError(t, c.repo.pool.QueryRow(ctx,
+		`SELECT count(*) FROM email_verifications WHERE token_hash = $1`, HashToken(sender.resetToken)).Scan(&storedHashed))
+	assert.Equal(t, 1, storedHashed)
+
+	// Claim: the provider-verified owner takes over an account whose password predates the proof.
+	_, err = c.svc.Register(ctx, "victim@example.com", "attackers-pw", "en")
+	require.NoError(t, err)
+	_, attackerRefresh, _, _, _, err := c.svc.Login(ctx, "victim@example.com", "attackers-pw")
+	require.NoError(t, err)
+
+	_, _, _, ownerID, _, isNew, err := c.svc.OAuthExchange(ctx, "google", "code", "https://app/cb")
+	require.NoError(t, err)
+	assert.False(t, isNew)
+
+	_, _, _, _, _, err = c.svc.Login(ctx, "victim@example.com", "attackers-pw")
+	assert.Equal(t, codes.Unauthenticated, status.Code(err))
+	_, _, _, err = c.svc.Refresh(ctx, attackerRefresh)
+	assert.Error(t, err)
+	owner, err := c.repo.GetUserByID(ctx, ownerID)
+	require.NoError(t, err)
+	assert.Nil(t, owner.PasswordHash)
+	assert.True(t, owner.EmailVerified)
+	assert.Error(t, c.svc.VerifyEmail(ctx, sender.verificationToken), "pending tokens are invalidated by the claim")
+}
+
+// TestClaimEndsRacingRefreshLoop_Integration: an attacker rotating refresh tokens in a tight loop
+// must not keep a live session once the owner claims the account.
+func TestClaimEndsRacingRefreshLoop_Integration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	stub := &stubOAuthExchanger{info: OAuthUserInfo{
+		Provider: "google", Subject: "owner-sub", Email: "race@example.com", EmailVerified: true,
+	}}
+	c := setupFull(t, &captureEmailSender{}, stub)
+
+	uid, err := c.svc.Register(ctx, "race@example.com", "attackers-pw", "en")
+	require.NoError(t, err)
+	_, refresh, _, _, _, err := c.svc.Login(ctx, "race@example.com", "attackers-pw")
+	require.NoError(t, err)
+
+	loopDone := make(chan struct{})
+	go func() {
+		defer close(loopDone)
+		for token := refresh; ; {
+			_, next, _, err := c.svc.Refresh(ctx, token)
+			if err != nil {
+				return
+			}
+			token = next
+		}
+	}()
+	time.Sleep(200 * time.Millisecond)
+
+	_, _, _, _, _, _, err = c.svc.OAuthExchange(ctx, "google", "code", "https://app/cb")
+	require.NoError(t, err)
+
+	select {
+	case <-loopDone:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the attacker's refresh loop is still rotating after the claim")
+	}
+	var live int
+	require.NoError(t, c.repo.pool.QueryRow(ctx,
+		`SELECT count(*) FROM refresh_tokens WHERE user_id = $1 AND NOT revoked`, uid).Scan(&live))
+	assert.Equal(t, 1, live, "only the owner's new session may be live")
+}
+
+// slowMintRepo delays the refresh-token insert inside a transaction, widening the window in which
+// a rotation holds its locks while a claim or reset runs.
+type slowMintRepo struct {
+	*PostgresRepository
+	delay time.Duration
+}
+
+func (r slowMintRepo) WithTx(ctx context.Context, fn func(Repository) error) error {
+	return r.PostgresRepository.WithTx(ctx, func(tx Repository) error { return fn(slowMintTx{tx, r.delay}) })
+}
+
+type slowMintTx struct {
+	Repository
+	delay time.Duration
+}
+
+func (r slowMintTx) CreateRefreshToken(ctx context.Context, rt *RefreshToken) error {
+	time.Sleep(r.delay)
+	return r.Repository.CreateRefreshToken(ctx, rt)
+}
+
+// TestClaimRevokesInFlightRotation_Integration: a claim that starts while a refresh is mid-rotation
+// must still end up revoking the token that rotation mints.
+func TestClaimRevokesInFlightRotation_Integration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	stub := &stubOAuthExchanger{info: OAuthUserInfo{
+		Provider: "google", Subject: "owner-sub", Email: "mint@example.com", EmailVerified: true,
+	}}
+	c := setupFull(t, &captureEmailSender{}, stub)
+	cfg := auth.Config{AccessTokenTTL: time.Minute, RefreshTokenTTL: time.Hour}
+	slow := NewService(slowMintRepo{c.repo, 800 * time.Millisecond}, c.sessions, c.signer, stub, &captureEmailSender{}, zap.NewNop(), cfg, WithSyncEmail())
+
+	uid, err := c.svc.Register(ctx, "mint@example.com", "attackers-pw", "en")
+	require.NoError(t, err)
+	_, refresh, _, _, _, err := c.svc.Login(ctx, "mint@example.com", "attackers-pw")
+	require.NoError(t, err)
+
+	refreshDone := make(chan error, 1)
+	go func() {
+		_, _, _, err := slow.Refresh(ctx, refresh)
+		refreshDone <- err
+	}()
+	time.Sleep(300 * time.Millisecond) // Refresh now holds its locks and is sleeping before the insert
+
+	_, _, _, _, _, _, err = c.svc.OAuthExchange(ctx, "google", "code", "https://app/cb")
+	require.NoError(t, err)
+	<-refreshDone
+
+	var live int
+	require.NoError(t, c.repo.pool.QueryRow(ctx,
+		`SELECT count(*) FROM refresh_tokens WHERE user_id = $1 AND NOT revoked`, uid).Scan(&live))
+	assert.Equal(t, 1, live, "the rotated token must not outlive the claim; only the owner's session remains")
 }

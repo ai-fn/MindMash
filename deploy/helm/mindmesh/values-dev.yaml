@@ -33,6 +33,7 @@ global:
   env:
     ENV: dev
     LOG_LEVEL: debug
+    LOG_EMAIL_SECRETS: "true" # identity email stub prints tokens so dev flows are usable
 
 identity:
   image: { registry: mindmesh, tag: dev }

@@ -57,6 +57,13 @@ type Service struct {
 	// hashSlots bounds concurrent argon2 runs (64 MiB each) so a login flood cannot exhaust memory.
 	hashSlots chan struct{}
 
+	// syncEmail sends mail inline; by default it is dispatched off the request path.
+	syncEmail bool
+	bgMu      sync.Mutex
+	bg        sync.WaitGroup
+	bgActive  int
+	bgClosed  bool
+
 	// dummyHash is verified for unknown accounts so login time does not reveal whether an email exists.
 	dummyOnce sync.Once
 	dummyHash string
@@ -68,6 +75,9 @@ type Option func(*Service)
 
 // WithRateLimiter enables per-account rate limits on login and password reset requests.
 func WithRateLimiter(l RateLimiter) Option { return func(s *Service) { s.limiter = l } }
+
+// WithSyncEmail sends email inside the request, for tests.
+func WithSyncEmail() Option { return func(s *Service) { s.syncEmail = true } }
 
 // WithHashConcurrency caps concurrent password hashes (default GOMAXPROCS).
 func WithHashConcurrency(n int) Option {
@@ -162,9 +172,9 @@ func (s *Service) Register(ctx context.Context, email, password, locale string) 
 		verificationToken = token
 
 		ev := &EmailVerification{
-			Token:     token,
+			TokenHash: HashToken(token),
 			UserID:    user.ID,
-			Purpose:   "verify_email",
+			Purpose:   purposeVerifyEmail,
 			ExpiresAt: now.Add(24 * time.Hour),
 			CreatedAt: now,
 		}
@@ -177,11 +187,10 @@ func (s *Service) Register(ctx context.Context, email, password, locale string) 
 		return "", txErr
 	}
 
-	if err := s.email.SendVerification(ctx, email, verificationToken, locale); err != nil {
-		// A send failure is not fatal; log it and continue so that a broken
-		// email gateway cannot prevent users from completing registration.
-		s.log.Error("identity: register send verification email", zap.Error(err), zap.String("user_id", user.ID))
-	}
+	// A send failure is logged, not fatal, so a broken gateway cannot block sign-ups.
+	s.background(ctx, "verification email", func(ctx context.Context) error {
+		return s.email.SendVerification(ctx, email, verificationToken, locale)
+	})
 
 	return user.ID, nil
 }
@@ -295,16 +304,8 @@ func (s *Service) OAuthExchange(ctx context.Context, provider, code, redirectURI
 		return "", "", 0, "", "", false, fmt.Errorf("identity: oauth exchange lookup email: %w", emailErr)
 	}
 	if emailErr == nil {
-		if !existingUser.EmailVerified {
-			return "", "", 0, "", "", false, platformerrors.AlreadyExists(
-				"an account with this email exists; verify its email before signing in with this provider").
-				WithMsgID(i18n.MsgOAuthLinkUnverified)
-		}
-		if err := requireActive(existingUser); err != nil {
-			return "", "", 0, "", "", false, err
-		}
-		// Link the new OAuth identity to the existing account atomically so a
-		// crash between lookup and insert cannot leave a dangling partial link.
+		// The provider proved the mailbox, so the account is now theirs: a password set before that
+		// proof may belong to whoever registered the address first, so it is dropped along with its sessions.
 		newIdentity := &OAuthIdentity{
 			ID:          ids.NewUUID(),
 			UserID:      existingUser.ID,
@@ -312,11 +313,39 @@ func (s *Service) OAuthExchange(ctx context.Context, provider, code, redirectURI
 			ProviderUID: info.Subject,
 			CreatedAt:   now,
 		}
+		var revoked []string
 		if txErr := s.repo.WithTx(ctx, func(txRepo Repository) error {
-			return txRepo.CreateOAuthIdentity(ctx, newIdentity)
+			cur, err := txRepo.GetUserForUpdate(ctx, existingUser.ID)
+			if err != nil {
+				return err
+			}
+			if err := requireActive(cur); err != nil {
+				return err
+			}
+			if err := txRepo.CreateOAuthIdentity(ctx, newIdentity); err != nil {
+				return err
+			}
+			if cur.PasswordHash != nil {
+				if err := txRepo.ClearPassword(ctx, cur.ID); err != nil {
+					return err
+				}
+				jtis, err := txRepo.RevokeUserTokens(ctx, cur.ID)
+				if err != nil {
+					return err
+				}
+				revoked = jtis
+			}
+			if !cur.EmailVerified {
+				if err := txRepo.SetEmailVerified(ctx, cur.ID); err != nil {
+					return err
+				}
+			}
+			return txRepo.InvalidateEmailVerifications(ctx, cur.ID)
 		}); txErr != nil {
 			return "", "", 0, "", "", false, fmt.Errorf("identity: oauth exchange link identity: %w", txErr)
 		}
+		existingUser.PasswordHash = nil
+		s.evictSessions(ctx, revoked)
 		profile, err := s.pickDefaultProfile(ctx, existingUser.ID)
 		if err != nil {
 			return "", "", 0, "", "", false, err
@@ -420,6 +449,13 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (accessToken
 	)
 
 	txErr := s.repo.WithTx(ctx, func(txRepo Repository) error {
+		// Locked before the token row, matching reset and claim, so their revoke cannot miss this rotation.
+		if _, err := txRepo.GetUserForShare(ctx, claims.Subject); err != nil {
+			if platformerrors.IsNotFound(err) {
+				return platformerrors.Unauthenticated("invalid token")
+			}
+			return fmt.Errorf("identity: refresh lock user: %w", err)
+		}
 		rt, err := txRepo.GetRefreshTokenForUpdate(ctx, jti)
 		if err != nil {
 			// Only a NotFound (unknown / already-deleted token) becomes
@@ -429,6 +465,10 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (accessToken
 				return platformerrors.Unauthenticated("invalid token")
 			}
 			return fmt.Errorf("identity: refresh get token: %w", err)
+		}
+
+		if rt.UserID != claims.Subject {
+			return platformerrors.Unauthenticated("invalid token")
 		}
 
 		if rt.Revoked {
@@ -551,6 +591,10 @@ func (s *Service) Logout(ctx context.Context, refreshToken string) {
 
 	var jtis []string
 	txErr := s.repo.WithTx(ctx, func(txRepo Repository) error {
+		// Same lock order as Refresh/claim/reset: user row first.
+		if _, err := txRepo.GetUserForShare(ctx, claims.Subject); err != nil {
+			return nil
+		}
 		rt, err := txRepo.GetRefreshTokenForUpdate(ctx, claims.ID)
 		if err != nil {
 			// Token not found or already gone — nothing to revoke; treat as success.
@@ -670,17 +714,12 @@ func (s *Service) GetProfile(ctx context.Context, profileID string) (*Profile, e
 
 // ─── Email verification & password reset ─────────────────────────────────────
 
-// VerifyEmail consumes a verification token and marks the user's email as
-// verified.  Both operations run inside a single transaction so concurrent
-// requests cannot both pass the consumed/expiry check (TOCTOU-safe).
+// VerifyEmail consumes a verification token and marks the user's email as verified.
 func (s *Service) VerifyEmail(ctx context.Context, token string) error {
 	return s.repo.WithTx(ctx, func(txRepo Repository) error {
-		userID, purpose, err := txRepo.ConsumeEmailVerification(ctx, token)
+		userID, err := consumeToken(ctx, txRepo, token, purposeVerifyEmail)
 		if err != nil {
-			return platformerrors.InvalidArgument("invalid or expired verification token").WithMsgID(i18n.MsgInvalidOrExpiredToken)
-		}
-		if purpose != "verify_email" {
-			return platformerrors.InvalidArgument("invalid token purpose")
+			return err
 		}
 		if err := txRepo.SetEmailVerified(ctx, userID); err != nil {
 			return fmt.Errorf("identity: verify email set verified: %w", err)
@@ -689,48 +728,64 @@ func (s *Service) VerifyEmail(ctx context.Context, token string) error {
 	})
 }
 
-// RequestPasswordReset creates a reset token and sends a reset email.
-// The method always returns nil to avoid leaking whether the email exists.
+// consumeToken locks the token's user before the token row; every flow takes user then token to avoid deadlocks.
+func consumeToken(ctx context.Context, repo Repository, token, purpose string) (string, error) {
+	hash := HashToken(token)
+	userID, err := repo.EmailVerificationUser(ctx, hash, purpose)
+	if err == nil {
+		_, err = repo.GetUserForUpdate(ctx, userID)
+	}
+	if err == nil {
+		userID, err = repo.ConsumeEmailVerification(ctx, hash, purpose)
+	}
+	if err != nil {
+		if platformerrors.IsNotFound(err) {
+			return "", platformerrors.InvalidArgument("invalid or expired token").WithMsgID(i18n.MsgInvalidOrExpiredToken)
+		}
+		return "", fmt.Errorf("identity: consume email token: %w", err)
+	}
+	return userID, nil
+}
+
+// RequestPasswordReset always returns nil; the lookup, insert and send all run off the request path
+// so neither the response nor its timing reveals whether the email is registered.
 func (s *Service) RequestPasswordReset(ctx context.Context, emailAddr string) error {
 	emailAddr, err := normalizeEmail(emailAddr)
 	if err != nil {
 		return nil
 	}
-	// Over the limit looks like success so the response cannot be used to probe accounts.
 	if err := s.allow(ctx, "reset", emailAddr, resetLimit, resetWindow); err != nil {
 		return nil
 	}
-	user, err := s.repo.GetUserByEmail(ctx, emailAddr)
-	if err != nil {
-		// Do not reveal whether the address is registered.
-		return nil
-	}
-
-	token, err := generateVerificationToken()
-	if err != nil {
-		return fmt.Errorf("identity: request password reset generate token: %w", err)
-	}
-	now := time.Now()
-	ev := &EmailVerification{
-		Token:     token,
-		UserID:    user.ID,
-		Purpose:   "password_reset",
-		ExpiresAt: now.Add(time.Hour),
-		CreatedAt: now,
-	}
-	if err := s.repo.CreateEmailVerification(ctx, ev); err != nil {
-		return fmt.Errorf("identity: request password reset create token: %w", err)
-	}
-	if err := s.email.SendPasswordReset(ctx, emailAddr, token, user.Locale); err != nil {
-		s.log.Error("identity: request password reset send email", zap.Error(err))
-	}
+	s.background(ctx, "password reset email", func(ctx context.Context) error {
+		user, err := s.repo.GetUserByEmail(ctx, emailAddr)
+		if err != nil {
+			if platformerrors.IsNotFound(err) {
+				return nil
+			}
+			return fmt.Errorf("lookup user: %w", err)
+		}
+		token, err := generateVerificationToken()
+		if err != nil {
+			return err
+		}
+		now := time.Now()
+		ev := &EmailVerification{
+			TokenHash: HashToken(token),
+			UserID:    user.ID,
+			Purpose:   purposePasswordReset,
+			ExpiresAt: now.Add(time.Hour),
+			CreatedAt: now,
+		}
+		if err := s.repo.CreateEmailVerification(ctx, ev); err != nil {
+			return fmt.Errorf("create token: %w", err)
+		}
+		return s.email.SendPasswordReset(ctx, emailAddr, token, user.Locale)
+	})
 	return nil
 }
 
-// ResetPassword validates a password-reset token and updates the user's
-// password.  Consumption and the password update run inside a single
-// transaction so concurrent requests cannot both pass the consumed/expiry
-// check (TOCTOU-safe).
+// ResetPassword sets a new password from an emailed token and ends every session of the account.
 func (s *Service) ResetPassword(ctx context.Context, token, newPassword string) error {
 	if err := validatePassword(newPassword); err != nil {
 		return err
@@ -740,19 +795,34 @@ func (s *Service) ResetPassword(ctx context.Context, token, newPassword string) 
 		return fmt.Errorf("identity: reset password hash: %w", err)
 	}
 
-	return s.repo.WithTx(ctx, func(txRepo Repository) error {
-		userID, purpose, err := txRepo.ConsumeEmailVerification(ctx, token)
+	var revoked []string
+	err = s.repo.WithTx(ctx, func(txRepo Repository) error {
+		userID, err := consumeToken(ctx, txRepo, token, purposePasswordReset)
 		if err != nil {
-			return platformerrors.InvalidArgument("invalid or expired reset token").WithMsgID(i18n.MsgInvalidOrExpiredToken)
-		}
-		if purpose != "password_reset" {
-			return platformerrors.InvalidArgument("invalid token purpose")
+			return err
 		}
 		if err := txRepo.UpdatePassword(ctx, userID, hash); err != nil {
 			return fmt.Errorf("identity: reset password update: %w", err)
 		}
+		// Receiving the link proves the mailbox.
+		if err := txRepo.SetEmailVerified(ctx, userID); err != nil {
+			return fmt.Errorf("identity: reset password verify email: %w", err)
+		}
+		if err := txRepo.InvalidateEmailVerifications(ctx, userID); err != nil {
+			return fmt.Errorf("identity: reset password invalidate tokens: %w", err)
+		}
+		jtis, err := txRepo.RevokeUserTokens(ctx, userID)
+		if err != nil {
+			return fmt.Errorf("identity: reset password revoke sessions: %w", err)
+		}
+		revoked = jtis
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	s.evictSessions(ctx, revoked)
+	return nil
 }
 
 // ─── JWKS ────────────────────────────────────────────────────────────────────
@@ -789,7 +859,21 @@ func (s *Service) issueTokens(ctx context.Context, user *User, profile *Profile)
 		Revoked:   false,
 		CreatedAt: now,
 	}
-	if err := s.repo.CreateRefreshToken(ctx, rt); err != nil {
+	// The share lock orders this insert against a reset or claim: either it is revoked by them, or it sees their result.
+	err = s.repo.WithTx(ctx, func(txRepo Repository) error {
+		cur, err := txRepo.GetUserForShare(ctx, user.ID)
+		if err != nil {
+			return err
+		}
+		if err := requireActive(cur); err != nil {
+			return err
+		}
+		if !samePassword(cur.PasswordHash, user.PasswordHash) {
+			return platformerrors.Unauthenticated("invalid credentials").WithMsgID(i18n.MsgInvalidCredentials)
+		}
+		return txRepo.CreateRefreshToken(ctx, rt)
+	})
+	if err != nil {
 		return "", "", 0, fmt.Errorf("identity: issue tokens create refresh token: %w", err)
 	}
 
@@ -806,6 +890,13 @@ func (s *Service) issueTokens(ctx context.Context, user *User, profile *Profile)
 
 	expiresIn = int64(s.accessTTL.Seconds())
 	return accessToken, refreshToken, expiresIn, nil
+}
+
+func samePassword(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
 
 // pickDefaultProfile returns the user's default profile, falling back to the
@@ -840,10 +931,79 @@ func (s *Service) revokeFamilyBestEffort(ctx context.Context, familyID string) {
 		s.log.Error("identity: revoke family", zap.Error(err))
 		return
 	}
-	if len(jtis) > 0 {
-		if err := s.sessions.Delete(ctx, jtis...); err != nil {
-			s.log.Warn("identity: delete revoked sessions", zap.Error(err))
+	s.evictSessions(ctx, jtis)
+}
+
+// HashToken is how email tokens are stored: a database leak must not yield usable links.
+func HashToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
+
+const (
+	backgroundTimeout = 30 * time.Second
+	maxBackground     = 1024
+)
+
+// background runs fn off the request path so response time does not reveal account state.
+// Overload drops the job with an error log; mail is best effort (reset covers a lost verification).
+func (s *Service) background(ctx context.Context, what string, fn func(context.Context) error) {
+	run := func(ctx context.Context) {
+		defer func() {
+			if r := recover(); r != nil {
+				s.log.Error("identity: panic in "+what, zap.Any("panic", r))
+			}
+		}()
+		if err := fn(ctx); err != nil {
+			s.log.Error("identity: "+what, zap.Error(err))
 		}
+	}
+	if s.syncEmail {
+		run(ctx)
+		return
+	}
+	s.bgMu.Lock()
+	defer s.bgMu.Unlock()
+	if s.bgClosed || s.bgActive >= maxBackground {
+		s.log.Error("identity: dropped "+what, zap.Bool("shutting_down", s.bgClosed))
+		return
+	}
+	s.bgActive++
+	s.bg.Add(1)
+	bg := context.WithoutCancel(ctx)
+	go func() {
+		defer func() {
+			s.bgMu.Lock()
+			s.bgActive--
+			s.bgMu.Unlock()
+			s.bg.Done()
+		}()
+		bg, cancel := context.WithTimeout(bg, backgroundTimeout)
+		defer cancel()
+		run(bg)
+	}()
+}
+
+// Drain stops accepting background jobs and waits for running ones until ctx ends.
+func (s *Service) Drain(ctx context.Context) {
+	s.bgMu.Lock()
+	s.bgClosed = true
+	s.bgMu.Unlock()
+	done := make(chan struct{})
+	go func() { s.bg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		s.log.Warn("identity: drain timed out with background jobs running")
+	}
+}
+
+func (s *Service) evictSessions(ctx context.Context, jtis []string) {
+	if len(jtis) == 0 {
+		return
+	}
+	if err := s.sessions.Delete(ctx, jtis...); err != nil {
+		s.log.Warn("identity: evict sessions", zap.Error(err))
 	}
 }
 
