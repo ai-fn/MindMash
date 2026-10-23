@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -34,6 +35,15 @@ const (
 	deckConfigColumns   = "id, user_id, profile_id, name, new_per_day, rev_per_day, desired_retention, fsrs_weights, learning_steps, rollover_hour, timezone, usn, mtime"
 	filteredDeckColumns = "id, user_id, profile_id, name, query, usn, mtime"
 )
+
+// qualify prefixes each column in a column list with a table alias.
+func qualify(alias, cols string) string {
+	parts := strings.Split(cols, ", ")
+	for i, p := range parts {
+		parts[i] = alias + "." + p
+	}
+	return strings.Join(parts, ", ")
+}
 
 // dbtx is satisfied by both *pgxpool.Pool and pgx.Tx, allowing the same query
 // methods to work inside or outside a transaction without duplication.
@@ -346,12 +356,14 @@ func (r *PostgresRepository) DeleteNote(ctx context.Context, userID, id string) 
 
 // ─── Card ────────────────────────────────────────────────────────────────────
 
-func scanCard(s rowScanner) (*Card, error) {
+// scanCard scans cardColumns followed by any extra columns into extra.
+func scanCard(s rowScanner, extra ...any) (*Card, error) {
 	c := &Card{}
 	var ord, state, queue int16
-	if err := s.Scan(&c.ID, &c.UserID, &c.ProfileID, &c.NoteID, &c.DeckID,
+	dest := append([]any{&c.ID, &c.UserID, &c.ProfileID, &c.NoteID, &c.DeckID,
 		&ord, &state, &queue, &c.Due, &c.Stability, &c.Difficulty,
-		&c.Reps, &c.Lapses, &c.LastReview, &c.USN, &c.Mtime); err != nil {
+		&c.Reps, &c.Lapses, &c.LastReview, &c.USN, &c.Mtime}, extra...)
+	if err := s.Scan(dest...); err != nil {
 		return nil, err
 	}
 	c.TemplateOrd = int(ord)
@@ -385,6 +397,27 @@ func (r *PostgresRepository) GetCard(ctx context.Context, userID, id string) (*C
 		return nil, fmt.Errorf("collection: get card: %w", mapNoRows(err, "card not found"))
 	}
 	return c, nil
+}
+
+func (r *PostgresRepository) GetCardRenderSource(ctx context.Context, userID, id string) (*CardRenderSource, error) {
+	var fields, templates []byte
+	c, err := scanCard(r.db.QueryRow(ctx, `
+		SELECT `+qualify("c", cardColumns)+`, n.fields, nt.card_templates
+		FROM cards c
+		JOIN notes n ON n.user_id = c.user_id AND n.id = c.note_id
+		JOIN note_types nt ON nt.user_id = n.user_id AND nt.id = n.note_type_id
+		WHERE c.user_id = $1 AND c.id = $2`, userID, id), &fields, &templates)
+	if err != nil {
+		return nil, fmt.Errorf("collection: get card render source: %w", mapNoRows(err, "card not found"))
+	}
+	src := &CardRenderSource{Card: c}
+	if err := json.Unmarshal(fields, &src.Fields); err != nil {
+		return nil, fmt.Errorf("collection: decode note fields: %w", err)
+	}
+	if err := json.Unmarshal(templates, &src.Templates); err != nil {
+		return nil, fmt.Errorf("collection: decode note type templates: %w", err)
+	}
+	return src, nil
 }
 
 func (r *PostgresRepository) GetCardsByIDs(ctx context.Context, userID string, ids []string) ([]Card, error) {

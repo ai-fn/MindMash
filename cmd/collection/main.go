@@ -1,6 +1,6 @@
 // Command collection runs the MindMesh Collection service: gRPC (internal) plus
 // a grpc-gateway REST edge, with health, metrics, JWKS JWT auth, migrations,
-// Redis render cache, and an outbox relay goroutine.
+// and an outbox relay goroutine.
 package main
 
 import (
@@ -18,7 +18,6 @@ import (
 	collectionv1 "github.com/mindmesh/mindmesh/api/collection/v1"
 	"github.com/mindmesh/mindmesh/internal/collection"
 	"github.com/mindmesh/mindmesh/internal/platform/auth"
-	"github.com/mindmesh/mindmesh/internal/platform/cache"
 	"github.com/mindmesh/mindmesh/internal/platform/config"
 	"github.com/mindmesh/mindmesh/internal/platform/db"
 	"github.com/mindmesh/mindmesh/internal/platform/events"
@@ -83,17 +82,6 @@ func run() error {
 		logger.Info("collection: migrations applied", zap.String("dir", dir))
 	}
 
-	// Redis.
-	cacheCfg, err := cache.LoadConfig()
-	if err != nil {
-		return fmt.Errorf("collection: load cache config: %w", err)
-	}
-	rdb, err := cache.New(ctx, cacheCfg)
-	if err != nil {
-		return fmt.Errorf("collection: connect redis: %w", err)
-	}
-	defer func() { _ = rdb.Close() }()
-
 	// Auth verifier: remote JWKS (JWKS_URL set) or local key file fallback.
 	var verifier auth.Verifier
 	if jwksURL := os.Getenv("JWKS_URL"); jwksURL != "" {
@@ -132,7 +120,7 @@ func run() error {
 
 	// Domain wiring.
 	repo := collection.NewPostgresRepository(pool)
-	svc := collection.NewService(repo, rdb, logger)
+	svc := collection.NewService(repo, logger)
 	handler := collection.NewHandler(svc)
 	internalHandler := collection.NewInternalHandler(svc)
 
@@ -178,9 +166,6 @@ func run() error {
 	readiness := func(ctx context.Context) error {
 		if err := pool.Ping(ctx); err != nil {
 			return fmt.Errorf("postgres: %w", err)
-		}
-		if err := rdb.Ping(ctx).Err(); err != nil {
-			return fmt.Errorf("redis: %w", err)
 		}
 		return nil
 	}

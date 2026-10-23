@@ -9,10 +9,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
-	tcredis "github.com/testcontainers/testcontainers-go/modules/redis"
 	"github.com/testcontainers/testcontainers-go/wait"
 	"go.uber.org/zap"
 
@@ -22,7 +20,6 @@ import (
 
 type integrationComponents struct {
 	pool *pgxpool.Pool
-	rdb  *redis.Client
 	repo *PostgresRepository
 	svc  *Service
 }
@@ -50,12 +47,6 @@ func setupIntegration(t *testing.T) integrationComponents {
 	}
 	t.Cleanup(func() { _ = pgCtr.Terminate(ctx) })
 
-	redisCtr, err := tcredis.Run(ctx, "redis:8-alpine")
-	if err != nil {
-		t.Fatalf("start redis: %v", err)
-	}
-	t.Cleanup(func() { _ = redisCtr.Terminate(ctx) })
-
 	dsn, err := pgCtr.ConnectionString(ctx, "sslmode=disable")
 	if err != nil {
 		t.Fatalf("pg connection string: %v", err)
@@ -70,16 +61,9 @@ func setupIntegration(t *testing.T) integrationComponents {
 	}
 	t.Cleanup(pool.Close)
 
-	redisAddr, err := redisCtr.Endpoint(ctx, "")
-	if err != nil {
-		t.Fatalf("redis endpoint: %v", err)
-	}
-	rdb := redis.NewClient(&redis.Options{Addr: redisAddr})
-	t.Cleanup(func() { _ = rdb.Close() })
-
 	repo := NewPostgresRepository(pool)
-	svc := NewService(repo, rdb, zap.NewNop())
-	return integrationComponents{pool: pool, rdb: rdb, repo: repo, svc: svc}
+	svc := NewService(repo, zap.NewNop())
+	return integrationComponents{pool: pool, repo: repo, svc: svc}
 }
 
 const (
@@ -219,6 +203,75 @@ func TestRenderCard_ClozeRevealedOnBack(t *testing.T) {
 	}
 	if !strings.Contains(back, "Paris") {
 		t.Errorf("back hides the answer: %q", back)
+	}
+}
+
+func TestRenderCard_ReflectsNoteAndTemplateEdits(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+
+	deck := defaultDeck(t, c)
+	nt := basicNoteType(t, c)
+	note, err := c.svc.CreateNote(ctx, testUserID, testProfileID, nt.ID, deck.ID,
+		map[string]string{"Front": "old-q", "Back": "old-a"}, nil, 0)
+	if err != nil {
+		t.Fatalf("CreateNote: %v", err)
+	}
+	cards, err := c.repo.ListCardsByNote(ctx, testUserID, note.ID)
+	if err != nil || len(cards) != 1 {
+		t.Fatalf("ListCardsByNote: %v, %d cards", err, len(cards))
+	}
+	if _, _, _, err := c.svc.RenderCard(ctx, testUserID, cards[0].ID); err != nil {
+		t.Fatalf("RenderCard: %v", err)
+	}
+
+	if _, err := c.svc.UpdateNote(ctx, testUserID, note.ID, note.USN,
+		map[string]string{"Front": "new-q", "Back": "new-a"}, nil, 0); err != nil {
+		t.Fatalf("UpdateNote: %v", err)
+	}
+	_, front, back, err := c.svc.RenderCard(ctx, testUserID, cards[0].ID)
+	if err != nil {
+		t.Fatalf("RenderCard: %v", err)
+	}
+	if front != "new-q" || back != "new-a" {
+		t.Fatalf("after note edit: front=%q back=%q", front, back)
+	}
+
+	if _, err := c.svc.UpdateNoteType(ctx, testUserID, nt.ID, nt.USN, nt.Name, nt.CSS, nt.Fields,
+		[]CardTemplate{{Name: "Card 1", Front: "Q: {{Front}}", Back: "A: {{Back}}"}}); err != nil {
+		t.Fatalf("UpdateNoteType: %v", err)
+	}
+	_, front, back, err = c.svc.RenderCard(ctx, testUserID, cards[0].ID)
+	if err != nil {
+		t.Fatalf("RenderCard: %v", err)
+	}
+	if front != "Q: new-q" || back != "A: new-a" {
+		t.Fatalf("after template edit: front=%q back=%q", front, back)
+	}
+}
+
+func TestRenderCard_NotFound(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+	_, _, _, err := c.svc.RenderCard(ctx, testUserID, "00000000-0000-0000-0000-0000000000ff")
+	if !platformerrors.IsNotFound(err) {
+		t.Fatalf("missing card: got %v, want NotFound", err)
+	}
+
+	deck := defaultDeck(t, c)
+	nt := basicNoteType(t, c)
+	note, err := c.svc.CreateNote(ctx, testUserID, testProfileID, nt.ID, deck.ID,
+		map[string]string{"Front": "q", "Back": "a"}, nil, 0)
+	if err != nil {
+		t.Fatalf("CreateNote: %v", err)
+	}
+	cards, err := c.repo.ListCardsByNote(ctx, testUserID, note.ID)
+	if err != nil || len(cards) != 1 {
+		t.Fatalf("ListCardsByNote: %v, %d cards", err, len(cards))
+	}
+	const otherUser = "00000000-0000-0000-0000-0000000000aa"
+	if _, _, _, err := c.svc.RenderCard(ctx, otherUser, cards[0].ID); !platformerrors.IsNotFound(err) {
+		t.Fatalf("other user's card: got %v, want NotFound", err)
 	}
 }
 

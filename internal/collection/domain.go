@@ -72,8 +72,10 @@ type NoteType struct {
 
 // IsCloze reports whether this note type generates cloze cards. A note type is
 // a cloze type iff any template references the {{cloze:...}} construct.
-func (nt *NoteType) IsCloze() bool {
-	for _, t := range nt.CardTemplates {
+func (nt *NoteType) IsCloze() bool { return isCloze(nt.CardTemplates) }
+
+func isCloze(templates []CardTemplate) bool {
+	for _, t := range templates {
 		if containsCloze(t.Front) || containsCloze(t.Back) {
 			return true
 		}
@@ -116,6 +118,13 @@ type Card struct {
 	LastReview  *time.Time
 	USN         int64
 	Mtime       time.Time
+}
+
+// CardRenderSource is what RenderCard needs: the card plus its note fields and note-type templates.
+type CardRenderSource struct {
+	Card      *Card
+	Fields    map[string]string
+	Templates []CardTemplate
 }
 
 // Deck is a node in the hierarchical deck tree. Path is an ltree value encoding
@@ -211,6 +220,8 @@ type Repository interface {
 	// Card
 	CreateCard(ctx context.Context, c *Card) error
 	GetCard(ctx context.Context, userID, id string) (*Card, error)
+	// GetCardRenderSource loads a card with its note fields and note-type templates in one query.
+	GetCardRenderSource(ctx context.Context, userID, id string) (*CardRenderSource, error)
 	GetCardsByIDs(ctx context.Context, userID string, ids []string) ([]Card, error)
 	ListCardsByNote(ctx context.Context, userID, noteID string) ([]Card, error)
 	DeleteCard(ctx context.Context, userID, id string) error

@@ -62,11 +62,11 @@ func withTestIdentity(userID, profileID string) grpc.UnaryServerInterceptor {
 // for Collection's tables, and returns a CollectionClient dialed against it
 // via the real sync.NewGRPCCollectionClient — so Apply exercises Collection's
 // actual optimistic-concurrency/outbox/USN code, not a fake.
-func setupCollectionBufconn(t *testing.T, pool *pgxpool.Pool, rdb *redis.Client) CollectionClient {
+func setupCollectionBufconn(t *testing.T, pool *pgxpool.Pool) CollectionClient {
 	t.Helper()
 
 	collRepo := collection.NewPostgresRepository(pool)
-	collSvc := collection.NewService(collRepo, rdb, zap.NewNop())
+	collSvc := collection.NewService(collRepo, zap.NewNop())
 	collHandler := collection.NewHandler(collSvc)
 
 	lis := bufconn.Listen(1024 * 1024)
@@ -152,7 +152,7 @@ func setupIntegration(t *testing.T) integrationComponents {
 	rdb := redis.NewClient(&redis.Options{Addr: redisAddr})
 	t.Cleanup(func() { _ = rdb.Close() })
 
-	coll := setupCollectionBufconn(t, pool, rdb)
+	coll := setupCollectionBufconn(t, pool)
 
 	repo := NewPostgresRepository(pool)
 	svc := NewService(repo, coll, rdb, zap.NewNop())

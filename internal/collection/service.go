@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 
 	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
@@ -14,17 +13,14 @@ import (
 	"github.com/mindmesh/mindmesh/pkg/template"
 )
 
-// Service orchestrates Collection domain operations. It is the single entry
-// point between the handler layer and the repository + cache.
+// Service orchestrates Collection domain operations between the handler layer and the repository.
 type Service struct {
-	repo  Repository
-	redis *redis.Client
-	log   *zap.Logger
+	repo Repository
+	log  *zap.Logger
 }
 
-// NewService constructs a Service. redis may be nil (cache disabled).
-func NewService(repo Repository, rdb *redis.Client, log *zap.Logger) *Service {
-	return &Service{repo: repo, redis: rdb, log: log}
+func NewService(repo Repository, log *zap.Logger) *Service {
+	return &Service{repo: repo, log: log}
 }
 
 // ─── NoteType ────────────────────────────────────────────────────────────────
@@ -341,49 +337,34 @@ func (s *Service) DeleteNote(ctx context.Context, userID, id string, expectedUSN
 
 // ─── Card ────────────────────────────────────────────────────────────────────
 
-// RenderCard fetches and renders a card. The result is cached in Redis keyed by
-// (cardID, USN) so a stale key is retired naturally when the USN increments.
+// RenderCard renders a card on every call: note and note-type edits don't bump the card USN,
+// so a render cache keyed by it would serve stale content.
 func (s *Service) RenderCard(ctx context.Context, userID, cardID string) (card *Card, front, back string, err error) {
-	card, err = s.repo.GetCard(ctx, userID, cardID)
+	src, err := s.repo.GetCardRenderSource(ctx, userID, cardID)
 	if err != nil {
 		return nil, "", "", err
 	}
-
-	if f, b, ok := getRenderCache(ctx, s.redis, cardID, card.USN); ok {
-		return card, f, b, nil
-	}
-
-	note, err := s.repo.GetNote(ctx, userID, card.NoteID)
-	if err != nil {
-		return nil, "", "", err
-	}
-	nt, err := s.repo.GetNoteType(ctx, userID, note.NoteTypeID)
-	if err != nil {
-		return nil, "", "", err
-	}
+	card = src.Card
 
 	var tmplIdx, clozeOrd int
-	if nt.IsCloze() {
-		tmplIdx = 0
+	if isCloze(src.Templates) {
 		clozeOrd = card.TemplateOrd + 1
 	} else {
 		tmplIdx = card.TemplateOrd
 	}
-	if tmplIdx >= len(nt.CardTemplates) {
+	if tmplIdx >= len(src.Templates) {
 		return nil, "", "", platformerrors.Internal("template ordinal out of range")
 	}
-	tmpl := nt.CardTemplates[tmplIdx]
+	tmpl := src.Templates[tmplIdx]
 
-	front, err = template.Render(tmpl.Front, note.Fields, template.Opts{ClozeOrd: clozeOrd})
+	front, err = template.Render(tmpl.Front, src.Fields, template.Opts{ClozeOrd: clozeOrd})
 	if err != nil {
 		return nil, "", "", platformerrors.Internal("render front: " + err.Error())
 	}
-	back, err = template.Render(tmpl.Back, note.Fields, template.Opts{ClozeOrd: clozeOrd, FrontSide: front, Back: true})
+	back, err = template.Render(tmpl.Back, src.Fields, template.Opts{ClozeOrd: clozeOrd, FrontSide: front, Back: true})
 	if err != nil {
 		return nil, "", "", platformerrors.Internal("render back: " + err.Error())
 	}
-
-	setRenderCache(ctx, s.redis, cardID, card.USN, front, back)
 	return card, front, back, nil
 }
 

@@ -14,12 +14,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
 	"github.com/segmentio/kafka-go"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/opensearch"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
-	tcredis "github.com/testcontainers/testcontainers-go/modules/redis"
 	"github.com/testcontainers/testcontainers-go/modules/redpanda"
 	"github.com/testcontainers/testcontainers-go/wait"
 	"go.uber.org/zap"
@@ -118,12 +116,6 @@ func setupCollection(t *testing.T) *collectionHarness {
 	}
 	t.Cleanup(func() { _ = pgCtr.Terminate(ctx) })
 
-	redisCtr, err := tcredis.Run(ctx, "redis:8-alpine")
-	if err != nil {
-		t.Fatalf("start redis: %v", err)
-	}
-	t.Cleanup(func() { _ = redisCtr.Terminate(ctx) })
-
 	dsn, err := pgCtr.ConnectionString(ctx, "sslmode=disable")
 	if err != nil {
 		t.Fatalf("pg connection string: %v", err)
@@ -138,15 +130,8 @@ func setupCollection(t *testing.T) *collectionHarness {
 	}
 	t.Cleanup(pool.Close)
 
-	redisAddr, err := redisCtr.Endpoint(ctx, "")
-	if err != nil {
-		t.Fatalf("redis endpoint: %v", err)
-	}
-	rdb := redis.NewClient(&redis.Options{Addr: redisAddr})
-	t.Cleanup(func() { _ = rdb.Close() })
-
 	repo := collection.NewPostgresRepository(pool)
-	svc := collection.NewService(repo, rdb, zap.NewNop())
+	svc := collection.NewService(repo, zap.NewNop())
 	internalHandler := collection.NewInternalHandler(svc)
 	signer, services := newServiceKeys(t)
 
