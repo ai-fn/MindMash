@@ -34,13 +34,14 @@ type Service struct {
 	repo     Repository
 	coll     CollectionClient
 	rdb      *redis.Client
+	hub      *notifyHub
 	log      *zap.Logger
 	pageSize int // per-entity-type page size; tests shrink this to exercise pagination cheaply
 }
 
 // NewService constructs a Service.
 func NewService(repo Repository, coll CollectionClient, rdb *redis.Client, log *zap.Logger) *Service {
-	return &Service{repo: repo, coll: coll, rdb: rdb, log: log, pageSize: defaultPageSize}
+	return &Service{repo: repo, coll: coll, rdb: rdb, hub: newNotifyHub(), log: log, pageSize: defaultPageSize}
 }
 
 // GetChanges returns one page of the delta feed for userID: every entity with
@@ -309,36 +310,11 @@ func decodePageToken(token string) (Cursors, int64, error) {
 // usn: the client re-pulls GetChanges to learn what's new, so a coalesced or
 // slightly stale nudge is harmless.
 
-func notifyChannel(userID string) string { return "sync:notify:" + userID }
-
-// Subscribe registers a new SSE connection for userID and returns a channel
-// that receives a value each time any replica calls Notify(userID), plus an
-// unsubscribe function the caller must invoke when the connection closes.
-// unsubscribe is safe to call more than once (redis.PubSub.Close is
-// idempotent — a second call returns an error, which is discarded here).
-func (s *Service) Subscribe(ctx context.Context, userID string) (<-chan struct{}, func(), error) {
-	ps := s.rdb.Subscribe(ctx, notifyChannel(userID))
-	// Confirm the subscription actually reached Redis before returning, so a
-	// down/unreachable Redis surfaces as an error here rather than silently
-	// producing a channel that never fires.
-	if _, err := ps.Receive(ctx); err != nil {
-		_ = ps.Close()
-		return nil, nil, fmt.Errorf("sync: subscribe %s: %w", userID, err)
-	}
-
-	out := make(chan struct{}, 1)
-	go func() {
-		for range ps.Channel() {
-			select {
-			case out <- struct{}{}:
-			default:
-			}
-		}
-		close(out)
-	}()
-
-	unsubscribe := func() { _ = ps.Close() }
-	return out, unsubscribe, nil
+// Subscribe registers an SSE connection for userID. The channel receives a
+// (coalesced) value per Notify(userID) on any replica and is closed on
+// unsubscribe or hub shutdown; unsubscribe is safe to call more than once.
+func (s *Service) Subscribe(userID string) (<-chan struct{}, func(), error) {
+	return s.hub.subscribe(userID)
 }
 
 // Notify publishes a nudge for userID to every replica's subscribers via

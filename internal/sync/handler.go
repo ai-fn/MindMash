@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -14,12 +15,20 @@ import (
 // Handler implements the SyncService gRPC interface.
 type Handler struct {
 	syncv1.UnimplementedSyncServiceServer
-	svc *Service
+	svc       *Service
+	heartbeat time.Duration
 }
+
+const (
+	// sseHeartbeat stays under the ~60s idle timeout of common proxies and load balancers.
+	sseHeartbeat = 25 * time.Second
+	// sseWriteTimeout bounds each SSE write, replacing the server-wide WriteTimeout for the stream.
+	sseWriteTimeout = 10 * time.Second
+)
 
 // NewHandler constructs a Handler.
 func NewHandler(svc *Service) *Handler {
-	return &Handler{svc: svc}
+	return &Handler{svc: svc, heartbeat: sseHeartbeat}
 }
 
 func identity(ctx context.Context) (auth.IdentityContext, error) {
@@ -370,16 +379,10 @@ func (h *Handler) StreamHandler(log *zap.Logger) http.HandlerFunc {
 			return
 		}
 
-		flusher, ok := w.(http.Flusher)
-		if !ok {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
-		// Subscribe before committing the response status: if Redis is
-		// unreachable, the client should see a clean error rather than a
+		// Subscribe before committing the response status: if the replica's notify
+		// subscription is down, the client should see a clean error rather than a
 		// 200 stream that silently never nudges.
-		nudges, unsubscribe, err := h.svc.Subscribe(r.Context(), id.UserID)
+		nudges, unsubscribe, err := h.svc.Subscribe(id.UserID)
 		if err != nil {
 			log.Warn("sync: sse subscribe failed", zap.Error(err))
 			w.WriteHeader(http.StatusServiceUnavailable)
@@ -387,31 +390,44 @@ func (h *Handler) StreamHandler(log *zap.Logger) http.HandlerFunc {
 		}
 		defer unsubscribe()
 
+		rc := http.NewResponseController(w)
+		send := func(frame string) error {
+			if err := rc.SetWriteDeadline(time.Now().Add(sseWriteTimeout)); err != nil {
+				return err
+			}
+			if _, err := w.Write([]byte(frame)); err != nil {
+				return err
+			}
+			return rc.Flush()
+		}
+
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
-		w.WriteHeader(http.StatusOK)
-
-		// Flush immediately so the client knows the stream is live and should
-		// do an initial pull.
-		if _, err := w.Write([]byte("event: ready\ndata: {}\n\n")); err != nil {
+		// The ready event tells the client the stream is live and it should do an initial pull.
+		if err := send("event: ready\ndata: {}\n\n"); err != nil {
+			log.Warn("sync: sse open failed", zap.Error(err))
 			return
 		}
-		flusher.Flush()
 
+		heartbeat := time.NewTicker(h.heartbeat)
+		defer heartbeat.Stop()
 		for {
+			var frame string
 			select {
 			case <-r.Context().Done():
 				return
+			case <-heartbeat.C:
+				frame = ": ping\n\n"
 			case _, open := <-nudges:
 				if !open {
 					return
 				}
-				if _, err := w.Write([]byte("event: changed\ndata: {}\n\n")); err != nil {
-					log.Debug("sync: sse write failed, closing", zap.Error(err))
-					return
-				}
-				flusher.Flush()
+				frame = "event: changed\ndata: {}\n\n"
+			}
+			if err := send(frame); err != nil {
+				log.Debug("sync: sse write failed, closing", zap.Error(err))
+				return
 			}
 		}
 	}

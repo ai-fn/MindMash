@@ -3,9 +3,12 @@
 package sync
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"slices"
 	"testing"
 	"time"
@@ -156,7 +159,26 @@ func setupIntegration(t *testing.T) integrationComponents {
 
 	repo := NewPostgresRepository(pool)
 	svc := NewService(repo, coll, rdb, zap.NewNop())
+	startNotifyHub(t, svc)
 	return integrationComponents{pool: pool, rdb: rdb, repo: repo, svc: svc}
+}
+
+// startNotifyHub runs svc's notify hub for the test and waits until it accepts streams.
+func startNotifyHub(t *testing.T, svc *Service) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); _ = svc.RunNotifyHub(ctx) }()
+	t.Cleanup(func() { cancel(); <-done })
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if _, unsub, err := svc.Subscribe("probe"); err == nil {
+			unsub()
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("notify hub did not start")
+		}
+	}
 }
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
@@ -339,12 +361,12 @@ func TestSubscribeNotify_DeliversToMatchingUserOnly(t *testing.T) {
 	c := setupIntegration(t)
 	ctx := context.Background()
 
-	chA, unsubA, err := c.svc.Subscribe(ctx, "userA")
+	chA, unsubA, err := c.svc.Subscribe("userA")
 	if err != nil {
 		t.Fatalf("Subscribe userA: %v", err)
 	}
 	defer unsubA()
-	chB, unsubB, err := c.svc.Subscribe(ctx, "userB")
+	chB, unsubB, err := c.svc.Subscribe("userB")
 	if err != nil {
 		t.Fatalf("Subscribe userB: %v", err)
 	}
@@ -379,8 +401,9 @@ func TestSubscribeNotify_WorksAcrossReplicas(t *testing.T) {
 
 	replicaA := NewService(c.repo, nil, c.rdb, zap.NewNop())
 	replicaB := NewService(c.repo, nil, c.rdb, zap.NewNop())
+	startNotifyHub(t, replicaA)
 
-	ch, unsub, err := replicaA.Subscribe(ctx, "userA")
+	ch, unsub, err := replicaA.Subscribe("userA")
 	if err != nil {
 		t.Fatalf("Subscribe on replica A: %v", err)
 	}
@@ -399,9 +422,8 @@ func TestSubscribeNotify_WorksAcrossReplicas(t *testing.T) {
 
 func TestUnsubscribe_ClosesChannel(t *testing.T) {
 	c := setupIntegration(t)
-	ctx := context.Background()
 
-	ch, unsub, err := c.svc.Subscribe(ctx, "userA")
+	ch, unsub, err := c.svc.Subscribe("userA")
 	if err != nil {
 		t.Fatalf("Subscribe: %v", err)
 	}
@@ -419,14 +441,115 @@ func TestUnsubscribe_ClosesChannel(t *testing.T) {
 
 func TestUnsubscribe_IsIdempotent(t *testing.T) {
 	c := setupIntegration(t)
-	ctx := context.Background()
 
-	_, unsub, err := c.svc.Subscribe(ctx, "userA")
+	_, unsub, err := c.svc.Subscribe("userA")
 	if err != nil {
 		t.Fatalf("Subscribe: %v", err)
 	}
 	unsub()
 	unsub() // must not panic
+}
+
+// streamLines opens the SSE route as userA on a server with the given write timeout and returns its lines.
+func streamLines(t *testing.T, svc *Service, writeTimeout, heartbeat time.Duration) <-chan string {
+	t.Helper()
+	h := NewHandler(svc)
+	h.heartbeat = heartbeat
+	stream := h.StreamHandler(zap.NewNop())
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		stream(w, r.WithContext(auth.WithIdentity(r.Context(), auth.IdentityContext{UserID: "userA"})))
+	}))
+	srv.Config.WriteTimeout = writeTimeout
+	srv.Start()
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatalf("GET stream: %v", err)
+	}
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	lines := make(chan string, 64)
+	go func() {
+		defer close(lines)
+		sc := bufio.NewScanner(resp.Body)
+		for sc.Scan() {
+			lines <- sc.Text()
+		}
+	}()
+	return lines
+}
+
+// waitLine reads lines until one equals want, failing on timeout or stream end.
+func waitLine(t *testing.T, lines <-chan string, want string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.After(timeout)
+	for {
+		select {
+		case l, open := <-lines:
+			if !open {
+				t.Fatalf("stream closed before %q", want)
+			}
+			if l == want {
+				return
+			}
+		case <-deadline:
+			t.Fatalf("no %q within %v", want, timeout)
+		}
+	}
+}
+
+func TestStream_OutlivesServerWriteTimeout(t *testing.T) {
+	c := setupIntegration(t)
+	lines := streamLines(t, c.svc, 200*time.Millisecond, 50*time.Millisecond)
+	waitLine(t, lines, "event: ready", 5*time.Second)
+	waitLine(t, lines, ": ping", 5*time.Second)
+
+	time.Sleep(500 * time.Millisecond)
+	if err := c.svc.Notify(context.Background(), "userA"); err != nil {
+		t.Fatalf("Notify: %v", err)
+	}
+	waitLine(t, lines, "event: changed", 5*time.Second)
+}
+
+func TestNotifyHub_OnePatternSubscriptionPerReplica(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+	for _, u := range []string{"userA", "userB", "userC"} {
+		_, unsub, err := c.svc.Subscribe(u)
+		if err != nil {
+			t.Fatalf("Subscribe %s: %v", u, err)
+		}
+		defer unsub()
+	}
+	if n, err := c.rdb.PubSubNumPat(ctx).Result(); err != nil || n != 1 {
+		t.Fatalf("PUBSUB NUMPAT = %d (%v), want 1", n, err)
+	}
+	if chans, err := c.rdb.PubSubChannels(ctx, "sync:notify:*").Result(); err != nil || len(chans) != 0 {
+		t.Fatalf("per-user channels = %v (%v), want none", chans, err)
+	}
+}
+
+func TestNotifyHub_NudgesSubscribersAfterReconnect(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+	ch, unsub, err := c.svc.Subscribe("userA")
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	defer unsub()
+
+	// A nudge published while the connection is down is lost, so a reconnect must nudge everyone.
+	if err := c.rdb.ClientKillByFilter(ctx, "TYPE", "pubsub").Err(); err != nil {
+		t.Fatalf("CLIENT KILL: %v", err)
+	}
+	select {
+	case <-ch:
+	case <-time.After(10 * time.Second):
+		t.Fatal("want a nudge after the pub/sub connection reconnects")
+	}
 }
 
 // ─── Apply (push path) through a real Collection ────────────────────────────
