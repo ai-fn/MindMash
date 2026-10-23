@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 
 	collectionv1 "github.com/mindmesh/mindmesh/api/collection/v1"
@@ -16,22 +15,23 @@ import (
 	"github.com/mindmesh/mindmesh/pkg/fsrs"
 )
 
-const defaultQueueLimit = 20
+const (
+	defaultQueueLimit = 20
+	maxQueueLimit     = 200 // each queued card costs a RenderCard call
+)
 
 // Service orchestrates the Scheduler domain: study queue assembly, FSRS
 // answer processing, interval previews, today's counts, and manual
 // reschedule actions.
 type Service struct {
 	repo       Repository
-	rdb        *redis.Client
 	collClient collectionv1.CollectionInternalServiceClient
 	log        *zap.Logger
 }
 
-// NewService wires a Repository, the Redis daily-limit counters, the
-// Collection internal client (used to render queue cards), and a logger.
-func NewService(repo Repository, rdb *redis.Client, collClient collectionv1.CollectionInternalServiceClient, log *zap.Logger) *Service {
-	return &Service{repo: repo, rdb: rdb, collClient: collClient, log: log}
+// NewService wires a Repository, the Collection internal client (used to render queue cards), and a logger.
+func NewService(repo Repository, collClient collectionv1.CollectionInternalServiceClient, log *zap.Logger) *Service {
+	return &Service{repo: repo, collClient: collClient, log: log}
 }
 
 func fsrsParams(dc *DeckConfig) fsrs.Params {
@@ -68,10 +68,10 @@ func minInt32(a, b int32) int32 {
 	return b
 }
 
-// BuildQueue resolves the deck subtree rooted at deckID, pulls due and new
-// cards up to limit (capped by the deck config's daily new/review limits),
-// reserves the daily-limit slots it consumes, and renders each card's front
-// HTML via Collection's internal RenderCard RPC.
+// BuildQueue resolves the deck subtree rooted at deckID and pulls due learning
+// cards, then reviews and new cards within what today's review_logs leave of the
+// daily limits, and renders each card's front HTML via Collection's RenderCard RPC.
+// Fetching reserves nothing: only answers consume the limits.
 func (s *Service) BuildQueue(ctx context.Context, userID, profileID, deckID string, limit int) ([]QueueCard, error) {
 	if err := validate.ID("deck_id", deckID); err != nil {
 		return nil, err
@@ -79,6 +79,7 @@ func (s *Service) BuildQueue(ctx context.Context, userID, profileID, deckID stri
 	if limit <= 0 {
 		limit = defaultQueueLimit
 	}
+	limit = min(limit, maxQueueLimit)
 
 	deck, err := s.repo.GetDeck(ctx, userID, deckID)
 	if err != nil {
@@ -96,36 +97,29 @@ func (s *Service) BuildQueue(ctx context.Context, userID, profileID, deckID stri
 	}
 
 	now := time.Now().UTC()
-	dayStart := DayStart(now, dc.Timezone, dc.RolloverHour)
-	dayKey := DayKey(dayStart)
-	expireAt := dayStart.AddDate(0, 0, 1)
+	reviewed, err := s.repo.CountReviewedToday(ctx, userID, deckIDs, DayStart(now, dc.Timezone, dc.RolloverHour))
+	if err != nil {
+		return nil, err
+	}
 
-	dueWant := int64(minInt32(int32(limit), dc.RevPerDay))
-	dueReserved, err := reserveDailySlots(ctx, s.rdb, profileID, deckID, dayKey, limitKindRev, dueWant, dc.RevPerDay, expireAt)
+	// Learning steps are not capped by rev_per_day, as in Anki.
+	learning, err := s.repo.ListDueCards(ctx, userID, deckIDs, []CardState{StateLearning, StateRelearning}, now, limit)
 	if err != nil {
 		return nil, err
 	}
-	due, err := s.repo.ListDueCards(ctx, userID, deckIDs, now, int(dueReserved))
-	if err != nil {
-		return nil, err
-	}
-	if unused := dueReserved - int64(len(due)); unused > 0 {
-		if err := releaseDailySlots(ctx, s.rdb, profileID, deckID, dayKey, limitKindRev, unused); err != nil {
+	reviewCap := min(limit-len(learning), int(dc.RevPerDay)-int(reviewed.Review))
+	var reviews []Card
+	if reviewCap > 0 {
+		if reviews, err = s.repo.ListDueCards(ctx, userID, deckIDs, []CardState{StateReview}, now, reviewCap); err != nil {
 			return nil, err
 		}
 	}
+	due := append(learning, reviews...)
 
-	newWant := int64(minInt32(int32(limit-len(due)), dc.NewPerDay))
-	newReserved, err := reserveDailySlots(ctx, s.rdb, profileID, deckID, dayKey, limitKindNew, newWant, dc.NewPerDay, expireAt)
-	if err != nil {
-		return nil, err
-	}
-	newCards, err := s.repo.ListNewCards(ctx, userID, deckIDs, int(newReserved))
-	if err != nil {
-		return nil, err
-	}
-	if unused := newReserved - int64(len(newCards)); unused > 0 {
-		if err := releaseDailySlots(ctx, s.rdb, profileID, deckID, dayKey, limitKindNew, unused); err != nil {
+	newCap := min(limit-len(due), int(dc.NewPerDay)-int(reviewed.New))
+	var newCards []Card
+	if newCap > 0 {
+		if newCards, err = s.repo.ListNewCards(ctx, userID, deckIDs, newCap); err != nil {
 			return nil, err
 		}
 	}
@@ -274,7 +268,7 @@ func (s *Service) GetCounts(ctx context.Context, userID, deckID string) (Counts,
 		return Counts{}, err
 	}
 
-	due, err := s.repo.ListDueCards(ctx, userID, deckIDs, now, availabilityCap)
+	due, err := s.repo.ListDueCards(ctx, userID, deckIDs, []CardState{StateLearning, StateReview, StateRelearning}, now, availabilityCap)
 	if err != nil {
 		return Counts{}, err
 	}

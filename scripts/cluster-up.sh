@@ -52,10 +52,10 @@ rendered="$(envsubst < deploy/dev/stores.yaml.tmpl)"
 # Tiltfile reads (comma/space list; empty = all). STORES overrides the derivation
 # explicitly.
 declare -A _svc_stores=(
-  [identity]="postgres"
+  [identity]="postgres redis"
   [collection]="postgres"
-  [scheduler]="postgres redis"
-  [sync]="postgres redpanda"
+  [scheduler]="postgres"
+  [sync]="postgres redis redpanda"
   [search]="opensearch redpanda"
   [analytics]="clickhouse redpanda"
   [media]="postgres minio"

@@ -153,9 +153,9 @@ type Repository interface {
 	// InsertReviewLog appends one review_logs row.
 	InsertReviewLog(ctx context.Context, rl *ReviewLog) error
 
-	// ListDueCards returns learning/relearning/review cards in deckIDs that are
-	// due at or before now, ordered by due ascending, capped at limit.
-	ListDueCards(ctx context.Context, userID string, deckIDs []string, now time.Time, limit int) ([]Card, error)
+	// ListDueCards returns cards in deckIDs with one of states due at or before now,
+	// ordered by due ascending, capped at limit.
+	ListDueCards(ctx context.Context, userID string, deckIDs []string, states []CardState, now time.Time, limit int) ([]Card, error)
 	// ListNewCards returns new cards in deckIDs ordered by id (ULID, time-sortable)
 	// ascending, capped at limit.
 	ListNewCards(ctx context.Context, userID string, deckIDs []string, limit int) ([]Card, error)
@@ -167,9 +167,8 @@ type Repository interface {
 	// GetEffectiveDeckConfig resolves the deck's config_id to a DeckConfig,
 	// falling back to DefaultDeckConfig when unset.
 	GetEffectiveDeckConfig(ctx context.Context, userID, deckID string) (*DeckConfig, error)
-	// CountReviewedToday returns how many review_logs rows exist for cards in
-	// deckIDs since dayStart, split by the card's previous state at answer time
-	// (state stored in review_logs.prev_state).
+	// CountReviewedToday returns how many answers since dayStart were given in
+	// deckIDs, split by the card's state at answer time (review_logs.prev_state).
 	CountReviewedToday(ctx context.Context, userID string, deckIDs []string, dayStart time.Time) (Counts, error)
 
 	// WriteOutbox appends outbox entries within the current transaction. Must be
@@ -191,9 +190,4 @@ func DayStart(now time.Time, tz string, rolloverHour int32) time.Time {
 		day = day.AddDate(0, 0, -1)
 	}
 	return day.UTC()
-}
-
-// DayKey returns a stable per-day cache-key suffix for DayStart's result.
-func DayKey(dayStart time.Time) string {
-	return dayStart.Format("20060102")
 }

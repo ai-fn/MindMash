@@ -73,7 +73,7 @@ flowchart TB
     GW --> IDENT & COLL & SCHED & REVIEW & MEDIA & SEARCH & STATS & SYNC & IO & PLUGIN
     COLL & REVIEW & MEDIA & SCHED --> KAFKA --> WORKERS
     COLL & SCHED & REVIEW & IDENT & SYNC --> PG
-    SCHED & REVIEW & IDENT --> REDIS
+    REVIEW & IDENT --> REDIS
     SEARCH --> OS
     STATS --> CH
     MEDIA --> S3
@@ -96,7 +96,7 @@ Each service is an independently deployable Go binary (own DB schema / store own
 |---|---|---|---|
 | **Identity** | Users, profiles, OAuth2/OIDC, JWT, sessions | Postgres + Redis | [01-identity-service.md](./detailed/01-identity-service.md) |
 | **Collection** | Notes, cards, decks (nested), note types, tags, flags, bulk ops | Postgres (sharded) | [02-collection-service.md](./detailed/02-collection-service.md) |
-| **Scheduler** | Server-authoritative FSRS, card states, daily limits, queue, simulation | Postgres + Redis | [03-scheduler-service.md](./detailed/03-scheduler-service.md) |
+| **Scheduler** | Server-authoritative FSRS, card states, daily limits, queue, simulation | Postgres | [03-scheduler-service.md](./detailed/03-scheduler-service.md) |
 | **Review** | Review logs, emit `review.recorded` | Postgres → Kafka | [03-scheduler-service.md](./detailed/03-scheduler-service.md) |
 | **Media** | Upload/serve images/audio/video/LaTeX, dedupe, occlusion | S3 + Postgres | [04-media-service.md](./detailed/04-media-service.md) |
 | **Search** | Advanced query DSL, browser listing, faceting | OpenSearch | [05-search-service.md](./detailed/05-search-service.md) |

@@ -70,10 +70,3 @@ func TestDayStart(t *testing.T) {
 		})
 	}
 }
-
-func TestDayKey(t *testing.T) {
-	day := time.Date(2026, 6, 19, 4, 0, 0, 0, time.UTC)
-	if got := DayKey(day); got != "20260619" {
-		t.Errorf("DayKey() = %q, want %q", got, "20260619")
-	}
-}

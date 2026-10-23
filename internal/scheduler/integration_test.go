@@ -4,15 +4,12 @@ package scheduler
 
 import (
 	"context"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
-	tcredis "github.com/testcontainers/testcontainers-go/modules/redis"
 	"github.com/testcontainers/testcontainers-go/wait"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -33,7 +30,6 @@ func (stubCollectionClient) RenderCard(ctx context.Context, in *collectionv1.Ren
 
 type integrationComponents struct {
 	pool *pgxpool.Pool
-	rdb  *redis.Client
 	repo *PostgresRepository
 	svc  *Service
 }
@@ -61,12 +57,6 @@ func setupIntegration(t *testing.T) integrationComponents {
 	}
 	t.Cleanup(func() { _ = pgCtr.Terminate(ctx) })
 
-	redisCtr, err := tcredis.Run(ctx, "redis:8-alpine")
-	if err != nil {
-		t.Fatalf("start redis: %v", err)
-	}
-	t.Cleanup(func() { _ = redisCtr.Terminate(ctx) })
-
 	dsn, err := pgCtr.ConnectionString(ctx, "sslmode=disable")
 	if err != nil {
 		t.Fatalf("pg connection string: %v", err)
@@ -84,16 +74,9 @@ func setupIntegration(t *testing.T) integrationComponents {
 	}
 	t.Cleanup(pool.Close)
 
-	redisAddr, err := redisCtr.Endpoint(ctx, "")
-	if err != nil {
-		t.Fatalf("redis endpoint: %v", err)
-	}
-	rdb := redis.NewClient(&redis.Options{Addr: redisAddr})
-	t.Cleanup(func() { _ = rdb.Close() })
-
 	repo := NewPostgresRepository(pool)
-	svc := NewService(repo, rdb, stubCollectionClient{}, zap.NewNop())
-	return integrationComponents{pool: pool, rdb: rdb, repo: repo, svc: svc}
+	svc := NewService(repo, stubCollectionClient{}, zap.NewNop())
+	return integrationComponents{pool: pool, repo: repo, svc: svc}
 }
 
 const (
@@ -239,45 +222,116 @@ func TestReviewLogsCountMatchesAnswers(t *testing.T) {
 	}
 }
 
-// ─── Daily new-card limit holds under concurrent BuildQueue calls ────────────
+// ─── Daily limits come from today's review_logs ──────────────────────────────
 
-func TestBuildQueue_DailyNewLimitEnforcedConcurrently(t *testing.T) {
+func newCards(t *testing.T, c integrationComponents, deck string, n int) {
+	t.Helper()
+	nt := insertNoteType(t, c)
+	for i := 0; i < n; i++ {
+		insertCard(t, c, insertNote(t, c, nt), deck, cardFixture{state: StateNew})
+	}
+}
+
+func TestBuildQueue_RepeatedFetchKeepsNewLimit(t *testing.T) {
 	c := setupIntegration(t)
 	ctx := context.Background()
+	cfg := insertDeckConfig(t, c, 2, 200)
+	deck := insertDeck(t, c, "deck1", &cfg)
+	newCards(t, c, deck, 5)
 
-	cfg := insertDeckConfig(t, c, 1, 200) // only 1 new card/day allowed
+	for i := 0; i < 3; i++ {
+		queue, err := c.svc.BuildQueue(ctx, testUserID, testProfileID, deck, 10)
+		if err != nil {
+			t.Fatalf("BuildQueue #%d: %v", i, err)
+		}
+		if len(queue) != 2 {
+			t.Fatalf("fetch #%d: want 2 new cards (new_per_day=2, nothing answered), got %d", i, len(queue))
+		}
+	}
+}
+
+func TestBuildQueue_NewLimitCountsTodaysAnswers(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+	cfg := insertDeckConfig(t, c, 2, 200)
+	deck := insertDeck(t, c, "deck1", &cfg)
+	newCards(t, c, deck, 5)
+
+	queue, err := c.svc.BuildQueue(ctx, testUserID, testProfileID, deck, 10)
+	if err != nil {
+		t.Fatalf("BuildQueue: %v", err)
+	}
+	if _, _, err := c.svc.Answer(ctx, testUserID, testProfileID, queue[0].Card.ID, Good, 100); err != nil {
+		t.Fatalf("Answer: %v", err)
+	}
+
+	queue, err = c.svc.BuildQueue(ctx, testUserID, testProfileID, deck, 10)
+	if err != nil {
+		t.Fatalf("BuildQueue: %v", err)
+	}
+	var fresh int
+	for _, qc := range queue {
+		if qc.Card.State == StateNew {
+			fresh++
+		}
+	}
+	if fresh != 1 {
+		t.Fatalf("want 1 new card left today (2 per day, 1 answered), got %d", fresh)
+	}
+}
+
+func TestBuildQueue_LearningNotCappedByReviewLimit(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+	cfg := insertDeckConfig(t, c, 0, 1)
 	deck := insertDeck(t, c, "deck1", &cfg)
 	nt := insertNoteType(t, c)
-
-	const totalCards = 5
-	for i := 0; i < totalCards; i++ {
-		note := insertNote(t, c, nt)
-		insertCard(t, c, note, deck, cardFixture{state: StateNew})
+	past := time.Now().Add(-time.Hour)
+	for _, st := range []CardState{StateReview, StateReview, StateLearning, StateRelearning} {
+		insertCard(t, c, insertNote(t, c, nt), deck, cardFixture{state: st, due: &past})
 	}
 
-	const workers = 5
-	var wg sync.WaitGroup
-	served := make([]int, workers)
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			queue, err := c.svc.BuildQueue(ctx, testUserID, testProfileID, deck, 10)
-			if err != nil {
-				t.Errorf("BuildQueue worker %d: %v", idx, err)
-				return
-			}
-			served[idx] = len(queue)
-		}(i)
+	queue, err := c.svc.BuildQueue(ctx, testUserID, testProfileID, deck, 10)
+	if err != nil {
+		t.Fatalf("BuildQueue: %v", err)
 	}
-	wg.Wait()
+	var reviews, learning int
+	for _, qc := range queue {
+		if qc.Card.State == StateReview {
+			reviews++
+		} else {
+			learning++
+		}
+	}
+	if reviews != 1 || learning != 2 {
+		t.Fatalf("want 1 review (rev_per_day=1) and both learning cards, got %d reviews, %d learning", reviews, learning)
+	}
+}
 
-	total := 0
-	for _, n := range served {
-		total += n
+func TestCountReviewedToday_UsesDeckAtReviewTime(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+	deckA := insertDeck(t, c, "a", nil)
+	deckB := insertDeck(t, c, "b", nil)
+	nt := insertNoteType(t, c)
+	cardID := insertCard(t, c, insertNote(t, c, nt), deckA, cardFixture{state: StateNew})
+
+	if _, _, err := c.svc.Answer(ctx, testUserID, testProfileID, cardID, Good, 100); err != nil {
+		t.Fatalf("Answer: %v", err)
 	}
-	if total != 1 {
-		t.Fatalf("want exactly 1 new card served across all concurrent BuildQueue calls (new_per_day=1), got %d", total)
+	if _, err := c.pool.Exec(ctx, `UPDATE cards SET deck_id = $3 WHERE user_id = $1 AND id = $2`, testUserID, cardID, deckB); err != nil {
+		t.Fatalf("move card: %v", err)
+	}
+
+	dayStart := DayStart(time.Now(), "UTC", 4)
+	for deck, want := range map[string]int32{deckA: 1, deckB: 0} {
+		got, err := c.repo.CountReviewedToday(ctx, testUserID, []string{deck}, dayStart)
+		if err != nil {
+			t.Fatalf("CountReviewedToday: %v", err)
+		}
+		if got.New != want {
+			t.Fatalf("deck %s: want %d new reviewed today, got %d", deck, want, got.New)
+		}
 	}
 }
 
@@ -311,7 +365,7 @@ func TestGetCounts_TimezoneRollover(t *testing.T) {
 	// previous study day and must NOT count against today's rev_per_day cap.
 	beforeRollover := dayStart.Add(-time.Minute)
 	cardA := insertCard(t, c, note, deck, cardFixture{state: StateReview})
-	insertReviewLogAt(t, c, cardA, beforeRollover)
+	insertReviewLogAt(t, c, cardA, deck, beforeRollover)
 
 	counts, err := c.svc.GetCounts(ctx, testUserID, deck)
 	if err != nil {
@@ -326,7 +380,7 @@ func TestGetCounts_TimezoneRollover(t *testing.T) {
 	// A review logged just after today's rollover boundary DOES count toward
 	// today's quota and should consume the rev_per_day=1 cap.
 	afterRollover := dayStart.Add(time.Minute)
-	insertReviewLogAt(t, c, cardA, afterRollover)
+	insertReviewLogAt(t, c, cardA, deck, afterRollover)
 
 	reviewed, err := c.repo.CountReviewedToday(ctx, testUserID, []string{deck}, dayStart)
 	if err != nil {
@@ -337,12 +391,12 @@ func TestGetCounts_TimezoneRollover(t *testing.T) {
 	}
 }
 
-func insertReviewLogAt(t *testing.T, c integrationComponents, cardID string, ts time.Time) {
+func insertReviewLogAt(t *testing.T, c integrationComponents, cardID, deckID string, ts time.Time) {
 	t.Helper()
 	_, err := c.pool.Exec(context.Background(), `
-		INSERT INTO review_logs (id, user_id, profile_id, card_id, grade, prev_state, prev_ivl, new_ivl, time_ms, ts)
-		VALUES ($1, $2, $3, $4, $5, $6, 0, 600, 100, $7)`,
-		ids.NewUUID(), testUserID, testProfileID, cardID, int16(Good), int16(StateReview), ts.UTC())
+		INSERT INTO review_logs (id, user_id, profile_id, card_id, deck_id, grade, prev_state, prev_ivl, new_ivl, time_ms, ts)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 600, 100, $8)`,
+		ids.NewUUID(), testUserID, testProfileID, cardID, deckID, int16(Good), int16(StateReview), ts.UTC())
 	if err != nil {
 		t.Fatalf("insert review_log: %v", err)
 	}

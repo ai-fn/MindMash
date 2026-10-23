@@ -141,15 +141,19 @@ func (r *PostgresRepository) UpdateCardSchedule(ctx context.Context, c *Card) er
 	return nil
 }
 
-// ListDueCards returns learning/relearning/review cards in deckIDs due at or
-// before now, ordered by due ascending. Uses the cards_due partial index
-// (queue >= 0 AND state <> 0).
-func (r *PostgresRepository) ListDueCards(ctx context.Context, userID string, deckIDs []string, now time.Time, limit int) ([]Card, error) {
+// ListDueCards returns cards in deckIDs with one of states due at or before now,
+// ordered by due ascending. Uses the cards_due partial index (queue >= 0 AND state <> 0).
+func (r *PostgresRepository) ListDueCards(ctx context.Context, userID string, deckIDs []string, states []CardState, now time.Time, limit int) ([]Card, error) {
+	st := make([]int16, len(states))
+	for i, s := range states {
+		st[i] = int16(s)
+	}
 	rows, err := r.db.Query(ctx,
 		`SELECT `+cardColumns+` FROM cards
-		 WHERE user_id = $1 AND deck_id = ANY($2::uuid[]) AND queue >= 0 AND state <> 0 AND due <= $3
-		 ORDER BY due ASC LIMIT $4`,
-		userID, deckIDs, now, limit)
+		 WHERE user_id = $1 AND deck_id = ANY($2::uuid[]) AND queue >= 0 AND state <> 0
+		   AND state = ANY($3::smallint[]) AND due <= $4
+		 ORDER BY due ASC LIMIT $5`,
+		userID, deckIDs, st, now, limit)
 	if err != nil {
 		return nil, fmt.Errorf("scheduler: list due cards: %w", err)
 	}
@@ -239,20 +243,17 @@ func (r *PostgresRepository) GetEffectiveDeckConfig(ctx context.Context, userID,
 	return dc, nil
 }
 
-// CountReviewedToday returns how many cards in deckIDs were answered since
-// dayStart, split new/learning/review by the card's state at answer time
-// (review_logs.prev_state). Single-shard: review_logs and cards are
-// Citus-colocated and both filtered by user_id.
+// CountReviewedToday returns how many answers since dayStart were given in deckIDs,
+// split new/learning/review by the card's state at answer time (prev_state).
 func (r *PostgresRepository) CountReviewedToday(ctx context.Context, userID string, deckIDs []string, dayStart time.Time) (Counts, error) {
 	var counts Counts
 	err := r.db.QueryRow(ctx, `
 		SELECT
-			COUNT(*) FILTER (WHERE rl.prev_state = 0),
-			COUNT(*) FILTER (WHERE rl.prev_state IN (1, 3)),
-			COUNT(*) FILTER (WHERE rl.prev_state = 2)
-		FROM review_logs rl
-		JOIN cards c ON c.user_id = rl.user_id AND c.id = rl.card_id
-		WHERE rl.user_id = $1 AND c.deck_id = ANY($2::uuid[]) AND rl.ts >= $3`,
+			COUNT(*) FILTER (WHERE prev_state = 0),
+			COUNT(*) FILTER (WHERE prev_state IN (1, 3)),
+			COUNT(*) FILTER (WHERE prev_state = 2)
+		FROM review_logs
+		WHERE user_id = $1 AND deck_id = ANY($2::uuid[]) AND ts >= $3`,
 		userID, deckIDs, dayStart).Scan(&counts.New, &counts.Learning, &counts.Review)
 	if err != nil {
 		return Counts{}, fmt.Errorf("scheduler: count reviewed today: %w", err)
@@ -264,9 +265,9 @@ func (r *PostgresRepository) CountReviewedToday(ctx context.Context, userID stri
 
 func (r *PostgresRepository) InsertReviewLog(ctx context.Context, rl *ReviewLog) error {
 	_, err := r.db.Exec(ctx, `
-		INSERT INTO review_logs (id, user_id, profile_id, card_id, grade, prev_state, prev_ivl, new_ivl, time_ms, ts)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-		rl.ID, rl.UserID, rl.ProfileID, rl.CardID, int16(rl.Grade), int16(rl.PrevState),
+		INSERT INTO review_logs (id, user_id, profile_id, card_id, deck_id, grade, prev_state, prev_ivl, new_ivl, time_ms, ts)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+		rl.ID, rl.UserID, rl.ProfileID, rl.CardID, rl.DeckID, int16(rl.Grade), int16(rl.PrevState),
 		rl.PrevIvl, rl.NewIvl, rl.TimeMs, rl.Ts)
 	if err != nil {
 		return fmt.Errorf("scheduler: insert review log: %w", err)

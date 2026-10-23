@@ -89,7 +89,7 @@ below rather than in the diagram.
 |---|---|---|
 | **Identity** | Users, profiles, OAuth2/OIDC, JWT, sessions | Postgres + Redis |
 | **Collection** | Notes, cards, decks, note types, tags, flags | Postgres (sharded) |
-| **Scheduler** | Server-authoritative FSRS, queue, daily limits | Postgres + Redis |
+| **Scheduler** | Server-authoritative FSRS, queue, daily limits | Postgres |
 | **Media** | Upload/serve images/audio/video, dedupe | S3 + Postgres |
 | **Search** | Query DSL, browser listing, faceting | OpenSearch |
 | **Analytics** | Daily activity, accuracy, retention | ClickHouse |

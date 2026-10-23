@@ -1,6 +1,6 @@
 // Command scheduler runs the MindMesh Scheduler service: gRPC (StudyService)
 // plus a grpc-gateway REST edge, with health, metrics, JWKS JWT auth,
-// migrations, Redis daily-limit counters, an outbox relay goroutine, and a
+// migrations, an outbox relay goroutine, and a
 // client connection to Collection's internal RenderCard RPC.
 package main
 
@@ -19,7 +19,6 @@ import (
 	collectionv1 "github.com/mindmesh/mindmesh/api/collection/v1"
 	schedulerv1 "github.com/mindmesh/mindmesh/api/scheduler/v1"
 	"github.com/mindmesh/mindmesh/internal/platform/auth"
-	"github.com/mindmesh/mindmesh/internal/platform/cache"
 	"github.com/mindmesh/mindmesh/internal/platform/config"
 	"github.com/mindmesh/mindmesh/internal/platform/db"
 	"github.com/mindmesh/mindmesh/internal/platform/events"
@@ -87,17 +86,6 @@ func run() error {
 		logger.Info("scheduler: migrations applied", zap.String("dir", dir))
 	}
 
-	// Redis.
-	cacheCfg, err := cache.LoadConfig()
-	if err != nil {
-		return fmt.Errorf("scheduler: load cache config: %w", err)
-	}
-	rdb, err := cache.New(ctx, cacheCfg)
-	if err != nil {
-		return fmt.Errorf("scheduler: connect redis: %w", err)
-	}
-	defer func() { _ = rdb.Close() }()
-
 	// Auth verifier: remote JWKS (JWKS_URL set) or local key file fallback.
 	var verifier auth.Verifier
 	if jwksURL := os.Getenv("JWKS_URL"); jwksURL != "" {
@@ -147,7 +135,7 @@ func run() error {
 
 	// Domain wiring.
 	repo := scheduler.NewPostgresRepository(pool)
-	svc := scheduler.NewService(repo, rdb, collClient, logger)
+	svc := scheduler.NewService(repo, collClient, logger)
 	handler := scheduler.NewHandler(svc)
 
 	grpcSrv := grpcx.New(grpcx.DefaultConfig(base.GRPCAddr), grpcx.Options{
@@ -169,9 +157,6 @@ func run() error {
 	readiness := func(ctx context.Context) error {
 		if err := pool.Ping(ctx); err != nil {
 			return fmt.Errorf("postgres: %w", err)
-		}
-		if err := rdb.Ping(ctx).Err(); err != nil {
-			return fmt.Errorf("redis: %w", err)
 		}
 		return nil
 	}

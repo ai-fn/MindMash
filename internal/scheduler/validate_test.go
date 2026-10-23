@@ -18,7 +18,7 @@ func TestServiceRejectsInvalidIDs(t *testing.T) {
 		bad = "not-a-uuid"
 	)
 	ctx := context.Background()
-	s := NewService(unreachableRepo{}, nil, nil, zap.NewNop())
+	s := NewService(unreachableRepo{}, nil, zap.NewNop())
 
 	tests := []struct {
 		name string
