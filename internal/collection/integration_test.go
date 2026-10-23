@@ -4,6 +4,7 @@ package collection
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -185,6 +186,39 @@ func TestNote_CreateGeneratesCards(t *testing.T) {
 	}
 	if tagCount != 1 {
 		t.Fatalf("want 1 tag, got %d", tagCount)
+	}
+}
+
+func TestRenderCard_ClozeRevealedOnBack(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+
+	deck := defaultDeck(t, c)
+	nt, err := c.svc.CreateNoteType(ctx, testUserID, testProfileID, "Cloze", "",
+		[]Field{{Name: "Text"}},
+		[]CardTemplate{{Name: "Cloze", Front: "{{cloze:Text}}", Back: "{{cloze:Text}}"}})
+	if err != nil {
+		t.Fatalf("CreateNoteType: %v", err)
+	}
+	note, err := c.svc.CreateNote(ctx, testUserID, testProfileID, nt.ID, deck.ID,
+		map[string]string{"Text": "Capital: {{c1::Paris}}"}, nil, 0)
+	if err != nil {
+		t.Fatalf("CreateNote: %v", err)
+	}
+	cards, err := c.repo.ListCardsByNote(ctx, testUserID, note.ID)
+	if err != nil || len(cards) != 1 {
+		t.Fatalf("ListCardsByNote: %v, %d cards", err, len(cards))
+	}
+
+	_, front, back, err := c.svc.RenderCard(ctx, testUserID, cards[0].ID)
+	if err != nil {
+		t.Fatalf("RenderCard: %v", err)
+	}
+	if strings.Contains(front, "Paris") || !strings.Contains(front, "[...]") {
+		t.Errorf("front reveals the answer: %q", front)
+	}
+	if !strings.Contains(back, "Paris") {
+		t.Errorf("back hides the answer: %q", back)
 	}
 }
 

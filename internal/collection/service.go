@@ -378,7 +378,7 @@ func (s *Service) RenderCard(ctx context.Context, userID, cardID string) (card *
 	if err != nil {
 		return nil, "", "", platformerrors.Internal("render front: " + err.Error())
 	}
-	back, err = template.Render(tmpl.Back, note.Fields, template.Opts{ClozeOrd: clozeOrd, FrontSide: front})
+	back, err = template.Render(tmpl.Back, note.Fields, template.Opts{ClozeOrd: clozeOrd, FrontSide: front, Back: true})
 	if err != nil {
 		return nil, "", "", platformerrors.Internal("render back: " + err.Error())
 	}
