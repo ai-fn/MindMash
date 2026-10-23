@@ -11,6 +11,7 @@ import (
 	"github.com/mindmesh/mindmesh/internal/platform/blob"
 	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
 	"github.com/mindmesh/mindmesh/internal/platform/ids"
+	"github.com/mindmesh/mindmesh/internal/platform/validate"
 )
 
 // blobStore is the subset of *blob.Client the service uses, narrowed to an
@@ -106,6 +107,9 @@ func (s *Service) Presign(ctx context.Context, t Tenant, filename, mime, sha256H
 // Confirm verifies the client PUT stored exactly the declared bytes, then flips
 // the row to ready and emits media.uploaded. It is idempotent.
 func (s *Service) Confirm(ctx context.Context, t Tenant, mediaID string) (*Media, error) {
+	if err := validate.ID("media_id", mediaID); err != nil {
+		return nil, err
+	}
 	m, err := s.repo.GetByID(ctx, t.UserID, mediaID)
 	if err != nil {
 		return nil, err
@@ -135,6 +139,9 @@ func (s *Service) Confirm(ctx context.Context, t Tenant, mediaID string) (*Media
 // ResolveDownloadURL returns a short-lived presigned GET URL for a ready blob.
 // The HTTP layer 302-redirects the client to it.
 func (s *Service) ResolveDownloadURL(ctx context.Context, t Tenant, mediaID string) (string, error) {
+	if err := validate.ID("media_id", mediaID); err != nil {
+		return "", err
+	}
 	m, err := s.repo.GetByID(ctx, t.UserID, mediaID)
 	if err != nil {
 		return "", err
@@ -152,6 +159,9 @@ func (s *Service) ResolveDownloadURL(ctx context.Context, t Tenant, mediaID stri
 // Delete removes the caller's media row and its blobs; blob deletion is best-effort,
 // since an orphaned object is cheaper than a failed delete.
 func (s *Service) Delete(ctx context.Context, t Tenant, mediaID string) error {
+	if err := validate.ID("media_id", mediaID); err != nil {
+		return err
+	}
 	res, err := s.repo.Delete(ctx, t.UserID, mediaID)
 	if err != nil {
 		return err

@@ -56,3 +56,24 @@ func TestPresignValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestMediaIDValidation(t *testing.T) {
+	svc := NewService(nil, fakeBlob{}, "mindmesh", zap.NewNop())
+	tn := Tenant{UserID: "u", ProfileID: "p"}
+	ctx := context.Background()
+
+	tests := []struct {
+		name string
+		call func() error
+	}{
+		{"confirm", func() error { _, err := svc.Confirm(ctx, tn, "not-a-uuid"); return err }},
+		{"download", func() error { _, err := svc.ResolveDownloadURL(ctx, tn, "not-a-uuid"); return err }},
+		{"delete", func() error { return svc.Delete(ctx, tn, "") }},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.call()
+			assert.True(t, platformerrors.IsInvalidArgument(err), "want InvalidArgument, got %v", err)
+		})
+	}
+}

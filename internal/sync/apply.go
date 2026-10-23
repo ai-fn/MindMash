@@ -10,6 +10,7 @@ import (
 
 	collectionv1 "github.com/mindmesh/mindmesh/api/collection/v1"
 	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
+	"github.com/mindmesh/mindmesh/internal/platform/validate"
 )
 
 const (
@@ -65,8 +66,8 @@ func validateMutations(ms []Mutation) error {
 		return platformerrors.InvalidArgument(fmt.Sprintf("at most %d mutations per request", maxMutationsPerApply))
 	}
 	for i, m := range ms {
-		if m.OpID == "" || len(m.OpID) > maxOpIDLen {
-			return platformerrors.InvalidArgument(fmt.Sprintf("mutations[%d]: op_id must be 1-%d bytes", i, maxOpIDLen))
+		if m.OpID == "" || validate.Text("op_id", m.OpID, maxOpIDLen) != nil {
+			return platformerrors.InvalidArgument(fmt.Sprintf("mutations[%d]: op_id must be 1-%d bytes of UTF-8 without NUL", i, maxOpIDLen))
 		}
 	}
 	return nil

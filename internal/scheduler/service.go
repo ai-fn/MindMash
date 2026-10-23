@@ -12,6 +12,7 @@ import (
 	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
 	"github.com/mindmesh/mindmesh/internal/platform/events"
 	"github.com/mindmesh/mindmesh/internal/platform/ids"
+	"github.com/mindmesh/mindmesh/internal/platform/validate"
 	"github.com/mindmesh/mindmesh/pkg/fsrs"
 )
 
@@ -72,6 +73,9 @@ func minInt32(a, b int32) int32 {
 // reserves the daily-limit slots it consumes, and renders each card's front
 // HTML via Collection's internal RenderCard RPC.
 func (s *Service) BuildQueue(ctx context.Context, userID, profileID, deckID string, limit int) ([]QueueCard, error) {
+	if err := validate.ID("deck_id", deckID); err != nil {
+		return nil, err
+	}
 	if limit <= 0 {
 		limit = defaultQueueLimit
 	}
@@ -141,6 +145,9 @@ func (s *Service) BuildQueue(ctx context.Context, userID, profileID, deckID stri
 // Preview returns the four hypothetical next-interval estimates for a card
 // without advancing its state.
 func (s *Service) Preview(ctx context.Context, userID, cardID string) (fsrs.IntervalPreview, error) {
+	if err := validate.ID("card_id", cardID); err != nil {
+		return fsrs.IntervalPreview{}, err
+	}
 	c, err := s.repo.LoadCardForUpdate(ctx, userID, cardID)
 	if err != nil {
 		return fsrs.IntervalPreview{}, err
@@ -158,6 +165,9 @@ func (s *Service) Preview(ctx context.Context, userID, cardID string) (fsrs.Inte
 // the review.recorded outbox entry, all in one transaction. Returns the
 // updated card and the next-answer interval previews.
 func (s *Service) Answer(ctx context.Context, userID, profileID, cardID string, grade Grade, timeMs int32) (*Card, fsrs.IntervalPreview, error) {
+	if err := validate.ID("card_id", cardID); err != nil {
+		return nil, fsrs.IntervalPreview{}, err
+	}
 	var updated *Card
 	var preview fsrs.IntervalPreview
 
@@ -237,6 +247,9 @@ func (s *Service) Answer(ctx context.Context, userID, profileID, cardID string, 
 // GetCounts returns today's remaining new/learning/review card counts for a
 // deck subtree, accounting for cards already answered today.
 func (s *Service) GetCounts(ctx context.Context, userID, deckID string) (Counts, error) {
+	if err := validate.ID("deck_id", deckID); err != nil {
+		return Counts{}, err
+	}
 	const availabilityCap = 9999
 
 	deck, err := s.repo.GetDeck(ctx, userID, deckID)
@@ -292,6 +305,9 @@ func (s *Service) GetCounts(ctx context.Context, userID, deckID string) (Counts,
 
 // Reschedule applies a manual suspend/bury/reset action to a card.
 func (s *Service) Reschedule(ctx context.Context, userID, cardID string, action RescheduleAction) (*Card, error) {
+	if err := validate.ID("card_id", cardID); err != nil {
+		return nil, err
+	}
 	var updated *Card
 
 	err := s.repo.WithTx(ctx, func(tx Repository) error {

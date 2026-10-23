@@ -984,6 +984,7 @@ func TestApply_RejectsUnkeyableBatch(t *testing.T) {
 		{"too many", make([]Mutation, maxMutationsPerApply+1)},
 		{"empty op_id", []Mutation{{Type: MutationNoteDelete, EntityID: "n1"}}},
 		{"long op_id", []Mutation{{OpID: strings.Repeat("x", maxOpIDLen+1), Type: MutationNoteDelete, EntityID: "n1"}}},
+		{"nul in op_id", []Mutation{{OpID: "op\x00", Type: MutationNoteDelete, EntityID: "n1"}}},
 		{"bad op_id after a valid one", []Mutation{{OpID: "op1", Type: MutationNoteDelete, EntityID: "n1"}, {Type: MutationNoteDelete, EntityID: "n2"}}},
 	}
 	for _, tt := range tests {

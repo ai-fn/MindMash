@@ -9,6 +9,7 @@ import (
 	searchv1 "github.com/mindmesh/mindmesh/api/search/v1"
 	"github.com/mindmesh/mindmesh/internal/platform/auth"
 	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
+	"github.com/mindmesh/mindmesh/internal/platform/validate"
 	"github.com/mindmesh/mindmesh/pkg/searchdsl"
 )
 
@@ -39,6 +40,9 @@ func (h *Handler) Search(ctx context.Context, req *searchv1.SearchRequest) (*sea
 		return nil, platformerrors.Unauthenticated("missing identity context")
 	}
 
+	if err := validate.Text("q", req.GetQ(), validate.MaxQueryBytes); err != nil {
+		return nil, err
+	}
 	// An empty query lists all of the tenant's cards (nil node = unconstrained).
 	var node searchdsl.Node
 	if q := strings.TrimSpace(req.GetQ()); q != "" {

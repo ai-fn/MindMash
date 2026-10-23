@@ -12,6 +12,7 @@ import (
 	collectionv1 "github.com/mindmesh/mindmesh/api/collection/v1"
 	"github.com/mindmesh/mindmesh/internal/platform/auth"
 	"github.com/mindmesh/mindmesh/internal/platform/events"
+	"github.com/mindmesh/mindmesh/internal/platform/validate"
 )
 
 // IndexTopics are the Kafka topics the indexer consumes. The relay publishes
@@ -78,8 +79,8 @@ func (ix *Indexer) Handle(ctx context.Context, msg events.Message) error {
 		ix.log.Warn("indexer: undecodable payload", zap.String("event_type", eventType), zap.Error(err))
 		return nil // poison message; dropping it avoids a redelivery hot-loop
 	}
-	if p.ID == "" || !auth.IsCanonicalUUID(p.UserID) {
-		ix.log.Warn("indexer: payload missing id or user_id is not a uuid", zap.String("event_type", eventType))
+	if !validate.IsUUID(p.ID) || !validate.IsUUID(p.UserID) {
+		ix.log.Warn("indexer: payload id or user_id is not a uuid", zap.String("event_type", eventType))
 		return nil
 	}
 
@@ -133,7 +134,7 @@ func (ix *Indexer) enrichAndUpsert(ctx context.Context, p eventPayload, req *col
 // documents pick up the per-language buckets that only the forward path fills for
 // new/edited cards. It is idempotent (upserts use external_gte) and safe to re-run.
 func (ix *Indexer) Backfill(ctx context.Context, userID string) (int, error) {
-	if !auth.IsCanonicalUUID(userID) {
+	if !validate.IsUUID(userID) {
 		return 0, fmt.Errorf("indexer: backfill: %q is not a canonical uuid", userID)
 	}
 	var indexed int

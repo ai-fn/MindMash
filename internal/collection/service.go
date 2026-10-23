@@ -10,6 +10,7 @@ import (
 	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
 	"github.com/mindmesh/mindmesh/internal/platform/events"
 	"github.com/mindmesh/mindmesh/internal/platform/ids"
+	"github.com/mindmesh/mindmesh/internal/platform/validate"
 	"github.com/mindmesh/mindmesh/pkg/template"
 )
 
@@ -26,6 +27,9 @@ func NewService(repo Repository, log *zap.Logger) *Service {
 // ─── NoteType ────────────────────────────────────────────────────────────────
 
 func (s *Service) CreateNoteType(ctx context.Context, userID, profileID, name, css string, fields []Field, templates []CardTemplate) (*NoteType, error) {
+	if err := validateNoteType(name, css, fields, templates); err != nil {
+		return nil, err
+	}
 	now := time.Now().UTC()
 	nt := &NoteType{
 		ID:            ids.NewUUID(),
@@ -55,14 +59,26 @@ func (s *Service) CreateNoteType(ctx context.Context, userID, profileID, name, c
 }
 
 func (s *Service) GetNoteType(ctx context.Context, userID, id string) (*NoteType, error) {
+	if err := validate.ID("id", id); err != nil {
+		return nil, err
+	}
 	return s.repo.GetNoteType(ctx, userID, id)
 }
 
 func (s *Service) ListNoteTypes(ctx context.Context, userID string, page Page) ([]NoteType, string, error) {
+	if err := validatePage(page); err != nil {
+		return nil, "", err
+	}
 	return s.repo.ListNoteTypes(ctx, userID, page)
 }
 
 func (s *Service) UpdateNoteType(ctx context.Context, userID, id string, expectedUSN int64, name, css string, fields []Field, templates []CardTemplate) (*NoteType, error) {
+	if err := validate.ID("id", id); err != nil {
+		return nil, err
+	}
+	if err := validateNoteType(name, css, fields, templates); err != nil {
+		return nil, err
+	}
 	var existing *NoteType
 	if err := s.repo.WithTx(ctx, func(tx Repository) error {
 		var err error
@@ -98,6 +114,9 @@ func (s *Service) UpdateNoteType(ctx context.Context, userID, id string, expecte
 }
 
 func (s *Service) DeleteNoteType(ctx context.Context, userID, id string, expectedUSN int64) error {
+	if err := validate.ID("id", id); err != nil {
+		return err
+	}
 	return s.repo.WithTx(ctx, func(tx Repository) error {
 		if expectedUSN != 0 {
 			existing, err := tx.GetNoteType(ctx, userID, id)
@@ -138,8 +157,17 @@ func errNoCards() error {
 }
 
 func (s *Service) CreateNote(ctx context.Context, userID, profileID, noteTypeID, deckID string, fields map[string]string, tags []string, flags int32) (*Note, error) {
-	if deckID == "" {
-		return nil, platformerrors.InvalidArgument("deck_id is required")
+	if err := validate.ID("note_type_id", noteTypeID); err != nil {
+		return nil, err
+	}
+	if err := validate.ID("deck_id", deckID); err != nil {
+		return nil, err
+	}
+	if err := validateNoteContent(fields, tags); err != nil {
+		return nil, err
+	}
+	if err := validateFlags(flags); err != nil {
+		return nil, err
 	}
 	now := time.Now().UTC()
 	note := &Note{
@@ -211,10 +239,22 @@ func (s *Service) CreateNote(ctx context.Context, userID, profileID, noteTypeID,
 }
 
 func (s *Service) GetNote(ctx context.Context, userID, id string) (*Note, error) {
+	if err := validate.ID("id", id); err != nil {
+		return nil, err
+	}
 	return s.repo.GetNote(ctx, userID, id)
 }
 
 func (s *Service) UpdateNote(ctx context.Context, userID, id string, expectedUSN int64, fields map[string]string, tags []string, flags int32) (*Note, error) {
+	if err := validate.ID("id", id); err != nil {
+		return nil, err
+	}
+	if err := validateNoteContent(fields, tags); err != nil {
+		return nil, err
+	}
+	if err := validateFlags(flags); err != nil {
+		return nil, err
+	}
 	var existing *Note
 	if err := s.repo.WithTx(ctx, func(tx Repository) error {
 		// Lock first so the USN check and card diff read committed state.
@@ -306,6 +346,9 @@ func (s *Service) UpdateNote(ctx context.Context, userID, id string, expectedUSN
 }
 
 func (s *Service) DeleteNote(ctx context.Context, userID, id string, expectedUSN int64) error {
+	if err := validate.ID("id", id); err != nil {
+		return err
+	}
 	return s.repo.WithTx(ctx, func(tx Repository) error {
 		// Lock first so the USN check and the DELETE are atomic.
 		usn, err := tx.NextUSN(ctx, userID)
@@ -352,6 +395,9 @@ func (s *Service) DeleteNote(ctx context.Context, userID, id string, expectedUSN
 // RenderCard renders a card on every call: note and note-type edits don't bump the card USN,
 // so a render cache keyed by it would serve stale content.
 func (s *Service) RenderCard(ctx context.Context, userID, cardID string) (card *Card, front, back string, err error) {
+	if err := validate.ID("card_id", cardID); err != nil {
+		return nil, "", "", err
+	}
 	src, err := s.repo.GetCardRenderSource(ctx, userID, cardID)
 	if err != nil {
 		return nil, "", "", err
@@ -381,20 +427,35 @@ func (s *Service) RenderCard(ctx context.Context, userID, cardID string) (card *
 }
 
 func (s *Service) GetCardsByIDs(ctx context.Context, userID string, cardIDs []string) ([]Card, error) {
+	if err := validate.IDs("ids", cardIDs); err != nil {
+		return nil, err
+	}
 	return s.repo.GetCardsByIDs(ctx, userID, cardIDs)
 }
 
 func (s *Service) ListCardIDs(ctx context.Context, userID string, page Page) ([]string, string, error) {
+	if err := validatePage(page); err != nil {
+		return nil, "", err
+	}
 	return s.repo.ListCardIDs(ctx, userID, page)
 }
 
 func (s *Service) GetSearchDocs(ctx context.Context, userID string, sel SearchDocSelector) ([]SearchDoc, error) {
+	if err := validateSelector(sel); err != nil {
+		return nil, err
+	}
 	return s.repo.GetSearchDocs(ctx, userID, sel)
 }
 
 // ─── Bulk card operations ────────────────────────────────────────────────────
 
 func (s *Service) MoveCards(ctx context.Context, userID string, cardIDs []string, deckID string) (int64, error) {
+	if err := validate.ID("target_deck_id", deckID); err != nil {
+		return 0, err
+	}
+	if err := validate.IDs("ids", cardIDs); err != nil {
+		return 0, err
+	}
 	var affected int64
 	if err := s.repo.WithTx(ctx, func(tx Repository) error {
 		usn, err := tx.NextUSN(ctx, userID)
@@ -430,6 +491,9 @@ func (s *Service) MoveCards(ctx context.Context, userID string, cardIDs []string
 }
 
 func (s *Service) SuspendCards(ctx context.Context, userID string, cardIDs []string) (int64, error) {
+	if err := validate.IDs("ids", cardIDs); err != nil {
+		return 0, err
+	}
 	var affected int64
 	if err := s.repo.WithTx(ctx, func(tx Repository) error {
 		usn, err := tx.NextUSN(ctx, userID)
@@ -465,6 +529,9 @@ func (s *Service) SuspendCards(ctx context.Context, userID string, cardIDs []str
 }
 
 func (s *Service) DeleteCards(ctx context.Context, userID string, cardIDs []string) (int64, error) {
+	if err := validate.IDs("ids", cardIDs); err != nil {
+		return 0, err
+	}
 	var affected int64
 	if err := s.repo.WithTx(ctx, func(tx Repository) error {
 		usn, err := tx.NextUSN(ctx, userID)
@@ -521,6 +588,12 @@ func (s *Service) DeleteCards(ctx context.Context, userID string, cardIDs []stri
 }
 
 func (s *Service) AddTagToCards(ctx context.Context, userID string, cardIDs []string, tag string) (int64, error) {
+	if err := validate.IDs("ids", cardIDs); err != nil {
+		return 0, err
+	}
+	if err := validateTag("tag", tag); err != nil {
+		return 0, err
+	}
 	var affected int64
 	if err := s.repo.WithTx(ctx, func(tx Repository) error {
 		usn, err := tx.NextUSN(ctx, userID)
@@ -556,6 +629,12 @@ func (s *Service) AddTagToCards(ctx context.Context, userID string, cardIDs []st
 }
 
 func (s *Service) RemoveTagFromCards(ctx context.Context, userID string, cardIDs []string, tag string) (int64, error) {
+	if err := validate.IDs("ids", cardIDs); err != nil {
+		return 0, err
+	}
+	if err := validateTag("tag", tag); err != nil {
+		return 0, err
+	}
 	var affected int64
 	if err := s.repo.WithTx(ctx, func(tx Repository) error {
 		usn, err := tx.NextUSN(ctx, userID)
@@ -591,6 +670,12 @@ func (s *Service) RemoveTagFromCards(ctx context.Context, userID string, cardIDs
 }
 
 func (s *Service) SetFlagOnCards(ctx context.Context, userID string, cardIDs []string, flag int32) (int64, error) {
+	if err := validateFlags(flag); err != nil {
+		return 0, err
+	}
+	if err := validate.IDs("ids", cardIDs); err != nil {
+		return 0, err
+	}
 	var affected int64
 	if err := s.repo.WithTx(ctx, func(tx Repository) error {
 		usn, err := tx.NextUSN(ctx, userID)
@@ -642,6 +727,9 @@ func deckPath(id, parentPath string) string {
 }
 
 func (s *Service) CreateDeck(ctx context.Context, userID, profileID, name, parentID, configID string) (*Deck, error) {
+	if err := validateDeck(name, parentID, configID); err != nil {
+		return nil, err
+	}
 	now := time.Now().UTC()
 	deck := &Deck{
 		ID:        ids.NewUUID(),
@@ -685,14 +773,26 @@ func (s *Service) CreateDeck(ctx context.Context, userID, profileID, name, paren
 }
 
 func (s *Service) GetDeck(ctx context.Context, userID, id string) (*Deck, error) {
+	if err := validate.ID("id", id); err != nil {
+		return nil, err
+	}
 	return s.repo.GetDeck(ctx, userID, id)
 }
 
 func (s *Service) ListDecks(ctx context.Context, userID string, page Page) ([]Deck, string, error) {
+	if err := validatePage(page); err != nil {
+		return nil, "", err
+	}
 	return s.repo.ListDecks(ctx, userID, page)
 }
 
 func (s *Service) UpdateDeck(ctx context.Context, userID, id string, expectedUSN int64, name, parentID, configID string) (*Deck, error) {
+	if err := validate.ID("id", id); err != nil {
+		return nil, err
+	}
+	if err := validateDeck(name, parentID, configID); err != nil {
+		return nil, err
+	}
 	var updated *Deck
 	if err := s.repo.WithTx(ctx, func(tx Repository) error {
 		// NextUSN locks the user's USN row first, serialising deck moves so the
@@ -784,6 +884,9 @@ func (s *Service) UpdateDeck(ctx context.Context, userID, id string, expectedUSN
 
 // DeleteDeck reparents the deck's children to its parent (or to root), then deletes it.
 func (s *Service) DeleteDeck(ctx context.Context, userID, id string, expectedUSN int64) error {
+	if err := validate.ID("id", id); err != nil {
+		return err
+	}
 	return s.repo.WithTx(ctx, func(tx Repository) error {
 		usn, err := tx.NextUSN(ctx, userID)
 		if err != nil {
@@ -846,6 +949,9 @@ func (s *Service) DeleteDeck(ctx context.Context, userID, id string, expectedUSN
 // ─── DeckConfig ──────────────────────────────────────────────────────────────
 
 func (s *Service) CreateDeckConfig(ctx context.Context, userID, profileID string, req DeckConfig) (*DeckConfig, error) {
+	if err := validateDeckConfig(req); err != nil {
+		return nil, err
+	}
 	now := time.Now().UTC()
 	dc := req
 	dc.ID = ids.NewUUID()
@@ -870,14 +976,26 @@ func (s *Service) CreateDeckConfig(ctx context.Context, userID, profileID string
 }
 
 func (s *Service) GetDeckConfig(ctx context.Context, userID, id string) (*DeckConfig, error) {
+	if err := validate.ID("id", id); err != nil {
+		return nil, err
+	}
 	return s.repo.GetDeckConfig(ctx, userID, id)
 }
 
 func (s *Service) ListDeckConfigs(ctx context.Context, userID string, page Page) ([]DeckConfig, string, error) {
+	if err := validatePage(page); err != nil {
+		return nil, "", err
+	}
 	return s.repo.ListDeckConfigs(ctx, userID, page)
 }
 
 func (s *Service) UpdateDeckConfig(ctx context.Context, userID, id string, expectedUSN int64, req DeckConfig) (*DeckConfig, error) {
+	if err := validate.ID("id", id); err != nil {
+		return nil, err
+	}
+	if err := validateDeckConfig(req); err != nil {
+		return nil, err
+	}
 	var existing *DeckConfig
 	if err := s.repo.WithTx(ctx, func(tx Repository) error {
 		var err error
@@ -917,6 +1035,9 @@ func (s *Service) UpdateDeckConfig(ctx context.Context, userID, id string, expec
 
 // DeleteDeckConfig resets decks using the config to the default, then deletes it.
 func (s *Service) DeleteDeckConfig(ctx context.Context, userID, id string, expectedUSN int64) error {
+	if err := validate.ID("id", id); err != nil {
+		return err
+	}
 	return s.repo.WithTx(ctx, func(tx Repository) error {
 		usn, err := tx.NextUSN(ctx, userID)
 		if err != nil {
@@ -970,6 +1091,12 @@ func (s *Service) DeleteDeckConfig(ctx context.Context, userID, id string, expec
 // ─── FilteredDeck ────────────────────────────────────────────────────────────
 
 func (s *Service) CreateFilteredDeck(ctx context.Context, userID, profileID, name, query string) (*FilteredDeck, error) {
+	if err := validate.Name("name", name, maxNameRunes); err != nil {
+		return nil, err
+	}
+	if err := validate.Text("query", query, validate.MaxQueryBytes); err != nil {
+		return nil, err
+	}
 	now := time.Now().UTC()
 	fd := &FilteredDeck{
 		ID:        ids.NewUUID(),
@@ -997,14 +1124,23 @@ func (s *Service) CreateFilteredDeck(ctx context.Context, userID, profileID, nam
 }
 
 func (s *Service) GetFilteredDeck(ctx context.Context, userID, id string) (*FilteredDeck, error) {
+	if err := validate.ID("id", id); err != nil {
+		return nil, err
+	}
 	return s.repo.GetFilteredDeck(ctx, userID, id)
 }
 
 func (s *Service) ListFilteredDecks(ctx context.Context, userID string, page Page) ([]FilteredDeck, string, error) {
+	if err := validatePage(page); err != nil {
+		return nil, "", err
+	}
 	return s.repo.ListFilteredDecks(ctx, userID, page)
 }
 
 func (s *Service) DeleteFilteredDeck(ctx context.Context, userID, id string) error {
+	if err := validate.ID("id", id); err != nil {
+		return err
+	}
 	return s.repo.WithTx(ctx, func(tx Repository) error {
 		usn, err := tx.NextUSN(ctx, userID)
 		if err != nil {

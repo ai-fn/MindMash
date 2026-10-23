@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -18,6 +17,7 @@ import (
 
 	"github.com/mindmesh/mindmesh/internal/platform/errors"
 	"github.com/mindmesh/mindmesh/internal/platform/ids"
+	"github.com/mindmesh/mindmesh/internal/platform/validate"
 )
 
 // CollectionInternalAudience scopes service tokens to Collection's internal API.
@@ -162,18 +162,12 @@ func GRPCServiceOrUserAuthInterceptor(users Verifier, services *ServiceVerifier,
 			return nil, status.Error(codes.PermissionDenied, "service not allowed to call this method")
 		}
 		r, ok := req.(interface{ GetUserId() string })
-		if !ok || !IsCanonicalUUID(r.GetUserId()) {
+		if !ok || !validate.IsUUID(r.GetUserId()) {
 			return nil, status.Error(codes.InvalidArgument, "user_id must be a canonical UUID")
 		}
 		ctx = WithIdentity(ctx, IdentityContext{UserID: r.GetUserId(), Roles: []string{"service:" + caller}})
 		return handler(ctx, req)
 	}
-}
-
-// IsCanonicalUUID rejects the braced, urn: and dashless spellings uuid.Parse also accepts.
-func IsCanonicalUUID(s string) bool {
-	u, err := uuid.Parse(s)
-	return err == nil && u.String() == s
 }
 
 func incomingBearer(ctx context.Context) (string, bool) {
