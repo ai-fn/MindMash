@@ -59,7 +59,7 @@ func mustRegister(t *testing.T, svc *Service, email string) string {
 }
 
 func TestRegister_Validation(t *testing.T) {
-	svc, repo, _, emailer, _, _ := newTestService(t)
+	svc, repo, emailer, _, _ := newTestService(t)
 	ctx := context.Background()
 
 	for _, tc := range []struct{ name, email, pass string }{
@@ -80,7 +80,7 @@ func TestRegister_Validation(t *testing.T) {
 }
 
 func TestRegister_NormalizesInput(t *testing.T) {
-	svc, repo, _, _, _, _ := newTestService(t)
+	svc, repo, _, _, _ := newTestService(t)
 	ctx := context.Background()
 
 	if _, err := svc.Register(ctx, "  Zed@Example.com ", "password1", "ru-RU"); err != nil {
@@ -100,7 +100,7 @@ func TestRegister_NormalizesInput(t *testing.T) {
 }
 
 func TestLogin_UnknownEmailStillHashes(t *testing.T) {
-	svc, _, _, _, _, _ := newTestService(t)
+	svc, _, _, _, _ := newTestService(t)
 	ctx := context.Background()
 	mustRegister(t, svc, "carol@example.com")
 
@@ -119,7 +119,7 @@ func TestLogin_UnknownEmailStillHashes(t *testing.T) {
 }
 
 func TestLogin_MalformedInputIsInvalidCredentials(t *testing.T) {
-	svc, _, _, _, _, _ := newTestService(t)
+	svc, _, _, _, _ := newTestService(t)
 	ctx := context.Background()
 
 	for _, tc := range []struct{ email, pass string }{
@@ -134,7 +134,7 @@ func TestLogin_MalformedInputIsInvalidCredentials(t *testing.T) {
 }
 
 func TestLogin_SuspendedAccount(t *testing.T) {
-	svc, repo, _, _, _, _ := newTestService(t)
+	svc, repo, _, _, _ := newTestService(t)
 	ctx := context.Background()
 	mustRegister(t, svc, "sam@example.com")
 	suspend(repo, "sam@example.com")
@@ -150,7 +150,7 @@ func TestLogin_SuspendedAccount(t *testing.T) {
 
 func TestLogin_RateLimited(t *testing.T) {
 	lim := &fakeLimiter{}
-	svc, _, _, _, _, _ := newTestService(t, WithRateLimiter(lim))
+	svc, _, _, _, _ := newTestService(t, WithRateLimiter(lim))
 	ctx := context.Background()
 	mustRegister(t, svc, "rate@example.com")
 
@@ -174,7 +174,7 @@ func TestLogin_RateLimited(t *testing.T) {
 }
 
 func TestLogin_LimiterOutageFailsOpen(t *testing.T) {
-	svc, _, _, _, _, _ := newTestService(t, WithRateLimiter(&fakeLimiter{err: errors.New("redis down")}))
+	svc, _, _, _, _ := newTestService(t, WithRateLimiter(&fakeLimiter{err: errors.New("redis down")}))
 	mustRegister(t, svc, "open@example.com")
 	if _, _, _, _, _, err := svc.Login(context.Background(), "open@example.com", "password1"); err != nil {
 		t.Fatalf("Login must succeed when the limiter is down: %v", err)
@@ -182,7 +182,7 @@ func TestLogin_LimiterOutageFailsOpen(t *testing.T) {
 }
 
 func TestRequestPasswordReset_RateLimited(t *testing.T) {
-	svc, _, _, emailer, _, _ := newTestService(t, WithRateLimiter(&fakeLimiter{}))
+	svc, _, emailer, _, _ := newTestService(t, WithRateLimiter(&fakeLimiter{}))
 	ctx := context.Background()
 	mustRegister(t, svc, "reset@example.com")
 
@@ -199,7 +199,7 @@ func TestRequestPasswordReset_RateLimited(t *testing.T) {
 }
 
 func TestRequestPasswordReset_InvalidEmailIsSilent(t *testing.T) {
-	svc, _, _, emailer, _, _ := newTestService(t)
+	svc, _, emailer, _, _ := newTestService(t)
 	if err := svc.RequestPasswordReset(context.Background(), "garbage"); err != nil {
 		t.Fatalf("got %v, want nil", err)
 	}
@@ -209,7 +209,7 @@ func TestRequestPasswordReset_InvalidEmailIsSilent(t *testing.T) {
 }
 
 func TestResetPassword_RejectsWeakPassword(t *testing.T) {
-	svc, _, _, emailer, _, _ := newTestService(t)
+	svc, _, emailer, _, _ := newTestService(t)
 	ctx := context.Background()
 	mustRegister(t, svc, "weak@example.com")
 	if err := svc.RequestPasswordReset(ctx, "weak@example.com"); err != nil {
@@ -227,7 +227,7 @@ func TestResetPassword_RejectsWeakPassword(t *testing.T) {
 }
 
 func TestRefresh_SuspendedAccountRevokesFamily(t *testing.T) {
-	svc, repo, _, _, _, _ := newTestService(t)
+	svc, repo, _, _, _ := newTestService(t)
 	ctx := context.Background()
 	mustRegister(t, svc, "tom@example.com")
 	_, refresh, _, _, _, err := svc.Login(ctx, "tom@example.com", "password1")
@@ -249,7 +249,7 @@ func TestRefresh_SuspendedAccountRevokesFamily(t *testing.T) {
 }
 
 func TestOAuthExchange_SuspendedAccount(t *testing.T) {
-	svc, repo, _, _, exchanger, _ := newTestService(t)
+	svc, repo, _, exchanger, _ := newTestService(t)
 	ctx := context.Background()
 
 	exchanger.responses["known"] = OAuthUserInfo{Provider: "google", Subject: "sub-1", Email: "gus@example.com", EmailVerified: true}
@@ -277,7 +277,7 @@ func TestOAuthExchange_SuspendedAccount(t *testing.T) {
 }
 
 func TestActivateProfile_SuspendedAccount(t *testing.T) {
-	svc, repo, _, _, _, _ := newTestService(t)
+	svc, repo, _, _, _ := newTestService(t)
 	ctx := context.Background()
 	uid := mustRegister(t, svc, "pat@example.com")
 	profiles, err := repo.ListProfiles(ctx, uid)
@@ -291,7 +291,7 @@ func TestActivateProfile_SuspendedAccount(t *testing.T) {
 }
 
 func TestCreateProfile_NameValidation(t *testing.T) {
-	svc, _, _, _, _, _ := newTestService(t)
+	svc, _, _, _, _ := newTestService(t)
 	ctx := context.Background()
 	uid := mustRegister(t, svc, "nina@example.com")
 
@@ -310,7 +310,7 @@ func TestCreateProfile_NameValidation(t *testing.T) {
 }
 
 func TestHashConcurrencyIsBounded(t *testing.T) {
-	svc, _, _, _, _, _ := newTestService(t, WithHashConcurrency(1))
+	svc, _, _, _, _ := newTestService(t, WithHashConcurrency(1))
 	_ = svc.WarmUp()
 
 	var wg sync.WaitGroup
@@ -336,7 +336,7 @@ func TestHashConcurrencyIsBounded(t *testing.T) {
 }
 
 func TestLogin_UnknownAndOAuthOnlyAccountsPayForAHash(t *testing.T) {
-	svc, _, _, _, exchanger, _ := newTestService(t)
+	svc, _, _, exchanger, _ := newTestService(t)
 	ctx := context.Background()
 	_ = svc.WarmUp()
 	exchanger.responses["c"] = OAuthUserInfo{Provider: "google", Subject: "s", Email: "oauth@example.com", EmailVerified: true}
@@ -352,7 +352,7 @@ func TestLogin_UnknownAndOAuthOnlyAccountsPayForAHash(t *testing.T) {
 }
 
 func TestLogin_SuccessRefundsRateLimit(t *testing.T) {
-	svc, _, _, _, _, _ := newTestService(t, WithRateLimiter(&fakeLimiter{}))
+	svc, _, _, _, _ := newTestService(t, WithRateLimiter(&fakeLimiter{}))
 	ctx := context.Background()
 	mustRegister(t, svc, "multi@example.com")
 
@@ -378,7 +378,7 @@ func TestLogin_SuccessRefundsRateLimit(t *testing.T) {
 }
 
 func TestLogin_LookupErrorIsInternal(t *testing.T) {
-	svc := NewService(failingEmailRepo{newFakeRepo()}, newFakeSessionStore(), newTestSigner(t), &fakeOAuthExchanger{}, &fakeEmailSender{}, zap.NewNop(),
+	svc := NewService(failingEmailRepo{newFakeRepo()}, newTestSigner(t), &fakeOAuthExchanger{}, &fakeEmailSender{}, zap.NewNop(),
 		auth.Config{AccessTokenTTL: time.Minute, RefreshTokenTTL: time.Hour})
 	if _, _, _, _, _, err := svc.Login(context.Background(), "x@example.com", "password1"); grpcCode(err) == codes.Unauthenticated {
 		t.Fatal("an infrastructure failure must not look like bad credentials")
@@ -386,7 +386,7 @@ func TestLogin_LookupErrorIsInternal(t *testing.T) {
 }
 
 func TestCancelledContextIsRejectedBeforeHashing(t *testing.T) {
-	svc, _, _, _, _, _ := newTestService(t)
+	svc, _, _, _, _ := newTestService(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, err := svc.Register(ctx, "c@example.com", "password1", ""); grpcCode(err) != codes.ResourceExhausted {
@@ -395,12 +395,102 @@ func TestCancelledContextIsRejectedBeforeHashing(t *testing.T) {
 }
 
 func TestOAuthExchange_TrimsProviderEmail(t *testing.T) {
-	svc, repo, _, _, exchanger, _ := newTestService(t)
+	svc, repo, _, exchanger, _ := newTestService(t)
 	exchanger.responses["c"] = OAuthUserInfo{Provider: "google", Subject: "s", Email: " trim@example.com ", EmailVerified: true}
 	if _, _, _, _, _, _, err := svc.OAuthExchange(context.Background(), "google", "c", ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := repo.GetUserByEmail(context.Background(), "trim@example.com"); err != nil {
 		t.Fatalf("stored email must be trimmed: %v", err)
+	}
+}
+
+func registerAndLogin(t *testing.T, email string) (*Service, *fakeRepo, context.Context, string) {
+	t.Helper()
+	svc, repo, _, _, _ := newTestService(t)
+	ctx := context.Background()
+	mustRegister(t, svc, email)
+	_, refresh, _, _, _, err := svc.Login(ctx, email, "password1")
+	if err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	return svc, repo, ctx, refresh
+}
+
+// ageRotations pretends every rotation happened d ago.
+func ageRotations(repo *fakeRepo, d time.Duration) {
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	for _, rt := range repo.refreshTokens {
+		if rt.RotatedAgo != nil {
+			ago := *rt.RotatedAgo + d
+			rt.RotatedAgo = &ago
+		}
+	}
+}
+
+func TestRefresh_ConcurrentRequestWithinGraceMintsASibling(t *testing.T) {
+	svc, _, ctx, original := registerAndLogin(t, "tabs@example.com")
+
+	_, first, _, err := svc.Refresh(ctx, original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The second tab still holds the token the first tab just rotated.
+	_, second, _, err := svc.Refresh(ctx, original)
+	if err != nil {
+		t.Fatalf("a refresh racing a rotation must not be treated as theft: %v", err)
+	}
+	if first == second {
+		t.Fatal("each request needs its own token")
+	}
+	for name, token := range map[string]string{"first": first, "second": second} {
+		if _, _, _, err := svc.Refresh(ctx, token); err != nil {
+			t.Errorf("%s tab's token must keep working: %v", name, err)
+		}
+	}
+}
+
+func TestRefresh_ReplayAfterGraceRevokesFamily(t *testing.T) {
+	svc, repo, ctx, original := registerAndLogin(t, "late@example.com")
+	_, current, _, err := svc.Refresh(ctx, original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ageRotations(repo, time.Minute)
+
+	if _, _, _, err := svc.Refresh(ctx, original); grpcCode(err) != codes.Unauthenticated {
+		t.Fatalf("got %v, want Unauthenticated", grpcCode(err))
+	}
+	if _, _, _, err := svc.Refresh(ctx, current); err == nil {
+		t.Fatal("the family must be revoked after a late replay")
+	}
+}
+
+func TestRefresh_LogoutEndsGraceWindow(t *testing.T) {
+	svc, _, ctx, original := registerAndLogin(t, "bye@example.com")
+	_, current, _, err := svc.Refresh(ctx, original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.Logout(ctx, current)
+
+	if _, _, _, err := svc.Refresh(ctx, original); err == nil {
+		t.Fatal("a token rotated moments before logout must not revive the session")
+	}
+}
+
+func TestRefresh_GraceDoesNotApplyToExpiredTokens(t *testing.T) {
+	svc, repo, ctx, original := registerAndLogin(t, "exp@example.com")
+	if _, _, _, err := svc.Refresh(ctx, original); err != nil {
+		t.Fatal(err)
+	}
+	repo.mu.Lock()
+	for _, rt := range repo.refreshTokens {
+		rt.ExpiresAt = time.Now().Add(-time.Minute)
+	}
+	repo.mu.Unlock()
+	if _, _, _, err := svc.Refresh(ctx, original); err == nil {
+		t.Fatal("expired tokens must stay rejected")
 	}
 }

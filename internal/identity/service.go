@@ -32,6 +32,8 @@ var errTokenReuse = errors.New("token reuse detected")
 const (
 	statusActive = "active"
 
+	refreshGrace = 10 * time.Second
+
 	loginLimit       = 10
 	loginWindow      = 15 * time.Minute
 	resetLimit       = 3
@@ -39,12 +41,9 @@ const (
 	rateLimitKeyBase = "rl:"
 )
 
-// Service is the domain entry-point for all identity operations.  It composes
-// the repository, session store, JWT signer, OAuth exchanger, and email sender
-// so that each handler stays thin.
+// Service is the domain entry point for identity operations.
 type Service struct {
 	repo       Repository
-	sessions   SessionStore
 	signer     *auth.Signer
 	exchanger  OAuthExchanger
 	email      EmailSender
@@ -88,7 +87,6 @@ func WithHashConcurrency(n int) Option {
 // token lifetimes stay consistent between the signer and the DB rows.
 func NewService(
 	repo Repository,
-	sessions SessionStore,
 	signer *auth.Signer,
 	exchanger OAuthExchanger,
 	email EmailSender,
@@ -98,7 +96,6 @@ func NewService(
 ) *Service {
 	s := &Service{
 		repo:       repo,
-		sessions:   sessions,
 		signer:     signer,
 		exchanger:  exchanger,
 		email:      email,
@@ -313,7 +310,6 @@ func (s *Service) OAuthExchange(ctx context.Context, provider, code, redirectURI
 			ProviderUID: info.Subject,
 			CreatedAt:   now,
 		}
-		var revoked []string
 		if txErr := s.repo.WithTx(ctx, func(txRepo Repository) error {
 			cur, err := txRepo.GetUserForUpdate(ctx, existingUser.ID)
 			if err != nil {
@@ -329,11 +325,9 @@ func (s *Service) OAuthExchange(ctx context.Context, provider, code, redirectURI
 				if err := txRepo.ClearPassword(ctx, cur.ID); err != nil {
 					return err
 				}
-				jtis, err := txRepo.RevokeUserTokens(ctx, cur.ID)
-				if err != nil {
+				if err := txRepo.RevokeUserTokens(ctx, cur.ID); err != nil {
 					return err
 				}
-				revoked = jtis
 			}
 			if !cur.EmailVerified {
 				if err := txRepo.SetEmailVerified(ctx, cur.ID); err != nil {
@@ -345,7 +339,6 @@ func (s *Service) OAuthExchange(ctx context.Context, provider, code, redirectURI
 			return "", "", 0, "", "", false, fmt.Errorf("identity: oauth exchange link identity: %w", txErr)
 		}
 		existingUser.PasswordHash = nil
-		s.evictSessions(ctx, revoked)
 		profile, err := s.pickDefaultProfile(ctx, existingUser.ID)
 		if err != nil {
 			return "", "", 0, "", "", false, err
@@ -408,19 +401,8 @@ func (s *Service) OAuthExchange(ctx context.Context, provider, code, redirectURI
 
 // ─── Token rotation ──────────────────────────────────────────────────────────
 
-// Refresh rotates the refresh token.  The old token is revoked atomically
-// inside a transaction; if the token is already revoked the entire family is
-// revoked (reuse/theft detection).
-//
-// Reuse detection requires special care: we must NOT revoke the family inside
-// the WithTx closure, because returning an error from fn causes WithTx to roll
-// back the transaction, silently un-doing the revocation.  Instead we return
-// the private errTokenReuse sentinel to exit the tx cleanly (with rollback),
-// capture the family ID in an outer variable, and call RevokeFamily on the
-// pool (its own autocommit statement) after WithTx returns.
-//
-// Session-store updates are best-effort: Redis downtime must not break the
-// refresh path since Postgres is the source of truth.
+// Refresh rotates the refresh token. Presenting a token that was rotated earlier revokes its whole family
+// (theft detection), unless the rotation was within refreshGrace, which only mints a sibling token.
 func (s *Service) Refresh(ctx context.Context, refreshToken string) (accessToken, newRefreshToken string, expiresIn int64, err error) {
 	claims, err := s.signer.Verify(refreshToken)
 	if err != nil {
@@ -436,16 +418,11 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (accessToken
 		newRefreshString string
 		newExpiresIn     int64
 		newJTI           string
-		// reuseFamilyID is set inside the tx when reuse is detected; the actual
-		// RevokeFamily call happens after WithTx returns so it is not rolled back.
-		reuseFamilyID string
-		// rotatedFamilyID is captured inside the tx for the post-commit session
-		// mirror — it is the family that the new token belongs to.
+		// Captured in the tx; the family is revoked after it returns, since an error would roll the revoke back.
+		reuseFamilyID   string
 		rotatedFamilyID string
-		// txUserID / txProfileID are captured inside the tx and consumed after
-		// commit so that GetUserByID and signing happen outside the transaction.
-		txUserID    string
-		txProfileID string
+		txUserID        string
+		txProfileID     string
 	)
 
 	txErr := s.repo.WithTx(ctx, func(txRepo Repository) error {
@@ -458,9 +435,6 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (accessToken
 		}
 		rt, err := txRepo.GetRefreshTokenForUpdate(ctx, jti)
 		if err != nil {
-			// Only a NotFound (unknown / already-deleted token) becomes
-			// Unauthenticated.  Real infra errors propagate so they are
-			// observable as Internal/Unavailable, not silently swallowed.
 			if status.Code(err) == codes.NotFound {
 				return platformerrors.Unauthenticated("invalid token")
 			}
@@ -471,10 +445,10 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (accessToken
 			return platformerrors.Unauthenticated("invalid token")
 		}
 
-		if rt.Revoked {
-			// Token reuse detected.  Capture the family ID and return the
-			// sentinel so WithTx rolls back without attempting any further
-			// writes; we revoke the family outside the tx below.
+		// A token rotated moments ago is a concurrent refresh (two tabs), not theft: it mints a sibling.
+		concurrent := rt.Revoked && rt.RotatedAgo != nil && *rt.RotatedAgo >= 0 && *rt.RotatedAgo <= refreshGrace
+		if rt.Revoked && !concurrent {
+			// The family is revoked after WithTx returns, since returning an error here rolls the tx back.
 			reuseFamilyID = rt.FamilyID
 			return errTokenReuse
 		}
@@ -483,19 +457,18 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (accessToken
 			return platformerrors.Unauthenticated("token expired")
 		}
 
-		// Capture family, user, and profile for post-commit work.
 		rotatedFamilyID = rt.FamilyID
 		txUserID = rt.UserID
 		if rt.ProfileID != nil {
 			txProfileID = *rt.ProfileID
 		}
 
-		if err := txRepo.RevokeRefreshToken(ctx, jti); err != nil {
-			return fmt.Errorf("identity: refresh revoke old token: %w", err)
+		if !rt.Revoked {
+			if err := txRepo.RotateRefreshToken(ctx, jti); err != nil {
+				return fmt.Errorf("identity: refresh revoke old token: %w", err)
+			}
 		}
 
-		// Generate the new JTI here so we can INSERT the row inside the tx
-		// while signing happens outside (after commit).
 		newJTI = ids.NewULID()
 
 		now := time.Now()
@@ -503,7 +476,7 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (accessToken
 			JTI:       newJTI,
 			UserID:    rt.UserID,
 			ProfileID: rt.ProfileID,
-			FamilyID:  rt.FamilyID, // preserve the family for reuse tracking
+			FamilyID:  rt.FamilyID,
 			ExpiresAt: now.Add(s.refreshTTL),
 			Revoked:   false,
 			CreatedAt: now,
@@ -516,27 +489,14 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (accessToken
 	})
 
 	if errors.Is(txErr, errTokenReuse) {
-		// Revoke the whole family on the pool (autocommit) so it is durable.
-		jtis, rErr := s.repo.RevokeFamily(ctx, reuseFamilyID)
-		if rErr != nil {
-			s.log.Error("identity: refresh revoke family on reuse", zap.Error(rErr))
-		}
-		// Best-effort: evict all family sessions from the store.
-		if len(jtis) > 0 {
-			if sErr := s.sessions.Delete(ctx, jtis...); sErr != nil {
-				s.log.Warn("identity: refresh delete reuse sessions", zap.Error(sErr))
-			}
-		}
+		s.revokeFamilyBestEffort(ctx, claims.Subject, reuseFamilyID)
 		return "", "", 0, platformerrors.Unauthenticated("token reuse detected")
 	}
 	if txErr != nil {
 		return "", "", 0, txErr
 	}
 
-	// Tx committed: now sign outside the transaction so we never hold a DB
-	// lock while doing crypto.  newJTI was generated inside the tx and matches
-	// the row already INSERTed, so signing here produces a token whose JTI
-	// equals the persisted row's JTI.
+	// Signed after commit so no row lock is held during crypto.
 	userID := txUserID
 
 	user, err := s.repo.GetUserByID(ctx, userID)
@@ -544,7 +504,7 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (accessToken
 		return "", "", 0, fmt.Errorf("identity: refresh load user: %w", err)
 	}
 	if err := requireActive(user); err != nil {
-		s.revokeFamilyBestEffort(ctx, rotatedFamilyID)
+		s.revokeFamilyBestEffort(ctx, userID, rotatedFamilyID)
 		return "", "", 0, err
 	}
 
@@ -559,40 +519,21 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (accessToken
 		return "", "", 0, fmt.Errorf("identity: refresh sign refresh: %w", err)
 	}
 
-	// Best-effort session-store update; Redis downtime cannot fail the request.
-	if sErr := s.sessions.Delete(ctx, jti); sErr != nil {
-		s.log.Warn("identity: refresh delete old session", zap.Error(sErr), zap.String("jti", jti))
-	}
-	newSess := RefreshSession{
-		UserID:    userID,
-		ProfileID: txProfileID,
-		FamilyID:  rotatedFamilyID,
-		ExpiresAt: time.Now().Add(s.refreshTTL),
-	}
-	if sErr := s.sessions.Put(ctx, newJTI, newSess, s.refreshTTL); sErr != nil {
-		s.log.Warn("identity: refresh put new session", zap.Error(sErr), zap.String("jti", newJTI))
-	}
-
 	return newAccessToken, newRefreshString, newExpiresIn, nil
 }
 
 // ─── Logout ──────────────────────────────────────────────────────────────────
 
-// Logout revokes the token's family and clears session-store entries.
-// The FOR UPDATE lock and the family revocation run inside a single transaction
-// so they are atomic — the lock is meaningless across separate statements.
-// The operation is best-effort and always returns success to the caller; we
-// never leak token validity information via the logout response.
+// Logout revokes the token's family. It is best effort and never reports token validity to the caller.
 func (s *Service) Logout(ctx context.Context, refreshToken string) {
 	claims, err := s.signer.Verify(refreshToken)
 	if err != nil || claims.Kind != "refresh" {
 		return
 	}
 
-	var jtis []string
 	txErr := s.repo.WithTx(ctx, func(txRepo Repository) error {
-		// Same lock order as Refresh/claim/reset: user row first.
-		if _, err := txRepo.GetUserForShare(ctx, claims.Subject); err != nil {
+		// Exclusive, unlike Refresh: waits out any sibling mint so the family revoke sees it.
+		if _, err := txRepo.GetUserForUpdate(ctx, claims.Subject); err != nil {
 			return nil
 		}
 		rt, err := txRepo.GetRefreshTokenForUpdate(ctx, claims.ID)
@@ -600,22 +541,13 @@ func (s *Service) Logout(ctx context.Context, refreshToken string) {
 			// Token not found or already gone — nothing to revoke; treat as success.
 			return nil
 		}
-		rjtis, err := txRepo.RevokeFamily(ctx, rt.FamilyID)
-		if err != nil {
+		if err := txRepo.RevokeFamily(ctx, rt.FamilyID); err != nil {
 			return fmt.Errorf("identity: logout revoke family: %w", err)
 		}
-		jtis = rjtis
 		return nil
 	})
 	if txErr != nil {
 		s.log.Warn("identity: logout revoke family tx", zap.Error(txErr))
-		return
-	}
-
-	if len(jtis) > 0 {
-		if sErr := s.sessions.Delete(ctx, jtis...); sErr != nil {
-			s.log.Warn("identity: logout delete sessions", zap.Error(sErr))
-		}
 	}
 }
 
@@ -795,8 +727,7 @@ func (s *Service) ResetPassword(ctx context.Context, token, newPassword string) 
 		return fmt.Errorf("identity: reset password hash: %w", err)
 	}
 
-	var revoked []string
-	err = s.repo.WithTx(ctx, func(txRepo Repository) error {
+	return s.repo.WithTx(ctx, func(txRepo Repository) error {
 		userID, err := consumeToken(ctx, txRepo, token, purposePasswordReset)
 		if err != nil {
 			return err
@@ -811,18 +742,11 @@ func (s *Service) ResetPassword(ctx context.Context, token, newPassword string) 
 		if err := txRepo.InvalidateEmailVerifications(ctx, userID); err != nil {
 			return fmt.Errorf("identity: reset password invalidate tokens: %w", err)
 		}
-		jtis, err := txRepo.RevokeUserTokens(ctx, userID)
-		if err != nil {
+		if err := txRepo.RevokeUserTokens(ctx, userID); err != nil {
 			return fmt.Errorf("identity: reset password revoke sessions: %w", err)
 		}
-		revoked = jtis
 		return nil
 	})
-	if err != nil {
-		return err
-	}
-	s.evictSessions(ctx, revoked)
-	return nil
 }
 
 // ─── JWKS ────────────────────────────────────────────────────────────────────
@@ -834,8 +758,7 @@ func (s *Service) JWKS() auth.JWKS {
 
 // ─── Private helpers ─────────────────────────────────────────────────────────
 
-// issueTokens creates a new token family, persists the refresh token row, puts
-// the session into the store, and returns the signed strings.
+// issueTokens starts a new token family and returns the signed pair.
 func (s *Service) issueTokens(ctx context.Context, user *User, profile *Profile) (accessToken, refreshToken string, expiresIn int64, err error) {
 	familyID := ids.NewULID()
 
@@ -877,17 +800,6 @@ func (s *Service) issueTokens(ctx context.Context, user *User, profile *Profile)
 		return "", "", 0, fmt.Errorf("identity: issue tokens create refresh token: %w", err)
 	}
 
-	sess := RefreshSession{
-		UserID:    user.ID,
-		ProfileID: profile.ID,
-		FamilyID:  familyID,
-		ExpiresAt: rt.ExpiresAt,
-	}
-	if sErr := s.sessions.Put(ctx, jti, sess, s.refreshTTL); sErr != nil {
-		// Redis being unavailable must not block login — DB is source of truth.
-		s.log.Warn("identity: issue tokens put session", zap.Error(sErr))
-	}
-
 	expiresIn = int64(s.accessTTL.Seconds())
 	return accessToken, refreshToken, expiresIn, nil
 }
@@ -925,13 +837,17 @@ func requireActive(u *User) error {
 	return nil
 }
 
-func (s *Service) revokeFamilyBestEffort(ctx context.Context, familyID string) {
-	jtis, err := s.repo.RevokeFamily(ctx, familyID)
+// revokeFamilyBestEffort holds the user lock so a concurrent sibling mint cannot slip past the revoke.
+func (s *Service) revokeFamilyBestEffort(ctx context.Context, userID, familyID string) {
+	err := s.repo.WithTx(ctx, func(tx Repository) error {
+		if _, err := tx.GetUserForUpdate(ctx, userID); err != nil {
+			return err
+		}
+		return tx.RevokeFamily(ctx, familyID)
+	})
 	if err != nil {
 		s.log.Error("identity: revoke family", zap.Error(err))
-		return
 	}
-	s.evictSessions(ctx, jtis)
 }
 
 // HashToken is how email tokens are stored: a database leak must not yield usable links.
@@ -995,15 +911,6 @@ func (s *Service) Drain(ctx context.Context) {
 	case <-done:
 	case <-ctx.Done():
 		s.log.Warn("identity: drain timed out with background jobs running")
-	}
-}
-
-func (s *Service) evictSessions(ctx context.Context, jtis []string) {
-	if len(jtis) == 0 {
-		return
-	}
-	if err := s.sessions.Delete(ctx, jtis...); err != nil {
-		s.log.Warn("identity: evict sessions", zap.Error(err))
 	}
 }
 

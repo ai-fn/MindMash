@@ -53,28 +53,14 @@ func (c *captureEmailSender) SendPasswordReset(_ context.Context, _, token, loca
 	return nil
 }
 
-// nilSessionStore implements SessionStore as a no-op; all methods succeed and
-// Get always returns a miss.  Used to verify that the service continues to
-// work when Redis is unavailable.
-type nilSessionStore struct{}
-
-func (nilSessionStore) Put(_ context.Context, _ string, _ RefreshSession, _ time.Duration) error {
-	return nil
-}
-func (nilSessionStore) Get(_ context.Context, _ string) (RefreshSession, bool, error) {
-	return RefreshSession{}, false, nil
-}
-func (nilSessionStore) Delete(_ context.Context, _ ...string) error { return nil }
-
 // ─── Setup helpers ───────────────────────────────────────────────────────────
 
 // integrationComponents holds all the pieces built during setup.
 type integrationComponents struct {
-	svc      *Service
-	repo     *PostgresRepository
-	sessions *RedisSessionStore
-	signer   *auth.Signer
-	limiter  *RedisRateLimiter
+	svc     *Service
+	repo    *PostgresRepository
+	signer  *auth.Signer
+	limiter *RedisRateLimiter
 }
 
 // setupIntegration starts Postgres and Redis containers, runs migrations, and
@@ -145,8 +131,6 @@ func setupFull(t *testing.T, emailSender EmailSender, exchanger OAuthExchanger) 
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = redisClient.Close() })
 
-	sessions := NewRedisSessionStore(redisClient)
-
 	// ── Auth signer ──────────────────────────────────────────────────────────
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
@@ -160,73 +144,14 @@ func setupFull(t *testing.T, emailSender EmailSender, exchanger OAuthExchanger) 
 
 	// ── Service ──────────────────────────────────────────────────────────────
 	limiter := NewRedisRateLimiter(redisClient)
-	svc := NewService(repo, sessions, signer, exchanger, emailSender, zap.NewNop(), authCfg, WithRateLimiter(limiter), WithSyncEmail())
+	svc := NewService(repo, signer, exchanger, emailSender, zap.NewNop(), authCfg, WithRateLimiter(limiter), WithSyncEmail())
 
 	return integrationComponents{
-		svc:      svc,
-		repo:     repo,
-		sessions: sessions,
-		signer:   signer,
-		limiter:  limiter,
+		svc:     svc,
+		repo:    repo,
+		signer:  signer,
+		limiter: limiter,
 	}
-}
-
-// setupWithNilSessions is a variant that uses a nilSessionStore instead of
-// Redis so that we can verify the service still works without a session store.
-func setupWithNilSessions(t *testing.T) *Service {
-	t.Helper()
-	ctx := context.Background()
-
-	// ── Postgres ────────────────────────────────────────────────────────────
-	pgc, err := postgres.Run(ctx,
-		"postgres:18-alpine",
-		postgres.WithDatabase("testdb"),
-		postgres.WithUsername("testuser"),
-		postgres.WithPassword("testpass"),
-		postgres.BasicWaitStrategies(),
-	)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = pgc.Terminate(ctx) })
-
-	dsn, err := pgc.ConnectionString(ctx, "sslmode=disable")
-	require.NoError(t, err)
-
-	require.NoError(t, platformdb.RunMigrations(ctx, dsn, "../../migrations/identity"))
-
-	dbCfg := platformdb.Config{
-		DSN:             dsn,
-		MaxConns:        5,
-		MinConns:        1,
-		MaxConnLifetime: 30 * time.Minute,
-		MaxConnIdleTime: 5 * time.Minute,
-	}
-	pool, err := platformdb.New(ctx, dbCfg)
-	require.NoError(t, err)
-	t.Cleanup(pool.Close)
-
-	repo := NewPostgresRepository(pool)
-
-	// ── Auth signer ──────────────────────────────────────────────────────────
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-
-	authCfg := auth.Config{
-		AccessTokenTTL:  10 * time.Minute,
-		RefreshTokenTTL: 168 * time.Hour,
-		Issuer:          "mindmesh-test",
-	}
-	signer := auth.NewSignerFromKeys(priv, pub, authCfg)
-
-	return NewService(
-		repo,
-		nilSessionStore{},
-		signer,
-		&stubOAuthExchanger{},
-		NewLogEmailSender(zap.NewNop(), true),
-		zap.NewNop(),
-		authCfg,
-		WithSyncEmail(),
-	)
 }
 
 // ─── Test cases ──────────────────────────────────────────────────────────────
@@ -290,16 +215,6 @@ func TestFullAuthCycle_Integration(t *testing.T) {
 	_, _, _, err = c.svc.Refresh(ctx, newRefresh2)
 	require.Error(t, err)
 	assert.Equal(t, codes.Unauthenticated, status.Code(err))
-
-	// Verify the session is gone from Redis: parse the JTI from the token.
-	// Cryptographic verification may still pass (token is structurally valid);
-	// we only care that the DB-backed Refresh rejects it above.
-	claims, verifyErr := c.signer.Verify(newRefresh2)
-	if verifyErr == nil {
-		_, found, sessErr := c.sessions.Get(ctx, claims.ID)
-		require.NoError(t, sessErr)
-		assert.False(t, found, "session should be evicted from Redis after logout")
-	}
 }
 
 // TestRefreshReuseDetection_Integration verifies that reusing a rotated refresh
@@ -323,6 +238,10 @@ func TestRefreshReuseDetection_Integration(t *testing.T) {
 	require.NoError(t, err)
 
 	// Re-use the already-rotated original token → triggers family revocation.
+	// A replay inside the concurrent-refresh grace window is not theft; age the rotation past it.
+	_, err = c.repo.pool.Exec(ctx, `UPDATE refresh_tokens SET rotated_at = now() - interval '1 minute' WHERE rotated_at IS NOT NULL`)
+	require.NoError(t, err)
+
 	_, _, _, err = c.svc.Refresh(ctx, origRefresh)
 	require.Error(t, err)
 	assert.Equal(t, codes.Unauthenticated, status.Code(err))
@@ -456,34 +375,6 @@ func TestOAuthExchange_Integration(t *testing.T) {
 	assert.NotEmpty(t, access2)
 	assert.NotEmpty(t, refresh2)
 	assert.Equal(t, userID, userID2, "same user must be returned on repeat OAuth exchange")
-}
-
-// TestRedisDownFallback_Integration verifies that token operations succeed even
-// when the session store is a no-op (Redis unavailable).
-func TestRedisDownFallback_Integration(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-
-	ctx := context.Background()
-	svc := setupWithNilSessions(t)
-
-	_, err := svc.Register(ctx, "grace@example.com", "nored1s-pw!", "en")
-	require.NoError(t, err)
-
-	access, refresh, _, _, _, err := svc.Login(ctx, "grace@example.com", "nored1s-pw!")
-	require.NoError(t, err)
-	assert.NotEmpty(t, access)
-	assert.NotEmpty(t, refresh)
-
-	// Refresh must succeed even without Redis.
-	newAccess, newRefresh, _, err := svc.Refresh(ctx, refresh)
-	require.NoError(t, err)
-	assert.NotEmpty(t, newAccess)
-	assert.NotEmpty(t, newRefresh)
-
-	// Logout must succeed even without Redis.
-	svc.Logout(ctx, newRefresh)
 }
 
 // TestRedisRateLimiter_Integration verifies the fixed window: the limit holds, keys are
@@ -684,7 +575,7 @@ func TestClaimRevokesInFlightRotation_Integration(t *testing.T) {
 	}}
 	c := setupFull(t, &captureEmailSender{}, stub)
 	cfg := auth.Config{AccessTokenTTL: time.Minute, RefreshTokenTTL: time.Hour}
-	slow := NewService(slowMintRepo{c.repo, 800 * time.Millisecond}, c.sessions, c.signer, stub, &captureEmailSender{}, zap.NewNop(), cfg, WithSyncEmail())
+	slow := NewService(slowMintRepo{c.repo, 800 * time.Millisecond}, c.signer, stub, &captureEmailSender{}, zap.NewNop(), cfg, WithSyncEmail())
 
 	uid, err := c.svc.Register(ctx, "mint@example.com", "attackers-pw", "en")
 	require.NoError(t, err)
@@ -706,4 +597,195 @@ func TestClaimRevokesInFlightRotation_Integration(t *testing.T) {
 	require.NoError(t, c.repo.pool.QueryRow(ctx,
 		`SELECT count(*) FROM refresh_tokens WHERE user_id = $1 AND NOT revoked`, uid).Scan(&live))
 	assert.Equal(t, 1, live, "the rotated token must not outlive the claim; only the owner's session remains")
+}
+
+// TestPurgeExpired_Integration: only rows expired longer than the cutoff go, across batch boundaries.
+func TestPurgeExpired_Integration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	c := setupIntegration(t)
+	uid, err := c.svc.Register(ctx, "purge@example.com", "password-one", "en")
+	require.NoError(t, err) // leaves one live verification token
+	_, _, _, _, _, err = c.svc.Login(ctx, "purge@example.com", "password-one")
+	require.NoError(t, err) // and one live refresh token
+
+	_, err = c.repo.pool.Exec(ctx, `
+		INSERT INTO refresh_tokens (jti, user_id, family_id, expires_at)
+		SELECT 'old-' || i, $1, 'f', now() - interval '3 days' FROM generate_series(1, $2) i`, uid, purgeBatch+200)
+	require.NoError(t, err)
+	_, err = c.repo.pool.Exec(ctx, `
+		INSERT INTO refresh_tokens (jti, user_id, family_id, expires_at) VALUES ('recent', $1, 'f', now() - interval '1 hour')`, uid)
+	require.NoError(t, err)
+	_, err = c.repo.pool.Exec(ctx, `
+		INSERT INTO email_verifications (token_hash, user_id, purpose, expires_at)
+		VALUES (repeat('a', 64), $1, 'verify_email', now() - interval '3 days'),
+		       (repeat('b', 64), $1, 'verify_email', now() - interval '1 hour')`, uid)
+	require.NoError(t, err)
+
+	tokens, verifications, err := c.repo.PurgeExpired(ctx, time.Now().Add(-24*time.Hour))
+	require.NoError(t, err)
+	assert.Equal(t, int64(purgeBatch+200), tokens)
+	assert.Equal(t, int64(1), verifications)
+
+	var liveTokens, liveVerifications int
+	require.NoError(t, c.repo.pool.QueryRow(ctx, `SELECT count(*) FROM refresh_tokens`).Scan(&liveTokens))
+	require.NoError(t, c.repo.pool.QueryRow(ctx, `SELECT count(*) FROM email_verifications`).Scan(&liveVerifications))
+	assert.Equal(t, 2, liveTokens, "the live login token and the recently expired one stay")
+	assert.Equal(t, 2, liveVerifications, "the registration token and the recently expired one stay")
+}
+
+// TestConcurrentRefreshWithOneToken_Integration: two tabs refreshing with the same token both get a session.
+func TestConcurrentRefreshWithOneToken_Integration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	c := setupIntegration(t)
+	_, err := c.svc.Register(ctx, "tabs@example.com", "password-one", "en")
+	require.NoError(t, err)
+	_, refresh, _, _, _, err := c.svc.Login(ctx, "tabs@example.com", "password-one")
+	require.NoError(t, err)
+
+	errs := make(chan error, 2)
+	tokens := make(chan string, 2)
+	for range 2 {
+		go func() {
+			_, next, _, err := c.svc.Refresh(ctx, refresh)
+			errs <- err
+			tokens <- next
+		}()
+	}
+	require.NoError(t, <-errs)
+	require.NoError(t, <-errs)
+	first, second := <-tokens, <-tokens
+	assert.NotEqual(t, first, second)
+
+	for _, tok := range []string{first, second} {
+		_, _, _, err := c.svc.Refresh(ctx, tok)
+		require.NoError(t, err, "both siblings stay usable")
+	}
+
+	c.svc.Logout(ctx, first)
+	_, _, _, err = c.svc.Refresh(ctx, refresh)
+	assert.Error(t, err, "logout must end the family, grace window included")
+}
+
+// TestLogoutRevokesSiblingMintedMidFlight_Integration: after the grace window a family can hold several
+// live tokens; logging out through one must still catch a sibling another tab is minting.
+func TestLogoutRevokesSiblingMintedMidFlight_Integration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	c := setupIntegration(t)
+	cfg := auth.Config{AccessTokenTTL: time.Minute, RefreshTokenTTL: time.Hour}
+	slow := NewService(slowMintRepo{c.repo, 800 * time.Millisecond}, c.signer, &stubOAuthExchanger{}, &captureEmailSender{}, zap.NewNop(), cfg, WithSyncEmail())
+
+	uid, err := c.svc.Register(ctx, "tabs2@example.com", "password-one", "en")
+	require.NoError(t, err)
+	_, root, _, _, _, err := c.svc.Login(ctx, "tabs2@example.com", "password-one")
+	require.NoError(t, err)
+	_, tabOne, _, err := c.svc.Refresh(ctx, root)
+	require.NoError(t, err)
+	_, tabTwo, _, err := c.svc.Refresh(ctx, root) // inside the grace window: a sibling
+	require.NoError(t, err)
+
+	refreshDone := make(chan struct{})
+	go func() {
+		defer close(refreshDone)
+		_, _, _, _ = slow.Refresh(ctx, tabTwo) // mid-flight when the logout arrives
+	}()
+	time.Sleep(300 * time.Millisecond)
+	c.svc.Logout(ctx, tabOne)
+	<-refreshDone
+
+	var live int
+	require.NoError(t, c.repo.pool.QueryRow(ctx, `SELECT count(*) FROM refresh_tokens WHERE user_id = $1 AND NOT revoked`, uid).Scan(&live))
+	assert.Zero(t, live, "no token of the family may survive the logout")
+}
+
+// TestPurgeExpiredSkipsLockedRows_Integration: rows held by another transaction are left for the next run.
+func TestPurgeExpiredSkipsLockedRows_Integration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	c := setupIntegration(t)
+	uid, err := c.svc.Register(ctx, "skip@example.com", "password-one", "en")
+	require.NoError(t, err)
+	_, err = c.repo.pool.Exec(ctx, `
+		INSERT INTO refresh_tokens (jti, user_id, family_id, expires_at)
+		VALUES ('held', $1, 'f', now() - interval '3 days'), ('free', $1, 'f', now() - interval '3 days')`, uid)
+	require.NoError(t, err)
+
+	tx, err := c.repo.pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback(ctx) }()
+	_, err = tx.Exec(ctx, `SELECT 1 FROM refresh_tokens WHERE jti = 'held' FOR UPDATE`)
+	require.NoError(t, err)
+
+	pctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	tokens, _, err := c.repo.PurgeExpired(pctx, time.Now().Add(-24*time.Hour))
+	require.NoError(t, err, "the purge must not block on a locked row")
+	assert.Equal(t, int64(1), tokens)
+
+	var left int
+	require.NoError(t, c.repo.pool.QueryRow(ctx, `SELECT count(*) FROM refresh_tokens WHERE jti = 'held'`).Scan(&left))
+	assert.Equal(t, 1, left)
+}
+
+// slowLockRepo delays the token-row lock, so a transaction that began first can lose the race to rotate.
+type slowLockRepo struct {
+	*PostgresRepository
+	delay time.Duration
+}
+
+func (r slowLockRepo) WithTx(ctx context.Context, fn func(Repository) error) error {
+	return r.PostgresRepository.WithTx(ctx, func(tx Repository) error { return fn(slowLockTx{tx, r.delay}) })
+}
+
+type slowLockTx struct {
+	Repository
+	delay time.Duration
+}
+
+func (r slowLockTx) GetRefreshTokenForUpdate(ctx context.Context, jti string) (*RefreshToken, error) {
+	time.Sleep(r.delay)
+	return r.Repository.GetRefreshTokenForUpdate(ctx, jti)
+}
+
+// TestRefreshLosingTheRotationRaceIsNotTheft_Integration: the request whose transaction began first but
+// reached the token row second must still be treated as concurrent, not as a replay.
+func TestRefreshLosingTheRotationRaceIsNotTheft_Integration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	c := setupIntegration(t)
+	cfg := auth.Config{AccessTokenTTL: time.Minute, RefreshTokenTTL: time.Hour}
+	slow := NewService(slowLockRepo{c.repo, 600 * time.Millisecond}, c.signer, &stubOAuthExchanger{}, &captureEmailSender{}, zap.NewNop(), cfg, WithSyncEmail())
+
+	_, err := c.svc.Register(ctx, "photo@example.com", "password-one", "en")
+	require.NoError(t, err)
+	_, refresh, _, _, _, err := c.svc.Login(ctx, "photo@example.com", "password-one")
+	require.NoError(t, err)
+
+	slowDone := make(chan error, 1)
+	go func() {
+		_, _, _, err := slow.Refresh(ctx, refresh) // begins first, locks the token last
+		slowDone <- err
+	}()
+	time.Sleep(150 * time.Millisecond)
+	_, _, _, err = c.svc.Refresh(ctx, refresh) // begins later, rotates first
+	require.NoError(t, err)
+
+	require.NoError(t, <-slowDone, "the loser of the race must get a sibling, not a family revoke")
 }

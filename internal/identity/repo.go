@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -236,61 +237,41 @@ func (r *PostgresRepository) CreateRefreshToken(ctx context.Context, rt *Refresh
 
 func (r *PostgresRepository) GetRefreshTokenForUpdate(ctx context.Context, jti string) (*RefreshToken, error) {
 	rt := &RefreshToken{}
+	var sinceRotation *float64
 	err := r.db.QueryRow(ctx, `
-		SELECT jti, user_id, profile_id, family_id, expires_at, revoked, created_at
+		SELECT jti, user_id, profile_id, family_id, expires_at, revoked, extract(epoch FROM clock_timestamp() - rotated_at), created_at
 		FROM refresh_tokens WHERE jti = $1 FOR UPDATE`, jti).
-		Scan(&rt.JTI, &rt.UserID, &rt.ProfileID, &rt.FamilyID, &rt.ExpiresAt, &rt.Revoked, &rt.CreatedAt)
+		Scan(&rt.JTI, &rt.UserID, &rt.ProfileID, &rt.FamilyID, &rt.ExpiresAt, &rt.Revoked, &sinceRotation, &rt.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("identity: get refresh token for update: %w", mapNoRows(err, "refresh token not found"))
+	}
+	if sinceRotation != nil {
+		d := time.Duration(*sinceRotation * float64(time.Second))
+		rt.RotatedAgo = &d
 	}
 	return rt, nil
 }
 
-func (r *PostgresRepository) RevokeRefreshToken(ctx context.Context, jti string) error {
-	_, err := r.db.Exec(ctx, `UPDATE refresh_tokens SET revoked = true WHERE jti = $1`, jti)
+func (r *PostgresRepository) RotateRefreshToken(ctx context.Context, jti string) error {
+	_, err := r.db.Exec(ctx, `UPDATE refresh_tokens SET revoked = true, rotated_at = clock_timestamp() WHERE jti = $1`, jti)
 	if err != nil {
-		return fmt.Errorf("identity: revoke refresh token: %w", err)
+		return fmt.Errorf("identity: rotate refresh token: %w", err)
 	}
 	return nil
 }
 
-func (r *PostgresRepository) RevokeFamily(ctx context.Context, familyID string) ([]string, error) {
-	rows, err := r.db.Query(ctx, `
-		UPDATE refresh_tokens SET revoked = true
-		WHERE family_id = $1 AND revoked = false
-		RETURNING jti`, familyID)
-	if err != nil {
-		return nil, fmt.Errorf("identity: revoke family: %w", err)
+func (r *PostgresRepository) RevokeFamily(ctx context.Context, familyID string) error {
+	if _, err := r.db.Exec(ctx, `UPDATE refresh_tokens SET revoked = true, rotated_at = NULL WHERE family_id = $1 AND (revoked = false OR rotated_at IS NOT NULL)`, familyID); err != nil {
+		return fmt.Errorf("identity: revoke family: %w", err)
 	}
-	defer rows.Close()
-
-	var jtis []string
-	for rows.Next() {
-		var jti string
-		if err := rows.Scan(&jti); err != nil {
-			return nil, fmt.Errorf("identity: revoke family scan: %w", err)
-		}
-		jtis = append(jtis, jti)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("identity: revoke family rows: %w", err)
-	}
-	return jtis, nil
+	return nil
 }
 
-func (r *PostgresRepository) RevokeUserTokens(ctx context.Context, userID string) ([]string, error) {
-	rows, err := r.db.Query(ctx, `
-		UPDATE refresh_tokens SET revoked = true
-		WHERE user_id = $1 AND revoked = false
-		RETURNING jti`, userID)
-	if err != nil {
-		return nil, fmt.Errorf("identity: revoke user tokens: %w", err)
+func (r *PostgresRepository) RevokeUserTokens(ctx context.Context, userID string) error {
+	if _, err := r.db.Exec(ctx, `UPDATE refresh_tokens SET revoked = true, rotated_at = NULL WHERE user_id = $1 AND (revoked = false OR rotated_at IS NOT NULL)`, userID); err != nil {
+		return fmt.Errorf("identity: revoke user tokens: %w", err)
 	}
-	jtis, err := pgx.CollectRows(rows, pgx.RowTo[string])
-	if err != nil {
-		return nil, fmt.Errorf("identity: revoke user tokens rows: %w", err)
-	}
-	return jtis, nil
+	return nil
 }
 
 // ─── EmailVerification ───────────────────────────────────────────────────────

@@ -50,13 +50,14 @@ type Profile struct {
 // RefreshToken is a single-use token stored in Postgres that enables token
 // rotation with family-level revocation on reuse detection.
 type RefreshToken struct {
-	JTI       string
-	UserID    string
-	ProfileID *string // nil when no profile is bound at issuance
-	FamilyID  string
-	ExpiresAt time.Time
-	Revoked   bool
-	CreatedAt time.Time
+	JTI        string
+	UserID     string
+	ProfileID  *string // nil when no profile is bound at issuance
+	FamilyID   string
+	ExpiresAt  time.Time
+	Revoked    bool
+	RotatedAgo *time.Duration // time since rotation on the database clock; nil unless rotated
+	CreatedAt  time.Time
 }
 
 // Email token purposes.
@@ -110,12 +111,11 @@ type Repository interface {
 	// GetRefreshTokenForUpdate fetches and locks the row (SELECT … FOR UPDATE)
 	// for use inside a transaction during token rotation.
 	GetRefreshTokenForUpdate(ctx context.Context, jti string) (*RefreshToken, error)
-	RevokeRefreshToken(ctx context.Context, jti string) error
-	// RevokeFamily marks every token in the family as revoked and returns their
-	// JTIs so the caller can evict them from the session store.
-	RevokeFamily(ctx context.Context, familyID string) ([]string, error)
-	// RevokeUserTokens revokes every live refresh token of the user and returns their JTIs.
-	RevokeUserTokens(ctx context.Context, userID string) ([]string, error)
+	// RotateRefreshToken revokes the token as superseded.
+	RotateRefreshToken(ctx context.Context, jti string) error
+	RevokeFamily(ctx context.Context, familyID string) error
+	// RevokeUserTokens revokes every live refresh token of the user.
+	RevokeUserTokens(ctx context.Context, userID string) error
 
 	// EmailVerification operations
 	CreateEmailVerification(ctx context.Context, ev *EmailVerification) error
@@ -132,27 +132,6 @@ type Repository interface {
 	// passed to fn is scoped to that transaction; callers must not use the
 	// outer repository inside fn.
 	WithTx(ctx context.Context, fn func(Repository) error) error
-}
-
-// ─── Session store ───────────────────────────────────────────────────────────
-
-// RefreshSession is the value stored in the session store for a refresh JTI.
-// Keeping it in Redis allows O(1) lookup during the hot token-rotation path
-// without hitting Postgres; Postgres remains the source of truth.
-type RefreshSession struct {
-	UserID    string
-	ProfileID string
-	FamilyID  string
-	ExpiresAt time.Time
-}
-
-// SessionStore is a fast, volatile store for refresh-token sessions.  Redis is
-// the production implementation; a nil/no-op version can be used in tests that
-// only care about the DB path.
-type SessionStore interface {
-	Put(ctx context.Context, jti string, sess RefreshSession, ttl time.Duration) error
-	Get(ctx context.Context, jti string) (RefreshSession, bool, error)
-	Delete(ctx context.Context, jtis ...string) error
 }
 
 // ─── OAuth exchanger ─────────────────────────────────────────────────────────

@@ -120,10 +120,9 @@ func run() error {
 
 	// Domain wiring.
 	repo := identity.NewPostgresRepository(pool)
-	sessions := identity.NewRedisSessionStore(rdb)
 	exchanger := identity.NewOIDCExchanger(oauthProvidersFromEnv())
 	email := identity.NewLogEmailSender(logger, os.Getenv("LOG_EMAIL_SECRETS") == "true")
-	svc := identity.NewService(repo, sessions, signer, exchanger, email, logger, authCfg,
+	svc := identity.NewService(repo, signer, exchanger, email, logger, authCfg,
 		identity.WithRateLimiter(identity.NewRedisRateLimiter(rdb)))
 	if err := svc.WarmUp(); err != nil {
 		return fmt.Errorf("identity: warm up: %w", err)
@@ -186,6 +185,7 @@ func run() error {
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return grpcSrv.Start(gctx) })
 	g.Go(func() error { return httpSrv.Start(gctx) })
+	g.Go(func() error { return identity.RunPurge(gctx, repo, logger) })
 	err = g.Wait()
 	drainCtx, cancelDrain := context.WithTimeout(context.Background(), 10*time.Second)
 	svc.Drain(drainCtx)

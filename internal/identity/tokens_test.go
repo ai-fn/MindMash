@@ -15,7 +15,7 @@ import (
 )
 
 func TestEmailTokensAreStoredHashed(t *testing.T) {
-	svc, repo, _, emailer, _, _ := newTestService(t)
+	svc, repo, emailer, _, _ := newTestService(t)
 	mustRegister(t, svc, "hash@example.com")
 
 	raw := emailer.verifications[0]
@@ -30,7 +30,7 @@ func TestEmailTokensAreStoredHashed(t *testing.T) {
 }
 
 func TestEmailTokensAreBoundToPurpose(t *testing.T) {
-	svc, _, _, emailer, _, _ := newTestService(t)
+	svc, _, emailer, _, _ := newTestService(t)
 	ctx := context.Background()
 	mustRegister(t, svc, "purpose@example.com")
 	if err := svc.RequestPasswordReset(ctx, "purpose@example.com"); err != nil {
@@ -54,7 +54,7 @@ func TestEmailTokensAreBoundToPurpose(t *testing.T) {
 }
 
 func TestResetPassword_RevokesSessionsAndVerifiesEmail(t *testing.T) {
-	svc, repo, sessions, emailer, _, _ := newTestService(t)
+	svc, repo, emailer, _, _ := newTestService(t)
 	ctx := context.Background()
 	uid := mustRegister(t, svc, "stolen@example.com")
 	_, refreshA, _, _, _, err := svc.Login(ctx, "stolen@example.com", "password1")
@@ -80,12 +80,6 @@ func TestResetPassword_RevokesSessionsAndVerifiesEmail(t *testing.T) {
 			t.Errorf("session %s survived the password reset", name)
 		}
 	}
-	sessions.mu.Lock()
-	left := len(sessions.data)
-	sessions.mu.Unlock()
-	if left != 0 {
-		t.Errorf("%d sessions left in the store", left)
-	}
 	if u, _ := repo.GetUserByID(ctx, uid); !u.EmailVerified {
 		t.Error("completing a reset proves the mailbox; email must be verified")
 	}
@@ -104,7 +98,7 @@ func TestOAuthLink_ClaimsPasswordAccount(t *testing.T) {
 			name = "verified"
 		}
 		t.Run(name, func(t *testing.T) {
-			svc, repo, sessions, emailer, exchanger, _ := newTestService(t)
+			svc, repo, emailer, exchanger, _ := newTestService(t)
 			ctx := context.Background()
 			uid := mustRegister(t, svc, "victim@example.com") // password set by whoever registered first
 			_, attackerRefresh, _, _, _, err := svc.Login(ctx, "victim@example.com", "password1")
@@ -129,12 +123,6 @@ func TestOAuthLink_ClaimsPasswordAccount(t *testing.T) {
 			if _, _, _, err := svc.Refresh(ctx, attackerRefresh); err == nil {
 				t.Error("sessions opened before the link must be revoked")
 			}
-			sessions.mu.Lock()
-			live := len(sessions.data)
-			sessions.mu.Unlock()
-			if live != 1 {
-				t.Errorf("only the owner's new session may remain in the store, got %d", live)
-			}
 			if u, _ := repo.GetUserByID(ctx, uid); !u.EmailVerified || u.PasswordHash != nil {
 				t.Errorf("want verified and passwordless, got verified=%v hash=%v", u.EmailVerified, u.PasswordHash != nil)
 			}
@@ -153,7 +141,7 @@ func TestOAuthLink_ClaimsPasswordAccount(t *testing.T) {
 }
 
 func TestOAuthLink_PasswordlessAccountKeepsSessions(t *testing.T) {
-	svc, _, _, _, exchanger, _ := newTestService(t)
+	svc, _, _, exchanger, _ := newTestService(t)
 	ctx := context.Background()
 	exchanger.responses["g"] = OAuthUserInfo{Provider: "google", Subject: "g1", Email: "both@example.com", EmailVerified: true}
 	exchanger.responses["a"] = OAuthUserInfo{Provider: "apple", Subject: "a1", Email: "both@example.com", EmailVerified: true}
@@ -194,7 +182,7 @@ func (g *gatedEmailSender) SendPasswordReset(context.Context, string, string, st
 
 func TestEmailIsSentOffTheRequestPath(t *testing.T) {
 	sender := &gatedEmailSender{release: make(chan struct{})}
-	svc := NewService(newFakeRepo(), newFakeSessionStore(), newTestSigner(t), &fakeOAuthExchanger{}, sender, zap.NewNop(),
+	svc := NewService(newFakeRepo(), newTestSigner(t), &fakeOAuthExchanger{}, sender, zap.NewNop(),
 		auth.Config{AccessTokenTTL: time.Minute, RefreshTokenTTL: time.Hour})
 	ctx := context.Background()
 
@@ -244,7 +232,7 @@ func (r *racyRepo) GetUserForShare(ctx context.Context, id string) (*User, error
 
 func TestLoginCannotOutliveAConcurrentPasswordChange(t *testing.T) {
 	repo := &racyRepo{fakeRepo: newFakeRepo()}
-	svc := NewService(repo, newFakeSessionStore(), newTestSigner(t), &fakeOAuthExchanger{}, &fakeEmailSender{}, zap.NewNop(),
+	svc := NewService(repo, newTestSigner(t), &fakeOAuthExchanger{}, &fakeEmailSender{}, zap.NewNop(),
 		auth.Config{AccessTokenTTL: time.Minute, RefreshTokenTTL: time.Hour}, WithSyncEmail())
 	ctx := context.Background()
 	uid := mustRegister(t, svc, "race@example.com")
@@ -276,7 +264,7 @@ func (panickyEmailSender) SendPasswordReset(context.Context, string, string, str
 }
 
 func TestBackgroundEmailPanicDoesNotCrash(t *testing.T) {
-	svc := NewService(newFakeRepo(), newFakeSessionStore(), newTestSigner(t), &fakeOAuthExchanger{}, panickyEmailSender{}, zap.NewNop(),
+	svc := NewService(newFakeRepo(), newTestSigner(t), &fakeOAuthExchanger{}, panickyEmailSender{}, zap.NewNop(),
 		auth.Config{AccessTokenTTL: time.Minute, RefreshTokenTTL: time.Hour})
 	if _, err := svc.Register(context.Background(), "boom@example.com", "password1", ""); err != nil {
 		t.Fatal(err)
@@ -286,7 +274,7 @@ func TestBackgroundEmailPanicDoesNotCrash(t *testing.T) {
 
 func TestDrainIsBoundedAndStopsNewJobs(t *testing.T) {
 	sender := &gatedEmailSender{release: make(chan struct{})}
-	svc := NewService(newFakeRepo(), newFakeSessionStore(), newTestSigner(t), &fakeOAuthExchanger{}, sender, zap.NewNop(),
+	svc := NewService(newFakeRepo(), newTestSigner(t), &fakeOAuthExchanger{}, sender, zap.NewNop(),
 		auth.Config{AccessTokenTTL: time.Minute, RefreshTokenTTL: time.Hour})
 	ctx := context.Background()
 	if _, err := svc.Register(ctx, "stuck@example.com", "password1", ""); err != nil {
@@ -327,7 +315,7 @@ func (r slowLookupRepo) GetUserByEmail(ctx context.Context, email string) (*User
 
 func TestPasswordResetRequestDoesNoAccountWorkInline(t *testing.T) {
 	repo := slowLookupRepo{newFakeRepo(), make(chan struct{})}
-	svc := NewService(repo, newFakeSessionStore(), newTestSigner(t), &fakeOAuthExchanger{}, &fakeEmailSender{}, zap.NewNop(),
+	svc := NewService(repo, newTestSigner(t), &fakeOAuthExchanger{}, &fakeEmailSender{}, zap.NewNop(),
 		auth.Config{AccessTokenTTL: time.Minute, RefreshTokenTTL: time.Hour})
 
 	done := make(chan error, 1)

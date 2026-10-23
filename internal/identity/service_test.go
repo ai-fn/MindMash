@@ -184,7 +184,9 @@ func (r *fakeRepo) GetRefreshTokenForUpdate(_ context.Context, jti string) (*Ref
 	return &cp, nil
 }
 
-func (r *fakeRepo) RevokeRefreshToken(_ context.Context, jti string) error {
+var zero time.Duration
+
+func (r *fakeRepo) RotateRefreshToken(_ context.Context, jti string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	rt, ok := r.refreshTokens[jti]
@@ -192,20 +194,20 @@ func (r *fakeRepo) RevokeRefreshToken(_ context.Context, jti string) error {
 		return platformerrors.NotFound("refresh token not found")
 	}
 	rt.Revoked = true
+	rt.RotatedAgo = &zero
 	return nil
 }
 
-func (r *fakeRepo) RevokeFamily(_ context.Context, familyID string) ([]string, error) {
+func (r *fakeRepo) RevokeFamily(_ context.Context, familyID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	var jtis []string
 	for _, rt := range r.refreshTokens {
-		if rt.FamilyID == familyID && !rt.Revoked {
+		if rt.FamilyID == familyID {
 			rt.Revoked = true
-			jtis = append(jtis, rt.JTI)
+			rt.RotatedAgo = nil
 		}
 	}
-	return jtis, nil
+	return nil
 }
 
 func (r *fakeRepo) CreateEmailVerification(_ context.Context, ev *EmailVerification) error {
@@ -227,17 +229,16 @@ func (r *fakeRepo) ClearPassword(_ context.Context, userID string) error {
 	return nil
 }
 
-func (r *fakeRepo) RevokeUserTokens(_ context.Context, userID string) ([]string, error) {
+func (r *fakeRepo) RevokeUserTokens(_ context.Context, userID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	var jtis []string
 	for _, rt := range r.refreshTokens {
-		if rt.UserID == userID && !rt.Revoked {
+		if rt.UserID == userID {
 			rt.Revoked = true
-			jtis = append(jtis, rt.JTI)
+			rt.RotatedAgo = nil
 		}
 	}
-	return jtis, nil
+	return nil
 }
 
 func (r *fakeRepo) InvalidateEmailVerifications(_ context.Context, userID string) error {
@@ -327,40 +328,6 @@ func (r *fakeRepo) WithTx(ctx context.Context, fn func(Repository) error) error 
 	return nil
 }
 
-// ─── fakeSessionStore ────────────────────────────────────────────────────────
-
-type fakeSessionStore struct {
-	mu   sync.Mutex
-	data map[string]RefreshSession
-}
-
-func newFakeSessionStore() *fakeSessionStore {
-	return &fakeSessionStore{data: make(map[string]RefreshSession)}
-}
-
-func (s *fakeSessionStore) Put(_ context.Context, jti string, sess RefreshSession, _ time.Duration) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.data[jti] = sess
-	return nil
-}
-
-func (s *fakeSessionStore) Get(_ context.Context, jti string) (RefreshSession, bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	sess, ok := s.data[jti]
-	return sess, ok, nil
-}
-
-func (s *fakeSessionStore) Delete(_ context.Context, jtis ...string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, jti := range jtis {
-		delete(s.data, jti)
-	}
-	return nil
-}
-
 // ─── fakeEmailSender ─────────────────────────────────────────────────────────
 
 type fakeEmailSender struct {
@@ -421,11 +388,10 @@ func newTestSigner(t *testing.T) *auth.Signer {
 	return auth.NewSignerFromKeys(privKey, pubKey, cfg)
 }
 
-func newTestService(t *testing.T, opts ...Option) (*Service, *fakeRepo, *fakeSessionStore, *fakeEmailSender, *fakeOAuthExchanger, *auth.Signer) {
+func newTestService(t *testing.T, opts ...Option) (*Service, *fakeRepo, *fakeEmailSender, *fakeOAuthExchanger, *auth.Signer) {
 	t.Helper()
 	signer := newTestSigner(t)
 	repo := newFakeRepo()
-	sessions := newFakeSessionStore()
 	emailer := &fakeEmailSender{}
 	exchanger := &fakeOAuthExchanger{responses: make(map[string]OAuthUserInfo)}
 	log := zap.NewNop()
@@ -433,8 +399,8 @@ func newTestService(t *testing.T, opts ...Option) (*Service, *fakeRepo, *fakeSes
 		AccessTokenTTL:  15 * time.Minute,
 		RefreshTokenTTL: 7 * 24 * time.Hour,
 	}
-	svc := NewService(repo, sessions, signer, exchanger, emailer, log, cfg, append([]Option{WithSyncEmail()}, opts...)...)
-	return svc, repo, sessions, emailer, exchanger, signer
+	svc := NewService(repo, signer, exchanger, emailer, log, cfg, append([]Option{WithSyncEmail()}, opts...)...)
+	return svc, repo, emailer, exchanger, signer
 }
 
 func grpcCode(err error) codes.Code {
@@ -452,7 +418,7 @@ func grpcCode(err error) codes.Code {
 
 func TestRegister(t *testing.T) {
 	t.Run("hashes password; stored hash verifies; default profile created; verification token sent", func(t *testing.T) {
-		svc, repo, _, emailer, _, _ := newTestService(t)
+		svc, repo, emailer, _, _ := newTestService(t)
 		ctx := context.Background()
 
 		userID, err := svc.Register(ctx, "alice@example.com", "s3cret-pw", "en")
@@ -504,7 +470,7 @@ func TestRegister(t *testing.T) {
 	})
 
 	t.Run("duplicate email returns AlreadyExists", func(t *testing.T) {
-		svc, _, _, _, _, _ := newTestService(t)
+		svc, _, _, _, _ := newTestService(t)
 		ctx := context.Background()
 
 		if _, err := svc.Register(ctx, "bob@example.com", "password1", ""); err != nil {
@@ -520,7 +486,7 @@ func TestRegister(t *testing.T) {
 	})
 
 	t.Run("empty email or password returns InvalidArgument", func(t *testing.T) {
-		svc, _, _, _, _, _ := newTestService(t)
+		svc, _, _, _, _ := newTestService(t)
 		ctx := context.Background()
 
 		for _, tc := range []struct{ email, pass string }{
@@ -543,7 +509,7 @@ func TestRegister(t *testing.T) {
 func TestLogin(t *testing.T) {
 	setup := func(t *testing.T) (*Service, *auth.Signer, context.Context) {
 		t.Helper()
-		svc, _, _, _, _, signer := newTestService(t)
+		svc, _, _, _, signer := newTestService(t)
 		ctx := context.Background()
 		if _, err := svc.Register(ctx, "carol@example.com", "hunter2-pw", "fr"); err != nil {
 			t.Fatalf("Register: %v", err)
@@ -607,7 +573,7 @@ func TestLogin(t *testing.T) {
 	})
 
 	t.Run("OAuth-only user (nil hash) returns Unauthenticated", func(t *testing.T) {
-		svc, repo, _, _, _, _ := newTestService(t)
+		svc, repo, _, _, _ := newTestService(t)
 		ctx := context.Background()
 
 		// Insert an OAuth-only user directly.
@@ -646,7 +612,7 @@ func TestLogin(t *testing.T) {
 func TestRefresh(t *testing.T) {
 	setup := func(t *testing.T) (*Service, *auth.Signer, context.Context, string /*refresh*/) {
 		t.Helper()
-		svc, _, _, _, _, signer := newTestService(t)
+		svc, _, _, _, signer := newTestService(t)
 		ctx := context.Background()
 		if _, err := svc.Register(ctx, "dave@example.com", "password1", "de"); err != nil {
 			t.Fatalf("Register: %v", err)
@@ -688,7 +654,7 @@ func TestRefresh(t *testing.T) {
 	})
 
 	t.Run("reuse detection: presenting an already-revoked JTI revokes the family and returns Unauthenticated", func(t *testing.T) {
-		svc, _, ctx, oldRefresh := setup(t)
+		svc, repo, ctx, oldRefresh := registerAndLogin(t, "reuse@example.com")
 
 		// Rotate once legitimately — oldRefresh → tokenB.
 		_, tokenB, _, err := svc.Refresh(ctx, oldRefresh)
@@ -702,7 +668,8 @@ func TestRefresh(t *testing.T) {
 		}
 		_ = tokenC
 
-		// Now replay the original (already-revoked) token — must revoke the whole family.
+		// Replayed after the concurrent-refresh grace window, the original token is theft: revoke the family.
+		ageRotations(repo, time.Minute)
 		_, _, _, err = svc.Refresh(ctx, oldRefresh)
 		if err == nil {
 			t.Fatal("expected error on revoked-token reuse")
@@ -735,7 +702,7 @@ func TestRefresh(t *testing.T) {
 
 func TestOAuthExchange(t *testing.T) {
 	t.Run("new user isNewUser=true; user + profile + identity created", func(t *testing.T) {
-		svc, repo, _, _, exchanger, _ := newTestService(t)
+		svc, repo, _, exchanger, _ := newTestService(t)
 		ctx := context.Background()
 
 		exchanger.responses["code1"] = OAuthUserInfo{
@@ -768,7 +735,7 @@ func TestOAuthExchange(t *testing.T) {
 	})
 
 	t.Run("existing identity isNewUser=false; returns same userID", func(t *testing.T) {
-		svc, _, _, _, exchanger, _ := newTestService(t)
+		svc, _, _, exchanger, _ := newTestService(t)
 		ctx := context.Background()
 
 		exchanger.responses["code2"] = OAuthUserInfo{
@@ -794,7 +761,7 @@ func TestOAuthExchange(t *testing.T) {
 	})
 
 	t.Run("link-by-email: existing user without identity gets linked; isNewUser=false", func(t *testing.T) {
-		svc, repo, _, _, exchanger, _ := newTestService(t)
+		svc, repo, _, exchanger, _ := newTestService(t)
 		ctx := context.Background()
 
 		// Create a password user with a verified email first.
@@ -847,7 +814,7 @@ func TestOAuthExchange_RefusesUnverifiedEmails(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			svc, repo, _, _, exchanger, _ := newTestService(t)
+			svc, repo, _, exchanger, _ := newTestService(t)
 			ctx := context.Background()
 			if tc.existing {
 				userID, err := svc.Register(ctx, "ivy@example.com", "password1", "")
@@ -890,7 +857,7 @@ func TestOAuthExchange_LookupErrorCreatesNothing(t *testing.T) {
 	exchanger := &fakeOAuthExchanger{responses: map[string]OAuthUserInfo{
 		"c": {Provider: "google", Subject: "g-1", Email: "kim@example.com", EmailVerified: true},
 	}}
-	svc := NewService(repo, newFakeSessionStore(), newTestSigner(t), exchanger, &fakeEmailSender{}, zap.NewNop(),
+	svc := NewService(repo, newTestSigner(t), exchanger, &fakeEmailSender{}, zap.NewNop(),
 		auth.Config{AccessTokenTTL: time.Minute, RefreshTokenTTL: time.Hour})
 
 	if _, _, _, _, _, _, err := svc.OAuthExchange(context.Background(), "google", "c", "https://app/cb"); err == nil {
@@ -902,7 +869,7 @@ func TestOAuthExchange_LookupErrorCreatesNothing(t *testing.T) {
 }
 
 func TestOAuthExchange_RejectsMissingClaims(t *testing.T) {
-	svc, repo, _, _, exchanger, _ := newTestService(t)
+	svc, repo, _, exchanger, _ := newTestService(t)
 	ctx := context.Background()
 	// An account stored without an email must not be reachable through an email-less token.
 	if err := repo.CreateUser(ctx, &User{ID: "u-blank", Email: "", EmailVerified: true, Status: "active"}); err != nil {
@@ -923,7 +890,7 @@ func TestOAuthExchange_RejectsMissingClaims(t *testing.T) {
 
 func TestActivateProfile(t *testing.T) {
 	t.Run("own profile: new access token carries the new profile_id", func(t *testing.T) {
-		svc, _, _, _, _, signer := newTestService(t)
+		svc, _, _, _, signer := newTestService(t)
 		ctx := context.Background()
 
 		userID, err := svc.Register(ctx, "henry@example.com", "password1", "en")
@@ -962,7 +929,7 @@ func TestActivateProfile(t *testing.T) {
 	})
 
 	t.Run("foreign profile returns PermissionDenied", func(t *testing.T) {
-		svc, repo, _, _, _, _ := newTestService(t)
+		svc, repo, _, _, _ := newTestService(t)
 		ctx := context.Background()
 
 		userID1, err := svc.Register(ctx, "ida@example.com", "password1", "")
@@ -993,7 +960,7 @@ func TestActivateProfile(t *testing.T) {
 // ─── ValidateToken tests ──────────────────────────────────────────────────────
 
 func TestValidateToken(t *testing.T) {
-	svc, _, _, _, _, signer := newTestService(t)
+	svc, _, _, _, signer := newTestService(t)
 	ctx := context.Background()
 
 	// Register and login to get real tokens minted by the same signer.
@@ -1059,7 +1026,7 @@ func TestValidateToken(t *testing.T) {
 
 func TestVerifyEmail(t *testing.T) {
 	t.Run("valid token marks email verified and consumes token", func(t *testing.T) {
-		svc, repo, _, emailer, _, _ := newTestService(t)
+		svc, repo, emailer, _, _ := newTestService(t)
 		ctx := context.Background()
 
 		_, err := svc.Register(ctx, "jane@example.com", "password1", "")
@@ -1090,7 +1057,7 @@ func TestVerifyEmail(t *testing.T) {
 	})
 
 	t.Run("expired token returns InvalidArgument", func(t *testing.T) {
-		svc, repo, _, _, _, _ := newTestService(t)
+		svc, repo, _, _, _ := newTestService(t)
 		ctx := context.Background()
 
 		// Insert an expired verification directly.
@@ -1120,7 +1087,7 @@ func TestVerifyEmail(t *testing.T) {
 
 func TestPasswordReset(t *testing.T) {
 	t.Run("request + reset updates the password", func(t *testing.T) {
-		svc, repo, _, emailer, _, _ := newTestService(t)
+		svc, repo, emailer, _, _ := newTestService(t)
 		ctx := context.Background()
 
 		if _, err := svc.Register(ctx, "kate@example.com", "oldpass1", ""); err != nil {
@@ -1161,14 +1128,14 @@ func TestPasswordReset(t *testing.T) {
 	})
 
 	t.Run("RequestPasswordReset for unknown email silently succeeds (no enumeration)", func(t *testing.T) {
-		svc, _, _, _, _, _ := newTestService(t)
+		svc, _, _, _, _ := newTestService(t)
 		if err := svc.RequestPasswordReset(context.Background(), "nobody@example.com"); err != nil {
 			t.Fatalf("RequestPasswordReset unknown: %v", err)
 		}
 	})
 
 	t.Run("reset token already consumed returns InvalidArgument", func(t *testing.T) {
-		svc, _, _, emailer, _, _ := newTestService(t)
+		svc, _, emailer, _, _ := newTestService(t)
 		ctx := context.Background()
 
 		if _, err := svc.Register(ctx, "leo@example.com", "password1", ""); err != nil {
