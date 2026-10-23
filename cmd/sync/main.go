@@ -54,6 +54,7 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	context.AfterFunc(ctx, stop) // a second signal kills instead of waiting out the drain
 
 	obsCfg, err := observability.LoadConfig()
 	if err != nil {
@@ -178,15 +179,13 @@ func run() error {
 	rootMux.Handle("/v1/sync/stream", httpx.Route("/v1/sync/stream", handler.StreamHandler(logger)))
 	rootMux.Handle("/", gwMux)
 
+	// Only the owned store: without Redis, pull/apply still work and new streams get 503 from the hub.
 	readiness := func(ctx context.Context) error {
 		if err := auth.Ready(verifier); err != nil {
 			return err
 		}
 		if err := pool.Ping(ctx); err != nil {
 			return fmt.Errorf("postgres: %w", err)
-		}
-		if err := rdb.Ping(ctx).Err(); err != nil {
-			return fmt.Errorf("redis: %w", err)
 		}
 		return nil
 	}
@@ -205,6 +204,7 @@ func run() error {
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return grpcSrv.Start(gctx) })
 	g.Go(func() error { return httpSrv.Start(gctx) })
+	// Ends with gctx and closes every SSE stream, so open streams don't hold up the HTTP drain.
 	g.Go(func() error { return svc.RunNotifyHub(gctx) })
 	g.Go(func() error { return sync.RunNotifier(gctx, consumer, svc, logger) })
 	g.Go(func() error { return sync.RunAppliedOpsPurge(gctx, pool, logger) })

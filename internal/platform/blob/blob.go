@@ -243,6 +243,14 @@ func isNotFound(err error) bool {
 	return false
 }
 
+// CheckBucket reports whether bucket is reachable, without creating it (readiness).
+func (c *Client) CheckBucket(ctx context.Context, bucket string) error {
+	if _, err := c.s3.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: aws.String(bucket)}); err != nil {
+		return fmt.Errorf("blob: head bucket %s: %w", bucket, err)
+	}
+	return nil
+}
+
 // EnsureBucket creates bucket if it does not already exist.
 // It is safe to call on a bucket that was created by a prior run of the same
 // service or by an operator; "already exists" conditions are silently ignored.

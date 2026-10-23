@@ -51,6 +51,7 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	context.AfterFunc(ctx, stop) // a second signal kills instead of waiting out the drain
 
 	obsCfg, err := observability.LoadConfig()
 	if err != nil {

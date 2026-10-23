@@ -4,8 +4,10 @@ package httpx
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/mindmesh/mindmesh/internal/platform/log"
@@ -21,6 +23,7 @@ type Config struct {
 	WriteTimeout      time.Duration // default 15s
 	IdleTimeout       time.Duration // default 60s
 	ShutdownTimeout   time.Duration // default 15s
+	DrainDelay        time.Duration // default 5s
 }
 
 // DefaultConfig returns sane defaults for the given addr.
@@ -32,8 +35,11 @@ func DefaultConfig(addr string) Config {
 		WriteTimeout:      15 * time.Second,
 		IdleTimeout:       60 * time.Second,
 		ShutdownTimeout:   15 * time.Second,
+		DrainDelay:        5 * time.Second,
 	}
 }
+
+var errDraining = errors.New("httpx: draining for shutdown")
 
 // HealthChecker reports readiness. Returns nil when ready.
 type HealthChecker func(ctx context.Context) error
@@ -52,6 +58,7 @@ type Server struct {
 	httpServer *http.Server
 	cfg        Config
 	handler    http.Handler
+	draining   *atomic.Bool
 }
 
 // Handler returns the root mux so tests can call ServeHTTP directly without
@@ -73,9 +80,14 @@ func New(cfg Config, opts Options) *Server {
 	})
 
 	// Readiness: delegate to the supplied checker.
+	draining := new(atomic.Bool)
 	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
-		if opts.Readiness != nil {
-			if err := opts.Readiness(r.Context()); err != nil {
+		check := opts.Readiness
+		if draining.Load() {
+			check = func(context.Context) error { return errDraining }
+		}
+		if check != nil {
+			if err := check(r.Context()); err != nil {
 				log.L().Warn("httpx: not ready", zap.Error(err))
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusServiceUnavailable)
@@ -121,6 +133,7 @@ func New(cfg Config, opts Options) *Server {
 		httpServer: hs,
 		cfg:        cfg,
 		handler:    mux,
+		draining:   draining,
 	}
 }
 
@@ -144,12 +157,31 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 		return fmt.Errorf("httpx: ListenAndServe: %w", err)
 	case <-ctx.Done():
+		// Fail readiness but keep serving, so load balancers drop this instance before connections close.
+		s.draining.Store(true)
+		log.L().Info("httpx: draining", zap.Duration("delay", s.cfg.DrainDelay))
+		time.Sleep(s.cfg.DrainDelay)
 		log.L().Info("httpx: shutting down server")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), s.cfg.ShutdownTimeout)
 		defer cancel()
 		if err := s.httpServer.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("httpx: Shutdown: %w", err)
 		}
+		return nil
+	}
+}
+
+// CacheReady reuses a successful check for ttl, sparing per-probe calls to slow dependencies; failures are never cached.
+func CacheReady(ttl time.Duration, check HealthChecker) HealthChecker {
+	var okUntil atomic.Int64
+	return func(ctx context.Context) error {
+		if time.Now().UnixNano() < okUntil.Load() {
+			return nil
+		}
+		if err := check(ctx); err != nil {
+			return err
+		}
+		okUntil.Store(time.Now().Add(ttl).UnixNano())
 		return nil
 	}
 }

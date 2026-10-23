@@ -24,6 +24,7 @@ import (
 type Config struct {
 	Addr            string        // listen address, e.g. ":50051"
 	ShutdownTimeout time.Duration // default 15s
+	DrainDelay      time.Duration // default 5s
 }
 
 // DefaultConfig returns sane defaults for addr.
@@ -31,6 +32,7 @@ func DefaultConfig(addr string) Config {
 	return Config{
 		Addr:            addr,
 		ShutdownTimeout: 15 * time.Second,
+		DrainDelay:      5 * time.Second,
 	}
 }
 
@@ -158,6 +160,10 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 		return fmt.Errorf("grpcx: Serve: %w", err)
 	case <-ctx.Done():
+		// NOT_SERVING first, then keep serving so health-checking clients and LBs move away before we stop.
+		s.health.Shutdown()
+		log.L().Info("grpcx: draining", zap.Duration("delay", s.cfg.DrainDelay))
+		time.Sleep(s.cfg.DrainDelay)
 		log.L().Info("grpcx: shutting down server")
 
 		stopped := make(chan struct{})

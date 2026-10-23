@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"go.uber.org/zap"
@@ -51,6 +52,7 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	context.AfterFunc(ctx, stop) // a second signal kills instead of waiting out the drain
 
 	obsCfg, err := observability.LoadConfig()
 	if err != nil {
@@ -170,6 +172,10 @@ func run() error {
 		return fmt.Errorf("media: register download route: %w", err)
 	}
 
+	// HEAD only, cached: a per-probe S3 call per pod adds up, and creating is startup's job.
+	bucketReady := httpx.CacheReady(time.Minute, func(ctx context.Context) error {
+		return blobClient.CheckBucket(ctx, blobCfg.DefaultBucket)
+	})
 	readiness := func(ctx context.Context) error {
 		if err := auth.Ready(verifier); err != nil {
 			return err
@@ -177,8 +183,8 @@ func run() error {
 		if err := pool.Ping(ctx); err != nil {
 			return fmt.Errorf("postgres: %w", err)
 		}
-		if err := blobClient.EnsureBucket(ctx, blobCfg.DefaultBucket); err != nil {
-			return fmt.Errorf("blob: %w", err)
+		if err := bucketReady(ctx); err != nil {
+			return err
 		}
 		return nil
 	}

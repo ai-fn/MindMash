@@ -62,6 +62,7 @@ func run() error {
 	// Cancel everything on SIGINT/SIGTERM; the servers below watch this context.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	context.AfterFunc(ctx, stop) // a second signal kills instead of waiting out the drain
 
 	// Tracing — exporter dials lazily, so a missing collector does not block boot.
 	obsCfg, err := observability.LoadConfig()
@@ -164,12 +165,10 @@ func run() error {
 		}
 	})
 
+	// Only the owned store: Redis (rate limits, OAuth state) failing must not pull every pod out.
 	readiness := func(ctx context.Context) error {
 		if err := pool.Ping(ctx); err != nil {
 			return fmt.Errorf("postgres: %w", err)
-		}
-		if err := rdb.Ping(ctx).Err(); err != nil {
-			return fmt.Errorf("redis: %w", err)
 		}
 		return nil
 	}

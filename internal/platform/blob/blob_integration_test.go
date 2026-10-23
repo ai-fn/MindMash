@@ -30,7 +30,10 @@ func TestPresignPutConstraints(t *testing.T) {
 	})
 	require.NoError(t, err)
 	const bucket = "test"
+	require.Error(t, c.CheckBucket(ctx, bucket), "a missing bucket is not reachable")
+	require.Error(t, c.CheckBucket(ctx, bucket), "and checking must not create it")
 	require.NoError(t, c.EnsureBucket(ctx, bucket))
+	require.NoError(t, c.CheckBucket(ctx, bucket))
 
 	data := []byte("the declared bytes")
 	sum := sha256.Sum256(data)

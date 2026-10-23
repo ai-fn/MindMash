@@ -154,6 +154,7 @@ func TestServer_ChunkedOverflowThroughGatewayIs413(t *testing.T) {
 func TestServer_DropsSlowHeaders(t *testing.T) {
 	cfg := DefaultConfig(freeAddr(t))
 	cfg.ReadHeaderTimeout = 100 * time.Millisecond
+	cfg.DrainDelay = 0
 	srv := New(cfg, Options{Handler: http.NotFoundHandler()})
 	ctx, cancel := contextWithCancel(t)
 	done := make(chan error, 1)

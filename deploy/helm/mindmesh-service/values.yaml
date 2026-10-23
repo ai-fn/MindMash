@@ -72,8 +72,9 @@ resources:
     cpu: "1"
     memory: 512Mi
 
-# Probes target the shared HTTP mux (:8080). Liveness = process up; readiness =
-# dependencies (DB/Redis/...) reachable; startup gives slow first boots headroom.
+# Probes target the shared HTTP mux (:8080). Liveness = process up; readiness = the
+# service's own store reachable and JWKS loaded (503 while draining, for non-k8s LBs);
+# startup gives slow first boots headroom.
 probes:
   liveness:
     path: /healthz
@@ -92,7 +93,8 @@ probes:
     periodSeconds: 5
     failureThreshold: 30           # ~150s budget before liveness takes over
 
-# Must be >= the app's SHUTDOWN_TIMEOUT_SECONDS (default 15s) so SIGTERM drains cleanly.
+# Must cover the app's 5s drain plus its 15s shutdown timeout. The drain keeps serving while
+# Endpoints removal propagates to kube-proxy/ingress; the probe is too slow to see its 503.
 terminationGracePeriodSeconds: 30
 
 # Spread pods across zones then nodes for AZ-failure tolerance. The template fills
