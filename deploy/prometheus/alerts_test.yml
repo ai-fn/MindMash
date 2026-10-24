@@ -51,15 +51,28 @@ tests:
       - eval_time: 15m
         alertname: MindMeshOutboxStale
         exp_alerts:
-          - exp_labels: {severity: critical, store: collection}
+          - exp_labels: {severity: critical}
             exp_annotations:
-              summary: "collection outbox has rows unpublished for over 2m; events are delayed"
+              summary: "The outbox has rows unpublished for over 2m; events are delayed"
+      # One relay leads for the whole database; collection's relays standing by is healthy.
+      - eval_time: 15m
+        alertname: MindMeshOutboxRelayNoLeader
+        exp_alerts: []
+
+  - name: outbox-no-leader
+    interval: 1m
+    input_series:
+      - series: 'mindmesh_outbox_relay_leader{store="collection",instance="a"}'
+        values: '0x20'
+      - series: 'mindmesh_outbox_relay_leader{store="media",instance="a"}'
+        values: '0x20'
+    alert_rule_test:
       - eval_time: 15m
         alertname: MindMeshOutboxRelayNoLeader
         exp_alerts:
-          - exp_labels: {severity: critical, store: collection}
+          - exp_labels: {severity: critical}
             exp_annotations:
-              summary: "No outbox relay leader for collection; events are not being published"
+              summary: "No outbox relay holds the lock; events are not being published"
 
   - name: consumers
     interval: 1m

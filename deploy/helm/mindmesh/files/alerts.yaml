@@ -43,21 +43,22 @@ groups:
 
   - name: mindmesh-events
     rules:
+      # Services share one outbox and elect one relay database-wide, so store only names the leader.
       - alert: MindMeshOutboxStale
-        expr: max by (namespace, store) (mindmesh_outbox_oldest_unpublished_seconds) > 120
+        expr: max by (namespace) (mindmesh_outbox_oldest_unpublished_seconds) > 120
         for: 5m
         labels:
           severity: critical
         annotations:
-          summary: "{{ $labels.store }} outbox has rows unpublished for over 2m; events are delayed"
+          summary: "The outbox has rows unpublished for over 2m; events are delayed"
       - alert: MindMeshOutboxRelayNoLeader
         # Followers export 0, so the series exists while any replica runs; all replicas down is TargetDown.
-        expr: max by (namespace, store) (mindmesh_outbox_relay_leader) < 1
+        expr: max by (namespace) (mindmesh_outbox_relay_leader) < 1
         for: 5m
         labels:
           severity: critical
         annotations:
-          summary: "No outbox relay leader for {{ $labels.store }}; events are not being published"
+          summary: "No outbox relay holds the lock; events are not being published"
       - alert: MindMeshDLQWriteFailing
         expr: sum by (namespace, topic, group) (increase(mindmesh_consumer_dlq_write_failures_total[5m])) > 0
         for: 2m
