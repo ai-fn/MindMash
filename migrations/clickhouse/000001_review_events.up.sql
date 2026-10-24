@@ -21,21 +21,21 @@ CREATE TABLE IF NOT EXISTS review_events
 )
 ENGINE = ReplacingMergeTree
 PARTITION BY toYYYYMM(ts)
-ORDER BY (user_id, profile_id, ts, review_id);
+-- Profiles share the user's data (ADR 0002): reads filter user_id + ts, so ts follows user_id.
+ORDER BY (user_id, ts, review_id);
 
 -- Daily activity rollup: review count, correct count (grade > Again), and time
 -- spent per tenant per day. Logical view over the deduped table.
 CREATE VIEW IF NOT EXISTS reviews_daily AS
 SELECT
     user_id,
-    profile_id,
     deck_id,
     toDate(ts)                  AS day,
     count()                     AS reviews,
     countIf(grade > 1)          AS correct,
     sum(time_ms)                AS time_ms
 FROM review_events FINAL
-GROUP BY user_id, profile_id, deck_id, day;
+GROUP BY user_id, deck_id, day;
 
 -- Retention rollup: among cards that were in the review state when answered
 -- (prev_state = 2), how many were recalled (grade > Again). Measured recall =
@@ -43,10 +43,9 @@ GROUP BY user_id, profile_id, deck_id, day;
 CREATE VIEW IF NOT EXISTS retention_daily AS
 SELECT
     user_id,
-    profile_id,
     deck_id,
     toDate(ts)                          AS day,
     countIf(prev_state = 2)             AS due_reviews,
     countIf(prev_state = 2 AND grade > 1) AS due_correct
 FROM review_events FINAL
-GROUP BY user_id, profile_id, deck_id, day;
+GROUP BY user_id, deck_id, day;

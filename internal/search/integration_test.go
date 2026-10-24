@@ -239,6 +239,11 @@ func TestSearchRepo_IsolationAndDeckPrefix(t *testing.T) {
 		t.Errorf("empty query (A) = %v, want 2 cards", got)
 	}
 
+	// Another profile of the same user sees the same cards.
+	if got := queryAs(t, h, userA, "00000000-0000-0000-0000-0000000000a3", ""); len(got) != 2 {
+		t.Errorf("empty query (A, other profile) = %v, want 2 cards", got)
+	}
+
 	// Full-text + state tokens.
 	if got := queryAs(t, h, userA, profA, "comer"); len(got) != 1 || got[0] != "a-child" {
 		t.Errorf("comer = %v, want [a-child]", got)

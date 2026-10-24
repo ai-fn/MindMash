@@ -116,7 +116,8 @@ Sharded **by `user_id`** (Citus distributed tables) — user data is naturally i
 co-locating a user's notes/cards/decks/reviews on one shard gives single-shard reads for
 nearly every query. Full schema + indexes: [10-data-model.md](./detailed/10-data-model.md).
 All Postgres services share one database; table ownership and cross-service access rules:
-[ADR 0001](./adr/0001-modular-monolith-shared-citus.md).
+[ADR 0001](./adr/0001-modular-monolith-shared-citus.md). Reads are scoped per user, not per
+profile: [ADR 0002](./adr/0002-user-level-data-scoping.md).
 
 ```
 users(id, email, locale, created_at, ...)

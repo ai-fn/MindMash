@@ -33,7 +33,7 @@ const (
 // Upload, dedupe, delivery and (async) processing of media blobs. Blobs travel
 // client → S3 directly via presigned URLs; this service stays off the data path
 // and only records metadata. Every RPC is hard-filtered to the caller's
-// user_id/profile_id (from the gateway-injected JWT context); tenancy is never
+// user_id (from the gateway-injected JWT context); tenancy is never
 // supplied by the client. Dedupe (by SHA-256) never crosses users: knowing a
 // hash must not grant access to someone else's bytes.
 type MediaServiceClient interface {
@@ -95,7 +95,7 @@ func (c *mediaServiceClient) Delete(ctx context.Context, in *DeleteRequest, opts
 // Upload, dedupe, delivery and (async) processing of media blobs. Blobs travel
 // client → S3 directly via presigned URLs; this service stays off the data path
 // and only records metadata. Every RPC is hard-filtered to the caller's
-// user_id/profile_id (from the gateway-injected JWT context); tenancy is never
+// user_id (from the gateway-injected JWT context); tenancy is never
 // supplied by the client. Dedupe (by SHA-256) never crosses users: knowing a
 // hash must not grant access to someone else's bytes.
 type MediaServiceServer interface {

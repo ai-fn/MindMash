@@ -58,7 +58,7 @@ func (h *Handler) Search(ctx context.Context, req *searchv1.SearchRequest) (*sea
 		return nil, platformerrors.InvalidArgument("invalid cursor")
 	}
 
-	tenant := Tenant{UserID: id.UserID, ProfileID: id.ProfileID}
+	tenant := Tenant{UserID: id.UserID}
 	query := BuildQuery(node, tenant, Opts{})
 
 	result, err := h.repo.Search(ctx, id.UserID, query, searchAfter, clampLimit(req.GetLimit()))

@@ -78,7 +78,8 @@ func TestAnalytics_IngestAggregateIsolation(t *testing.T) {
 	feed(t, ctx, agg, ev{"a3", userA, profA, "c3", deckFrench, 4, 0, 1, 1200, today})  // new card, correct
 	// userA: 2 reviews yesterday (to make a 2-day streak).
 	feed(t, ctx, agg, ev{"a4", userA, profA, "c1", deckSpanish, 3, 2, 2, 1000, today.AddDate(0, 0, -1)})
-	feed(t, ctx, agg, ev{"a5", userA, profA, "c4", deckFrench, 2, 2, 2, 900, today.AddDate(0, 0, -1)})
+	// Reviewed under another of userA's profiles: stats are per user, not per profile.
+	feed(t, ctx, agg, ev{"a5", userA, "prof-a2", "c4", deckFrench, 2, 2, 2, 900, today.AddDate(0, 0, -1)})
 	// userB: 1 review today — must never leak into userA's stats.
 	feed(t, ctx, agg, ev{"b1", userB, profB, "c9", "deck-b", 3, 2, 2, 500, today})
 
@@ -167,6 +168,15 @@ func TestAnalytics_IngestAggregateIsolation(t *testing.T) {
 	}
 	if total != 5 {
 		t.Errorf("heatmap total = %d, want 5", total)
+	}
+
+	ovA2, err := h.GetOverview(auth.WithIdentity(ctx, auth.IdentityContext{UserID: userA, ProfileID: "prof-a2"}),
+		&analyticsv1.GetOverviewRequest{Range: "all"})
+	if err != nil {
+		t.Fatalf("overview A, other profile: %v", err)
+	}
+	if ovA2.Reviews != 5 {
+		t.Errorf("userA reviews from another profile = %d, want 5", ovA2.Reviews)
 	}
 
 	// userB sees only their own single review.

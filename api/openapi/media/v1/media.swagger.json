@@ -7,7 +7,7 @@
   "tags": [
     {
       "name": "MediaService",
-      "description": "─── Media Service ──────────────────────────────────────────────────────────\n\nUpload, dedupe, delivery and (async) processing of media blobs. Blobs travel\nclient → S3 directly via presigned URLs; this service stays off the data path\nand only records metadata. Every RPC is hard-filtered to the caller's\nuser_id/profile_id (from the gateway-injected JWT context); tenancy is never\nsupplied by the client. Dedupe (by SHA-256) never crosses users: knowing a\nhash must not grant access to someone else's bytes."
+      "description": "─── Media Service ──────────────────────────────────────────────────────────\n\nUpload, dedupe, delivery and (async) processing of media blobs. Blobs travel\nclient → S3 directly via presigned URLs; this service stays off the data path\nand only records metadata. Every RPC is hard-filtered to the caller's\nuser_id (from the gateway-injected JWT context); tenancy is never\nsupplied by the client. Dedupe (by SHA-256) never crosses users: knowing a\nhash must not grant access to someone else's bytes."
     },
     {
       "name": "MediaInternalService",

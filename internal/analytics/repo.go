@@ -8,11 +8,10 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 )
 
-// Tenant is the per-request scope. Every query filters on both fields; they are
-// taken from the gateway-injected JWT context, never the request body.
+// Tenant is the per-request scope, taken from the gateway-injected JWT context, never
+// the request body. Profiles share the user's data (ADR 0002), so the scope is the user alone.
 type Tenant struct {
-	UserID    string
-	ProfileID string
+	UserID string
 }
 
 // Repo runs aggregation queries against the ClickHouse review_events mirror.
@@ -38,9 +37,9 @@ type Overview struct {
 func (r *Repo) Overview(ctx context.Context, t Tenant, since time.Time) (Overview, error) {
 	const q = `SELECT toInt64(count()), toInt64(countIf(grade > 1)), toInt64(sum(time_ms))
 		FROM review_events FINAL
-		WHERE user_id = ? AND profile_id = ? AND ts >= ?`
+		WHERE user_id = ? AND ts >= ?`
 	var o Overview
-	row := r.conn.QueryRow(ctx, q, t.UserID, t.ProfileID, since)
+	row := r.conn.QueryRow(ctx, q, t.UserID, since)
 	if err := row.Scan(&o.Reviews, &o.Correct, &o.TimeMs); err != nil {
 		return Overview{}, fmt.Errorf("analytics: overview: %w", err)
 	}
@@ -52,9 +51,9 @@ func (r *Repo) Overview(ctx context.Context, t Tenant, since time.Time) (Overvie
 func (r *Repo) StudyDays(ctx context.Context, t Tenant) ([]time.Time, error) {
 	const q = `SELECT DISTINCT toDate(ts) AS day
 		FROM review_events FINAL
-		WHERE user_id = ? AND profile_id = ?
+		WHERE user_id = ?
 		ORDER BY day DESC`
-	rows, err := r.conn.Query(ctx, q, t.UserID, t.ProfileID)
+	rows, err := r.conn.Query(ctx, q, t.UserID)
 	if err != nil {
 		return nil, fmt.Errorf("analytics: study days: %w", err)
 	}
@@ -80,9 +79,9 @@ type HeatmapDay struct {
 func (r *Repo) Heatmap(ctx context.Context, t Tenant, start, end time.Time) ([]HeatmapDay, error) {
 	const q = `SELECT toString(toDate(ts)) AS day, toInt64(count())
 		FROM review_events FINAL
-		WHERE user_id = ? AND profile_id = ? AND ts >= ? AND ts < ?
+		WHERE user_id = ? AND ts >= ? AND ts < ?
 		GROUP BY day ORDER BY day`
-	rows, err := r.conn.Query(ctx, q, t.UserID, t.ProfileID, start, end)
+	rows, err := r.conn.Query(ctx, q, t.UserID, start, end)
 	if err != nil {
 		return nil, fmt.Errorf("analytics: heatmap: %w", err)
 	}
@@ -110,8 +109,8 @@ type Retention struct {
 func (r *Repo) Retention(ctx context.Context, t Tenant, deckID string, since time.Time) (Retention, error) {
 	q := `SELECT toInt64(countIf(prev_state = 2)), toInt64(countIf(prev_state = 2 AND grade > 1))
 		FROM review_events FINAL
-		WHERE user_id = ? AND profile_id = ? AND ts >= ?`
-	args := []any{t.UserID, t.ProfileID, since}
+		WHERE user_id = ? AND ts >= ?`
+	args := []any{t.UserID, since}
 	if deckID != "" {
 		q += ` AND deck_id = ?`
 		args = append(args, deckID)
@@ -152,9 +151,9 @@ func (r *Repo) Breakdown(ctx context.Context, t Tenant, by string, since time.Ti
 	// to interpolate into the GROUP BY.
 	q := fmt.Sprintf(`SELECT %s AS k, toInt64(count()), toInt64(countIf(grade > 1)), toInt64(sum(time_ms))
 		FROM review_events FINAL
-		WHERE user_id = ? AND profile_id = ? AND ts >= ?
+		WHERE user_id = ? AND ts >= ?
 		GROUP BY k ORDER BY k`, keyExpr)
-	rows, err := r.conn.Query(ctx, q, t.UserID, t.ProfileID, since)
+	rows, err := r.conn.Query(ctx, q, t.UserID, since)
 	if err != nil {
 		return nil, fmt.Errorf("analytics: breakdown: %w", err)
 	}

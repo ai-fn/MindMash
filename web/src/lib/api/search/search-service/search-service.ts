@@ -121,7 +121,7 @@ export const getSearchServiceSearchUrl = (params?: SearchServiceSearchParams) =>
 
 /**
  * @summary Search runs an Anki-like DSL query over the caller's cards. Results are
-hard-filtered to the caller's user_id/profile_id (from the gateway-injected
+hard-filtered to the caller's user_id (from the gateway-injected
 JWT context) and keyset-paginated. The query path is synchronous; the index
 is eventually consistent with Collection writes.
  */
@@ -223,7 +223,7 @@ export function useSearchServiceSearch<
 ): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
  * @summary Search runs an Anki-like DSL query over the caller's cards. Results are
-hard-filtered to the caller's user_id/profile_id (from the gateway-injected
+hard-filtered to the caller's user_id (from the gateway-injected
 JWT context) and keyset-paginated. The query path is synchronous; the index
 is eventually consistent with Collection writes.
  */

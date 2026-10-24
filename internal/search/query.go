@@ -9,10 +9,10 @@ import (
 )
 
 // Tenant is the trusted owner scope a query is hard-filtered to. It always comes
-// from the gateway-injected JWT context, never from client input.
+// from the gateway-injected JWT context, never from client input. Profiles share
+// the user's data (ADR 0002), so the scope is the user alone.
 type Tenant struct {
-	UserID    string
-	ProfileID string
+	UserID string
 }
 
 // Opts carries query-time context the DSL can't express on its own.
@@ -23,20 +23,17 @@ type Opts struct {
 }
 
 // BuildQuery compiles a parsed DSL node into an OpenSearch query body's "query"
-// object. The result is a bool whose filter clauses are, in order, the two
-// tenant terms (user_id, profile_id) followed by the compiled DSL clause. Using
+// object. The result is a bool whose filter clauses are, in order, the tenant
+// term (user_id) followed by the compiled DSL clause. Using
 // filter context means no scoring and cacheable results, which suits browsing.
 func BuildQuery(node searchdsl.Node, t Tenant, opts Opts) map[string]any {
 	if opts.Now.IsZero() {
 		opts.Now = time.Now()
 	}
-	// The tenant terms are always present and always first. A nil node means an
+	// The tenant term is always present and always first. A nil node means an
 	// unconstrained listing (empty query string), so we add no DSL clause and the
 	// bool matches every document the tenant owns.
-	filter := []any{
-		term("user_id", t.UserID),
-		term("profile_id", t.ProfileID),
-	}
+	filter := []any{term("user_id", t.UserID)}
 	if node != nil {
 		filter = append(filter, compile(node, opts))
 	}

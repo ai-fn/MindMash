@@ -38,7 +38,7 @@ func (h *Handler) tenant(ctx context.Context) (Tenant, error) {
 	if !ok {
 		return Tenant{}, platformerrors.Unauthenticated("missing identity context")
 	}
-	return Tenant{UserID: id.UserID, ProfileID: id.ProfileID}, nil
+	return Tenant{UserID: id.UserID}, nil
 }
 
 // GetOverview handles GET /v1/stats/overview.

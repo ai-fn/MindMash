@@ -27,7 +27,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type SearchServiceClient interface {
 	// Search runs an Anki-like DSL query over the caller's cards. Results are
-	// hard-filtered to the caller's user_id/profile_id (from the gateway-injected
+	// hard-filtered to the caller's user_id (from the gateway-injected
 	// JWT context) and keyset-paginated. The query path is synchronous; the index
 	// is eventually consistent with Collection writes.
 	Search(ctx context.Context, in *SearchRequest, opts ...grpc.CallOption) (*SearchResponse, error)
@@ -56,7 +56,7 @@ func (c *searchServiceClient) Search(ctx context.Context, in *SearchRequest, opt
 // for forward compatibility.
 type SearchServiceServer interface {
 	// Search runs an Anki-like DSL query over the caller's cards. Results are
-	// hard-filtered to the caller's user_id/profile_id (from the gateway-injected
+	// hard-filtered to the caller's user_id (from the gateway-injected
 	// JWT context) and keyset-paginated. The query path is synchronous; the index
 	// is eventually consistent with Collection writes.
 	Search(context.Context, *SearchRequest) (*SearchResponse, error)

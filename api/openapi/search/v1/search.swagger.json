@@ -18,7 +18,7 @@
   "paths": {
     "/v1/search": {
       "get": {
-        "summary": "Search runs an Anki-like DSL query over the caller's cards. Results are\nhard-filtered to the caller's user_id/profile_id (from the gateway-injected\nJWT context) and keyset-paginated. The query path is synchronous; the index\nis eventually consistent with Collection writes.",
+        "summary": "Search runs an Anki-like DSL query over the caller's cards. Results are\nhard-filtered to the caller's user_id (from the gateway-injected\nJWT context) and keyset-paginated. The query path is synchronous; the index\nis eventually consistent with Collection writes.",
         "operationId": "SearchService_Search",
         "responses": {
           "200": {

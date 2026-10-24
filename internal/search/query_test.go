@@ -8,7 +8,7 @@ import (
 	"github.com/mindmesh/mindmesh/pkg/searchdsl"
 )
 
-var testTenant = Tenant{UserID: "u1", ProfileID: "p1"}
+var testTenant = Tenant{UserID: "u1"}
 
 // fixedNow is a stable reference time for is:due / added:N range assertions.
 var fixedNow = time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
@@ -36,28 +36,27 @@ func filters(t *testing.T, m map[string]any) []any {
 	return f
 }
 
+// Data is scoped per user, not per profile (ADR 0002), so the only tenant term is user_id.
 func TestBuildQuery_TenantHardFilter(t *testing.T) {
 	got := filters(t, build(t, "hola"))
-	// First two filter clauses must always be the tenant terms.
 	want0 := map[string]any{"term": map[string]any{"user_id": "u1"}}
-	want1 := map[string]any{"term": map[string]any{"profile_id": "p1"}}
 	if !reflect.DeepEqual(got[0], want0) {
 		t.Errorf("filter[0] = %#v, want %#v", got[0], want0)
 	}
-	if !reflect.DeepEqual(got[1], want1) {
-		t.Errorf("filter[1] = %#v, want %#v", got[1], want1)
+	if len(got) != 2 {
+		t.Errorf("want user_id + compiled clause, got %d: %#v", len(got), got)
 	}
 }
 
 func clause(t *testing.T, q string) map[string]any {
 	t.Helper()
 	f := filters(t, build(t, q))
-	if len(f) != 3 {
-		t.Fatalf("want 3 filter clauses (2 tenant + 1 compiled), got %d: %#v", len(f), f)
+	if len(f) != 2 {
+		t.Fatalf("want 2 filter clauses (tenant + compiled), got %d: %#v", len(f), f)
 	}
-	c, ok := f[2].(map[string]any)
+	c, ok := f[1].(map[string]any)
 	if !ok {
-		t.Fatalf("compiled clause is not a map: %#v", f[2])
+		t.Fatalf("compiled clause is not a map: %#v", f[1])
 	}
 	return c
 }

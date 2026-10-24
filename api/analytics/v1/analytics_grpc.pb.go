@@ -32,7 +32,7 @@ const (
 // ─── Analytics Service ──────────────────────────────────────────────────────
 //
 // Study statistics served from the ClickHouse review_events mirror. Every RPC
-// is hard-filtered to the caller's user_id/profile_id (from the gateway-injected
+// is hard-filtered to the caller's user_id (from the gateway-injected
 // JWT context); tenancy is never supplied by the client. Results are eventually
 // consistent with Scheduler writes (event-driven ingestion).
 type AnalyticsServiceClient interface {
@@ -106,7 +106,7 @@ func (c *analyticsServiceClient) GetBreakdown(ctx context.Context, in *GetBreakd
 // ─── Analytics Service ──────────────────────────────────────────────────────
 //
 // Study statistics served from the ClickHouse review_events mirror. Every RPC
-// is hard-filtered to the caller's user_id/profile_id (from the gateway-injected
+// is hard-filtered to the caller's user_id (from the gateway-injected
 // JWT context); tenancy is never supplied by the client. Results are eventually
 // consistent with Scheduler writes (event-driven ingestion).
 type AnalyticsServiceServer interface {
