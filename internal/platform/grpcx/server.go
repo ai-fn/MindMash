@@ -18,6 +18,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
 )
@@ -37,6 +38,9 @@ func DefaultConfig(addr string) Config {
 		DrainDelay:      5 * time.Second,
 	}
 }
+
+// The default (5m, no idle pings) would reject Dial's keepalive pings.
+var keepaliveEnforcement = keepalive.EnforcementPolicy{MinTime: 15 * time.Second, PermitWithoutStream: true}
 
 // Options configure the gRPC server.
 type Options struct {
@@ -100,6 +104,9 @@ func New(cfg Config, opts Options) *Server {
 	)
 
 	gs := grpc.NewServer(
+		grpc.KeepaliveEnforcementPolicy(keepaliveEnforcement),
+		// Clients behind a ClusterIP stick to one pod per connection; aging them out rebalances.
+		grpc.KeepaliveParams(keepalive.ServerParameters{MaxConnectionAge: 5 * time.Minute, MaxConnectionAgeGrace: 30 * time.Second}),
 		grpc.StatsHandler(otelgrpc.NewServerHandler()),
 		grpc.ChainUnaryInterceptor(unary...),
 		grpc.ChainStreamInterceptor(stream...),

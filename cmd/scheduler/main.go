@@ -127,6 +127,8 @@ func run() error {
 	collAddr := envOr("COLLECTION_GRPC_ADDR", "localhost:9090")
 	collConn, err := grpcx.Dial(ctx, collAddr,
 		grpc.WithChainUnaryInterceptor(grpcx.ForwardAuthInterceptor()),
+		// Every internal method is a read, so all are safe to retry.
+		grpcx.RetryOn(collectionv1.CollectionInternalService_ServiceDesc.ServiceName),
 	)
 	if err != nil {
 		return fmt.Errorf("scheduler: dial collection: %w", err)

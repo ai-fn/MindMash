@@ -133,6 +133,13 @@ func TestSetServingStatus(t *testing.T) {
 
 func startServer(t *testing.T, opts Options) *grpc.ClientConn {
 	t.Helper()
+	return dialServer(t, opts, func(addr string) (*grpc.ClientConn, error) {
+		return grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	})
+}
+
+func dialServer(t *testing.T, opts Options, dial func(addr string) (*grpc.ClientConn, error)) *grpc.ClientConn {
+	t.Helper()
 	addr := freeAddr(t)
 	srv := New(Config{Addr: addr, ShutdownTimeout: 5 * time.Second}, opts)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -142,9 +149,9 @@ func startServer(t *testing.T, opts Options) *grpc.ClientConn {
 		cancel()
 		<-done
 	})
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := dial(addr)
 	if err != nil {
-		t.Fatalf("grpc.NewClient: %v", err)
+		t.Fatalf("dial: %v", err)
 	}
 	t.Cleanup(func() { _ = conn.Close() })
 	waitHealthy(t, grpc_health_v1.NewHealthClient(conn), "")

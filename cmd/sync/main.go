@@ -20,6 +20,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 
+	collectionv1 "github.com/mindmesh/mindmesh/api/collection/v1"
 	syncv1 "github.com/mindmesh/mindmesh/api/sync/v1"
 	"github.com/mindmesh/mindmesh/internal/platform/auth"
 	"github.com/mindmesh/mindmesh/internal/platform/cache"
@@ -145,6 +146,13 @@ func run() error {
 	collAddr := envOr("COLLECTION_GRPC_ADDR", "localhost:9090")
 	collConn, err := grpcx.Dial(ctx, collAddr,
 		grpc.WithChainUnaryInterceptor(grpcx.ForwardAuthInterceptor()),
+		// Reads only: mutations carry an expected USN, so a replayed success would come back as a conflict.
+		grpcx.RetryOn(
+			collectionv1.NoteTypeService_GetNoteType_FullMethodName,
+			collectionv1.NoteService_GetNote_FullMethodName,
+			collectionv1.DeckService_GetDeck_FullMethodName,
+			collectionv1.DeckService_GetDeckConfig_FullMethodName,
+		),
 	)
 	if err != nil {
 		return fmt.Errorf("sync: dial collection: %w", err)

@@ -94,7 +94,8 @@ func run() error {
 
 	// Collection internal client (GetSearchDocs enrichment).
 	collAddr := envOr("COLLECTION_GRPC_ADDR", "localhost:9090")
-	collConn, err := grpcx.Dial(ctx, collAddr)
+	// Every internal method is a read, so all are safe to retry.
+	collConn, err := grpcx.Dial(ctx, collAddr, grpcx.RetryOn(collectionv1.CollectionInternalService_ServiceDesc.ServiceName))
 	if err != nil {
 		return fmt.Errorf("search: dial collection: %w", err)
 	}
