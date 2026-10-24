@@ -143,7 +143,7 @@ type Repository interface {
 	WithTx(ctx context.Context, fn func(Repository) error) error
 
 	// NextUSN atomically increments and returns the user's monotonic USN
-	// (shared user_usn table with Collection).
+	// (platform-owned user_usn, see platform/usn).
 	NextUSN(ctx context.Context, userID string) (int64, error)
 
 	GetCard(ctx context.Context, userID, cardID string) (*Card, error)

@@ -68,7 +68,7 @@ func setupIntegrationOn(t *testing.T, image string, citus bool) integrationCompo
 			t.Fatalf("create citus extension: %v", err)
 		}
 	}
-	if err := platformdb.RunMigrations(ctx, dsn, "../../migrations/collection"); err != nil {
+	if err := platformdb.Migrate(ctx, dsn, "../../migrations", "platform", "collection"); err != nil {
 		t.Fatalf("run migrations: %v", err)
 	}
 

@@ -14,6 +14,7 @@ import (
 	platformdb "github.com/mindmesh/mindmesh/internal/platform/db"
 	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
 	"github.com/mindmesh/mindmesh/internal/platform/events"
+	"github.com/mindmesh/mindmesh/internal/platform/usn"
 )
 
 const uniqueViolation = "23505"
@@ -55,19 +56,6 @@ type Repo struct {
 // NewRepo returns a Repo backed by pool.
 func NewRepo(pool *pgxpool.Pool) *Repo { return &Repo{pool: pool} }
 
-// nextUSN atomically bumps and returns the caller's monotonic USN counter.
-func nextUSN(ctx context.Context, tx pgx.Tx, userID string) (int64, error) {
-	var usn int64
-	err := tx.QueryRow(ctx, `
-		INSERT INTO user_usn (user_id, usn) VALUES ($1, 1)
-		ON CONFLICT (user_id) DO UPDATE SET usn = user_usn.usn + 1
-		RETURNING usn`, userID).Scan(&usn)
-	if err != nil {
-		return 0, fmt.Errorf("media: next usn: %w", err)
-	}
-	return usn, nil
-}
-
 // InsertPending records a presigned upload as a pending row (usn 0 until
 // confirmed). Returns AlreadyExists when the (user_id, checksum) row exists.
 func (r *Repo) InsertPending(ctx context.Context, m *Media) error {
@@ -105,7 +93,7 @@ func (r *Repo) RefreshPending(ctx context.Context, m *Media) error {
 func (r *Repo) MarkReady(ctx context.Context, userID, id string, outboxEntry func(*Media) events.OutboxEntry) (*Media, error) {
 	var out *Media
 	err := platformdb.WithTx(ctx, r.pool, func(tx pgx.Tx) error {
-		usn, err := nextUSN(ctx, tx, userID)
+		next, err := usn.Next(ctx, tx, userID)
 		if err != nil {
 			return err
 		}
@@ -113,7 +101,7 @@ func (r *Repo) MarkReady(ctx context.Context, userID, id string, outboxEntry fun
 			UPDATE media SET status = $3, usn = $4, mtime = now()
 			WHERE user_id = $1 AND id = $2 AND status = $5
 			RETURNING `+mediaColumns,
-			userID, id, StatusReady, usn, StatusPending)
+			userID, id, StatusReady, next, StatusPending)
 		m, err := scanMedia(row)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {

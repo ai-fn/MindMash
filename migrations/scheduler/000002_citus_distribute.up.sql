@@ -15,6 +15,6 @@ BEGIN
     RETURN;  -- plain Postgres: nothing to distribute.
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_dist_partition WHERE logicalrelid = 'review_logs'::regclass) THEN
-    PERFORM create_distributed_table('review_logs', 'user_id', colocate_with => 'note_types');
+    PERFORM create_distributed_table('review_logs', 'user_id', colocate_with => 'user_usn');
   END IF;
 END $$;

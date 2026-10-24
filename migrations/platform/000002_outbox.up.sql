@@ -5,7 +5,7 @@
 CREATE TABLE IF NOT EXISTS outbox (
     id             UUID          NOT NULL,
     user_id        UUID          NOT NULL,
-    aggregate_type TEXT          NOT NULL,       -- e.g. 'card', 'deck', 'note'
+    aggregate_type TEXT          NOT NULL,       -- e.g. 'card', 'review_log', 'media'
     aggregate_id   UUID          NOT NULL,       -- id of the mutated entity
     event_type     TEXT          NOT NULL,       -- e.g. 'card.created', 'card.reviewed'
     payload        JSONB         NOT NULL,

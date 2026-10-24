@@ -14,6 +14,7 @@ import (
 	platformdb "github.com/mindmesh/mindmesh/internal/platform/db"
 	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
 	"github.com/mindmesh/mindmesh/internal/platform/events"
+	"github.com/mindmesh/mindmesh/internal/platform/usn"
 )
 
 // Pagination bounds and the keyset sentinel. An empty page token means "from the
@@ -160,15 +161,7 @@ func jsonObjectBytes(v any) ([]byte, error) {
 // ─── NextUSN ─────────────────────────────────────────────────────────────────
 
 func (r *PostgresRepository) NextUSN(ctx context.Context, userID string) (int64, error) {
-	var usn int64
-	err := r.db.QueryRow(ctx, `
-		INSERT INTO user_usn (user_id, usn) VALUES ($1, 1)
-		ON CONFLICT (user_id) DO UPDATE SET usn = user_usn.usn + 1
-		RETURNING usn`, userID).Scan(&usn)
-	if err != nil {
-		return 0, fmt.Errorf("collection: next usn: %w", err)
-	}
-	return usn, nil
+	return usn.Next(ctx, r.db, userID)
 }
 
 // ─── NoteType ────────────────────────────────────────────────────────────────

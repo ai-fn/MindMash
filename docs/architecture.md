@@ -115,6 +115,8 @@ Each service is an independently deployable Go binary (own DB schema / store own
 Sharded **by `user_id`** (Citus distributed tables) — user data is naturally isolated, so
 co-locating a user's notes/cards/decks/reviews on one shard gives single-shard reads for
 nearly every query. Full schema + indexes: [10-data-model.md](./detailed/10-data-model.md).
+All Postgres services share one database; table ownership and cross-service access rules:
+[ADR 0001](./adr/0001-modular-monolith-shared-citus.md).
 
 ```
 users(id, email, locale, created_at, ...)

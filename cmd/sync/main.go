@@ -84,9 +84,8 @@ func run() error {
 	defer pool.Close()
 
 	if migrationsEnabled(base.Env) {
-		dir := envOr("SYNC_MIGRATIONS_DIR", "migrations/sync")
-		dsn := dbCfg.DSN + "&x-migrations-table=schema_migrations_sync"
-		if err := db.RunMigrations(ctx, dsn, dir); err != nil {
+		dir := envOr("MIGRATIONS_DIR", "migrations")
+		if err := db.Migrate(ctx, dbCfg.DSN, dir, "platform", "sync"); err != nil {
 			return fmt.Errorf("sync: run migrations: %w", err)
 		}
 		logger.Info("sync: migrations applied", zap.String("dir", dir))

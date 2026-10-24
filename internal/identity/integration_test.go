@@ -114,7 +114,7 @@ func setupFull(t *testing.T, emailSender EmailSender, exchanger OAuthExchanger) 
 	require.NoError(t, err)
 
 	// Apply migrations (path relative to this package's directory).
-	require.NoError(t, platformdb.RunMigrations(ctx, dsn, "../../migrations/identity"))
+	require.NoError(t, platformdb.Migrate(ctx, dsn, "../../migrations", "identity"))
 
 	dbCfg := platformdb.Config{
 		DSN:             dsn,

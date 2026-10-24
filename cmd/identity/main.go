@@ -91,8 +91,8 @@ func run() error {
 	defer pool.Close()
 
 	if migrationsEnabled(base.Env) {
-		dir := envOr("IDENTITY_MIGRATIONS_DIR", "migrations/identity")
-		if err := db.RunMigrations(ctx, dbCfg.DSN, dir); err != nil {
+		dir := envOr("MIGRATIONS_DIR", "migrations")
+		if err := db.Migrate(ctx, dbCfg.DSN, dir, "identity"); err != nil {
 			return fmt.Errorf("identity: run migrations: %w", err)
 		}
 		logger.Info("identity: migrations applied", zap.String("dir", dir))

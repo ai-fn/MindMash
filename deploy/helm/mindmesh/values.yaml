@@ -66,8 +66,8 @@ identity:
       DB_DSN: "postgres://mindmesh:mindmesh@postgres:5432/mindmesh?sslmode=disable"
   migrations:
     enabled: true
-    store: identity
-    databaseUrl: "postgres://mindmesh:mindmesh@postgres:5432/mindmesh?sslmode=disable&x-migrations-table=schema_migrations_identity"
+    stores: [identity]
+    databaseUrl: "postgres://mindmesh:mindmesh@postgres:5432/mindmesh?sslmode=disable"
   ingress:
     enabled: true
     hosts:
@@ -102,8 +102,8 @@ collection:
       DB_DSN: "postgres://mindmesh:mindmesh@postgres:5432/mindmesh?sslmode=disable"
   migrations:
     enabled: true
-    store: collection
-    databaseUrl: "postgres://mindmesh:mindmesh@postgres:5432/mindmesh?sslmode=disable&x-migrations-table=schema_migrations_collection"
+    stores: [platform, collection]
+    databaseUrl: "postgres://mindmesh:mindmesh@postgres:5432/mindmesh?sslmode=disable"
   ingress:
     enabled: true
     hosts:
@@ -137,8 +137,8 @@ scheduler:
       DB_DSN: "postgres://mindmesh:mindmesh@postgres:5432/mindmesh?sslmode=disable"
   migrations:
     enabled: true
-    store: scheduler
-    databaseUrl: "postgres://mindmesh:mindmesh@postgres:5432/mindmesh?sslmode=disable&x-migrations-table=schema_migrations_scheduler"
+    stores: [platform, scheduler]
+    databaseUrl: "postgres://mindmesh:mindmesh@postgres:5432/mindmesh?sslmode=disable"
   ingress:
     enabled: true
     # Scheduler owns the study verbs that live UNDER collection's /v1/cards prefix
@@ -172,8 +172,8 @@ sync:
       DB_DSN: "postgres://mindmesh:mindmesh@postgres:5432/mindmesh?sslmode=disable"
   migrations:
     enabled: true
-    store: sync
-    databaseUrl: "postgres://mindmesh:mindmesh@postgres:5432/mindmesh?sslmode=disable&x-migrations-table=schema_migrations_sync"
+    stores: [platform, sync]
+    databaseUrl: "postgres://mindmesh:mindmesh@postgres:5432/mindmesh?sslmode=disable"
   ingress:
     enabled: true
     hosts:
@@ -228,8 +228,8 @@ analytics:
       CLICKHOUSE_PASSWORD: mindmesh
   migrations:
     enabled: true
-    store: clickhouse
-    databaseUrl: "clickhouse://clickhouse:9000?username=mindmesh&password=mindmesh&database=mindmesh&x-multi-statement=true&x-migrations-table=schema_migrations_clickhouse"
+    stores: [clickhouse]
+    databaseUrl: "clickhouse://clickhouse:9000?username=mindmesh&password=mindmesh&database=mindmesh&x-multi-statement=true"
   ingress:
     enabled: true
     hosts:
@@ -262,8 +262,8 @@ media:
       S3_SECRET_ACCESS_KEY: minioadmin
   migrations:
     enabled: true
-    store: media
-    databaseUrl: "postgres://mindmesh:mindmesh@postgres:5432/mindmesh?sslmode=disable&x-migrations-table=schema_migrations_media"
+    stores: [platform, media]
+    databaseUrl: "postgres://mindmesh:mindmesh@postgres:5432/mindmesh?sslmode=disable"
   ingress:
     enabled: true
     hosts:

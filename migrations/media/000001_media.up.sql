@@ -35,11 +35,3 @@ CREATE TABLE IF NOT EXISTS media_variants (
     height    INT,
     PRIMARY KEY (user_id, media_id, variant)
 );
-
--- Per-user monotonic USN counter (same mechanism as Collection). Each write bumps it so the
--- Sync change feed can order media alongside a user's other entities.
-CREATE TABLE IF NOT EXISTS user_usn (
-    user_id UUID   NOT NULL,
-    usn     BIGINT NOT NULL,
-    PRIMARY KEY (user_id)
-);

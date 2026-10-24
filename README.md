@@ -132,7 +132,7 @@ MinIO, Jaeger, Prometheus, Grafana) and apply migrations:
 
 ```bash
 task compose-up      # start the full local stack (docker compose)
-task migrate         # apply migrations (identity, collection, scheduler)
+task migrate         # apply all Postgres migrations (platform first)
 task run             # start deps + run the identity service, as an example
 ```
 
@@ -157,7 +157,7 @@ Common `task` targets (see `Taskfile.yml` for the full list):
 | `task build` | Build all service binaries |
 | `task test` / `task test-short` | Full test suite / unit-only (no testcontainers) |
 | `task lint` | `go vet` + `golangci-lint` + `buf lint` |
-| `task migrate` | Apply migrations for identity, collection, scheduler |
+| `task migrate` | Apply all Postgres migrations, shared `platform` tables first |
 | `task compose-up` / `task compose-down` | Start/stop the local dependency stack |
 | `task dev-up` / `task dev` / `task dev-down` | Bootstrap and run the full stack on kind + Tilt |
 | `task web-dev` / `task web-lint` / `task web-test` / `task web-build` | Frontend dev/lint/test/build |

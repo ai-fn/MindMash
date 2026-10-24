@@ -80,8 +80,8 @@ func run() error {
 	defer pool.Close()
 
 	if migrationsEnabled(base.Env) {
-		dir := envOr("MEDIA_MIGRATIONS_DIR", "migrations/media")
-		if err := db.RunMigrations(ctx, dbCfg.DSN, dir); err != nil {
+		dir := envOr("MIGRATIONS_DIR", "migrations")
+		if err := db.Migrate(ctx, dbCfg.DSN, dir, "platform", "media"); err != nil {
 			return fmt.Errorf("media: run migrations: %w", err)
 		}
 		logger.Info("media: migrations applied", zap.String("dir", dir))

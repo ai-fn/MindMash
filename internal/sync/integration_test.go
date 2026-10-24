@@ -131,15 +131,9 @@ func setupIntegration(t *testing.T) integrationComponents {
 	}
 	// Sync reads Collection's schema directly for the pull path, and owns one
 	// table of its own (sync_applied_ops, migrations/sync) for push-path
-	// op_id idempotency — both sets of migrations must be applied here. Each
-	// uses its own x-migrations-table so the two migration histories don't
-	// collide on the shared DB, mirroring cmd/sync/main.go's migrations block.
-	if err := platformdb.RunMigrations(ctx, dsn, "../../migrations/collection"); err != nil {
-		t.Fatalf("run collection migrations: %v", err)
-	}
-	syncDSN := dsn + "&x-migrations-table=schema_migrations_sync"
-	if err := platformdb.RunMigrations(ctx, syncDSN, "../../migrations/sync"); err != nil {
-		t.Fatalf("run sync migrations: %v", err)
+	// op_id idempotency — both sets of migrations must be applied here.
+	if err := platformdb.Migrate(ctx, dsn, "../../migrations", "platform", "collection", "sync"); err != nil {
+		t.Fatalf("run migrations: %v", err)
 	}
 
 	pool, err := pgxpool.New(ctx, dsn)

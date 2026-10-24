@@ -8,6 +8,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/mindmesh/mindmesh/internal/platform/usn"
 )
 
 // Column lists kept next to the scans that consume them so the order stays in
@@ -77,15 +79,7 @@ func tombstoneArgs(userID string, limit int, upTo int64, c Cursor) []any {
 // ─── LatestUSN ───────────────────────────────────────────────────────────────
 
 func (r *PostgresRepository) LatestUSN(ctx context.Context, userID string) (int64, error) {
-	var usn int64
-	err := r.db.QueryRow(ctx, `SELECT usn FROM user_usn WHERE user_id = $1`, userID).Scan(&usn)
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return 0, nil
-		}
-		return 0, fmt.Errorf("sync: latest usn: %w", err)
-	}
-	return usn, nil
+	return usn.Current(ctx, r.db, userID)
 }
 
 // ─── NoteType ────────────────────────────────────────────────────────────────

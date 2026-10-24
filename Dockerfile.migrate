@@ -4,7 +4,7 @@
 #   docker build -f Dockerfile.migrate -t mindmesh/migrate:dev .
 #
 # The Job runs, e.g.:
-#   migrate -path /migrations/identity -database "$MIGRATE_DATABASE_URL" up
+#   migrate-entrypoint.sh "$MIGRATE_DATABASE_URL" platform collection
 #
 # The upstream image bundles the postgres and clickhouse drivers we need and is
 # alpine-based (has /bin/sh), so it doubles as a debugging shell if required.

@@ -73,11 +73,8 @@ func setupIntegration(t *testing.T) integrationComponents {
 	if err != nil {
 		t.Fatalf("pg connection string: %v", err)
 	}
-	if err := platformdb.RunMigrations(ctx, dsn, "../../migrations/collection"); err != nil {
-		t.Fatalf("run collection migrations: %v", err)
-	}
-	if err := platformdb.RunMigrations(ctx, dsn+"&x-migrations-table=schema_migrations_scheduler", "../../migrations/scheduler"); err != nil {
-		t.Fatalf("run scheduler migrations: %v", err)
+	if err := platformdb.Migrate(ctx, dsn, "../../migrations", "platform", "collection", "scheduler"); err != nil {
+		t.Fatalf("run migrations: %v", err)
 	}
 
 	pool, err := pgxpool.New(ctx, dsn)

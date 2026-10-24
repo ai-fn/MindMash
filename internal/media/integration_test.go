@@ -69,7 +69,7 @@ func setup(t *testing.T) components {
 
 	dsn, err := pgCtr.ConnectionString(ctx, "sslmode=disable")
 	require.NoError(t, err)
-	require.NoError(t, platformdb.RunMigrations(ctx, dsn, "../../migrations/media"))
+	require.NoError(t, platformdb.Migrate(ctx, dsn, "../../migrations", "platform", "media"))
 
 	pool, err := pgxpool.New(ctx, dsn)
 	require.NoError(t, err)

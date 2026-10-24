@@ -122,8 +122,8 @@ func setupCollection(t *testing.T) *collectionHarness {
 	if err != nil {
 		t.Fatalf("pg connection string: %v", err)
 	}
-	if err := platformdb.RunMigrations(ctx, dsn, "../../migrations/collection"); err != nil {
-		t.Fatalf("run collection migrations: %v", err)
+	if err := platformdb.Migrate(ctx, dsn, "../../migrations", "platform", "collection"); err != nil {
+		t.Fatalf("run migrations: %v", err)
 	}
 
 	pool, err := pgxpool.New(ctx, dsn)

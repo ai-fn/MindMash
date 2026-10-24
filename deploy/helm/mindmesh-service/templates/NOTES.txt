@@ -4,7 +4,7 @@ Image:      {{ include "mindmesh-service.image" . }}
 Replicas:   {{ if .Values.autoscaling.enabled }}HPA {{ .Values.autoscaling.minReplicas }}–{{ .Values.autoscaling.maxReplicas }} (target CPU {{ .Values.autoscaling.targetCPUUtilizationPercentage }}%){{ else }}{{ .Values.replicaCount }} (fixed){{ end }}
 Ports:      http {{ .Values.ports.http }} (REST + /healthz + /readyz + /metrics), grpc {{ .Values.ports.grpc }}
 {{- if .Values.migrations.enabled }}
-Migrations: pre-install/upgrade Job ran golang-migrate for store "{{ .Values.migrations.store }}".
+Migrations: pre-install/upgrade Job ran golang-migrate for stores {{ join ", " .Values.migrations.stores }}.
 {{- end }}
 {{- if .Values.externalSecrets.enabled }}
 Secrets:    ExternalSecret -> {{ include "mindmesh-service.secretName" . }} (via {{ .Values.externalSecrets.secretStoreRef.name }}).

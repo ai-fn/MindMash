@@ -1,3 +1,2 @@
-DROP TABLE IF EXISTS user_usn;
 DROP TABLE IF EXISTS media_variants;
 DROP TABLE IF EXISTS media;

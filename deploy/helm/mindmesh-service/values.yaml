@@ -169,7 +169,7 @@ extraVolumeMounts: []
 # golang-migrate pre-install/pre-upgrade Job. Enabled only for services that own a store.
 migrations:
   enabled: false
-  store: ""                        # subdir under /migrations baked into the migrate image
+  stores: []                       # subdirs under /migrations, applied in order (shared tables: platform first)
   image:
     registry: ghcr.io/mindmesh
     repository: migrate
@@ -177,7 +177,7 @@ migrations:
     pullPolicy: IfNotPresent
   # Env var name the Job passes to golang-migrate's -database flag.
   databaseUrlEnv: MIGRATE_DATABASE_URL
-  # Full migrate URL incl. ?...&x-migrations-table=schema_migrations_<store>. Rendered
+  # Migrate URL without x-migrations-table (the entrypoint adds one per store). Rendered
   # into a short-lived hook Secret. dev: set here; prod: inject from a secret manager
   # at deploy time (never commit real prod DSNs).
   databaseUrl: ""

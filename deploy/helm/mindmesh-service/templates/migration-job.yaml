@@ -1,4 +1,4 @@
-{{- if and .Values.migrations.enabled .Values.migrations.databaseUrl -}}
+{{- if and .Values.migrations.enabled .Values.migrations.databaseUrl .Values.migrations.stores -}}
 {{- /*
   golang-migrate runner, gated as a pre-install/pre-upgrade hook so the schema is
   current before new pods roll. Reversible (down migrations ship in the image).
@@ -43,14 +43,15 @@ spec:
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           # Self-healing wrapper (see scripts/migrate-entrypoint.sh) instead of the raw
-          # `migrate` binary: it runs `up` and, in dev (MIGRATE_AUTO_HEAL=true), recovers
-          # a dirty-wedged DB. K8s expands $(MIGRATE_DATABASE_URL) from the env below
-          # (which carries x-migrations-table).
+          # `migrate` binary: it runs `up` per store and, in dev (MIGRATE_AUTO_HEAL=true),
+          # recovers a dirty-wedged DB. K8s expands $(MIGRATE_DATABASE_URL) from the env below.
           command:
             - "/usr/local/bin/migrate-entrypoint.sh"
           args:
-            - "/migrations/{{ .Values.migrations.store }}"
             - "$({{ .Values.migrations.databaseUrlEnv }})"
+            {{- range .Values.migrations.stores }}
+            - {{ . | quote }}
+            {{- end }}
           env:
             - name: {{ .Values.migrations.databaseUrlEnv }}
               valueFrom:

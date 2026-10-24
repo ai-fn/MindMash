@@ -76,8 +76,8 @@ func run() error {
 	defer pool.Close()
 
 	if migrationsEnabled(base.Env) {
-		dir := envOr("COLLECTION_MIGRATIONS_DIR", "migrations/collection")
-		if err := db.RunMigrations(ctx, dbCfg.DSN, dir); err != nil {
+		dir := envOr("MIGRATIONS_DIR", "migrations")
+		if err := db.Migrate(ctx, dbCfg.DSN, dir, "platform", "collection"); err != nil {
 			return fmt.Errorf("collection: run migrations: %w", err)
 		}
 		logger.Info("collection: migrations applied", zap.String("dir", dir))

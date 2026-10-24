@@ -100,7 +100,7 @@ for svc in ['identity', 'collection', 'scheduler', 'sync', 'media']:
     if svc not in selected:
         continue
     set_args.append('%s.secret.data.DB_DSN=%s' % (svc, pg_dsn))
-    set_args.append('%s.migrations.databaseUrl=%s&x-migrations-table=schema_migrations_%s' % (svc, pg_dsn, svc))
+    set_args.append('%s.migrations.databaseUrl=%s' % (svc, pg_dsn))
 
 # Disable unselected services in the umbrella chart (Chart.yaml gates each subchart on
 # `<alias>.enabled`), so their Deployment + migration Job are never rendered/applied.

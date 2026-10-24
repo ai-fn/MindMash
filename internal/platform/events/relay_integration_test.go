@@ -69,19 +69,19 @@ func startOutboxDB(t *testing.T, ctx context.Context, image string, citus bool) 
 	t.Cleanup(pool.Close)
 
 	apply := func(f string) {
-		ddl, err := os.ReadFile("../../../migrations/collection/" + f)
+		ddl, err := os.ReadFile("../../../migrations/platform/" + f)
 		require.NoError(t, err)
 		_, err = pool.Exec(ctx, string(ddl))
 		require.NoError(t, err)
 	}
-	apply("000011_outbox.up.sql")
+	apply("000002_outbox.up.sql")
 	if citus {
 		_, err = pool.Exec(ctx, `CREATE EXTENSION IF NOT EXISTS citus`)
 		require.NoError(t, err)
 		_, err = pool.Exec(ctx, `SELECT create_distributed_table('outbox', 'user_id')`)
 		require.NoError(t, err)
 	}
-	apply("000014_outbox_published.up.sql")
+	apply("000003_outbox_published.up.sql")
 	return pool
 }
 

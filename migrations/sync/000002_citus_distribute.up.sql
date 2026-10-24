@@ -1,6 +1,6 @@
 -- Citus distribution guard for sync tables.
 -- On a plain Postgres instance this block is a no-op; on a Citus cluster it
--- distributes sync_applied_ops by user_id and co-locates it with note_types
+-- distributes sync_applied_ops by user_id and co-locates it with user_usn
 -- (and the rest of the user_id-sharded tables) so idempotency lookups during
 -- /sync/apply stay single-shard alongside the Collection writes they guard.
 -- NOTE: once distributed, tables cannot be cleanly undistributed; the down
@@ -16,6 +16,6 @@ BEGIN
     RETURN;  -- plain Postgres: nothing to distribute.
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_dist_partition WHERE logicalrelid = 'sync_applied_ops'::regclass) THEN
-    PERFORM create_distributed_table('sync_applied_ops', 'user_id', colocate_with => 'note_types');
+    PERFORM create_distributed_table('sync_applied_ops', 'user_id', colocate_with => 'user_usn');
   END IF;
 END $$;

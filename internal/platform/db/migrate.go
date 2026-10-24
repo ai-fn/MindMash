@@ -2,7 +2,9 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -10,29 +12,34 @@ import (
 	"github.com/golang-migrate/migrate/v4/source/file"
 )
 
-// RunMigrations applies all pending migrations from migrationsDir to the
-// database pointed at by dsn. ErrNoChange (no new migrations) is treated as
-// success.
-func RunMigrations(_ context.Context, dsn, migrationsDir string) error {
-	srcURL := "file://" + migrationsDir
-	dbURL := toPgx5URL(dsn)
-
-	// Open the file source so we can get a concrete *file.File driver.
-	fSrc, err := (&file.File{}).Open(srcURL)
-	if err != nil {
-		return fmt.Errorf("db: open migration source %q: %w", srcURL, err)
+// Migrate applies each store's migrations from root/<store>, in order. Stores share one database,
+// so each keeps its own schema_migrations_<store> history: overlapping version numbers would otherwise collide.
+func Migrate(_ context.Context, dsn, root string, stores ...string) error {
+	for _, store := range stores {
+		if err := migrateStore(dsn, filepath.Join(root, store), store); err != nil {
+			return fmt.Errorf("db: migrate %s: %w", store, err)
+		}
 	}
+	return nil
+}
 
-	m, err := migrate.NewWithSourceInstance("file", fSrc, dbURL)
+func migrateStore(dsn, dir, store string) error {
+	fSrc, err := (&file.File{}).Open("file://" + dir)
 	if err != nil {
-		return fmt.Errorf("db: create migrate instance: %w", err)
+		return fmt.Errorf("open source %q: %w", dir, err)
+	}
+	sep := "?"
+	if strings.Contains(dsn, "?") {
+		sep = "&"
+	}
+	m, err := migrate.NewWithSourceInstance("file", fSrc, toPgx5URL(dsn)+sep+"x-migrations-table=schema_migrations_"+store)
+	if err != nil {
+		return fmt.Errorf("create migrate instance: %w", err)
 	}
 	defer func() { _, _ = m.Close() }()
-
-	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
-		return fmt.Errorf("db: run migrations: %w", err)
+	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		return err
 	}
-
 	return nil
 }
 
