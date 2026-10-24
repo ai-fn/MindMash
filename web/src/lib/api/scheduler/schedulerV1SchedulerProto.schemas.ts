@@ -21,6 +21,8 @@ export const V1Grade = {
 export interface StudyServiceAnswerBody {
   grade?: V1Grade
   timeMs?: number
+  /** Optional UUID idempotency key: a retry with the same key returns the card's current state. */
+  clientReviewId?: string
 }
 
 /**

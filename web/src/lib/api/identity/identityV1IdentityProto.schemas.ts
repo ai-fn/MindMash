@@ -10,6 +10,10 @@ export interface AuthServiceOAuthExchangeBody {
   redirectUri?: string
 }
 
+export interface AuthServiceOAuthStartBody {
+  redirectUri?: string
+}
+
 export interface ProfileServiceActivateProfileBody {
   [key: string]: unknown
 }
@@ -86,6 +90,12 @@ export interface V1OAuthExchangeResponse {
   profileId?: string
   expiresIn?: string
   isNewUser?: boolean
+}
+
+export interface V1OAuthStartResponse {
+  authorizationUrl?: string
+  /** Opaque; the client keeps it (e.g. in sessionStorage) and checks it matches the callback before exchanging. */
+  state?: string
 }
 
 export interface V1RefreshRequest {

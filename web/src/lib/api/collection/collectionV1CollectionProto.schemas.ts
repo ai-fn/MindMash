@@ -105,6 +105,8 @@ export interface V1CardIDList {
 
 /**
  * BulkOp — operation applied in a BulkCards call.
+ *
+ *  - BULK_OP_DELETE: also deletes notes left with no cards
  */
 export type V1BulkOp = (typeof V1BulkOp)[keyof typeof V1BulkOp]
 

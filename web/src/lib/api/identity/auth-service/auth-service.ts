@@ -22,6 +22,7 @@ import type {
 
 import type {
   AuthServiceOAuthExchangeBody,
+  AuthServiceOAuthStartBody,
   RpcStatus,
   V1GetMeResponse,
   V1LoginRequest,
@@ -29,6 +30,7 @@ import type {
   V1LogoutRequest,
   V1LogoutResponse,
   V1OAuthExchangeResponse,
+  V1OAuthStartResponse,
   V1RefreshRequest,
   V1RefreshResponse,
   V1RegisterRequest,
@@ -396,6 +398,105 @@ export const useAuthServiceOAuthExchange = <TError = RpcStatus, TContext = unkno
   TContext
 > => {
   return useMutation(getAuthServiceOAuthExchangeMutationOptions(options), queryClient)
+}
+export type authServiceOAuthStartResponse200 = {
+  data: V1OAuthStartResponse
+  status: 200
+}
+
+export type authServiceOAuthStartResponseDefault = {
+  data: RpcStatus
+  status: Exclude<HTTPStatusCodes, 200>
+}
+
+export type authServiceOAuthStartResponseSuccess = authServiceOAuthStartResponse200 & {
+  headers: Headers
+}
+export type authServiceOAuthStartResponseError = authServiceOAuthStartResponseDefault & {
+  headers: Headers
+}
+
+export type authServiceOAuthStartResponse =
+  | authServiceOAuthStartResponseSuccess
+  | authServiceOAuthStartResponseError
+
+export const getAuthServiceOAuthStartUrl = (provider: string) => {
+  return `/v1/auth/oauth/${provider}/start`
+}
+
+export const authServiceOAuthStart = async (
+  provider: string,
+  authServiceOAuthStartBody: AuthServiceOAuthStartBody,
+  options?: RequestInit,
+): Promise<authServiceOAuthStartResponse> => {
+  return customFetch<authServiceOAuthStartResponse>(getAuthServiceOAuthStartUrl(provider), {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(authServiceOAuthStartBody),
+  })
+}
+
+export const getAuthServiceOAuthStartMutationOptions = <
+  TError = RpcStatus,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof authServiceOAuthStart>>,
+    TError,
+    { provider: string; data: AuthServiceOAuthStartBody },
+    TContext
+  >
+  request?: SecondParameter<typeof customFetch>
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof authServiceOAuthStart>>,
+  TError,
+  { provider: string; data: AuthServiceOAuthStartBody },
+  TContext
+> => {
+  const mutationKey = ['authServiceOAuthStart']
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined }
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof authServiceOAuthStart>>,
+    { provider: string; data: AuthServiceOAuthStartBody }
+  > = (props) => {
+    const { provider, data } = props ?? {}
+
+    return authServiceOAuthStart(provider, data, requestOptions)
+  }
+
+  return { mutationFn, ...mutationOptions }
+}
+
+export type AuthServiceOAuthStartMutationResult = NonNullable<
+  Awaited<ReturnType<typeof authServiceOAuthStart>>
+>
+export type AuthServiceOAuthStartMutationBody = AuthServiceOAuthStartBody
+export type AuthServiceOAuthStartMutationError = RpcStatus
+
+export const useAuthServiceOAuthStart = <TError = RpcStatus, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof authServiceOAuthStart>>,
+      TError,
+      { provider: string; data: AuthServiceOAuthStartBody },
+      TContext
+    >
+    request?: SecondParameter<typeof customFetch>
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof authServiceOAuthStart>>,
+  TError,
+  { provider: string; data: AuthServiceOAuthStartBody },
+  TContext
+> => {
+  return useMutation(getAuthServiceOAuthStartMutationOptions(options), queryClient)
 }
 export type authServiceResetPasswordResponse200 = {
   data: V1ResetPasswordResponse
