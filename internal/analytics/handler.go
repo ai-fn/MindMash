@@ -51,12 +51,16 @@ func (h *Handler) GetOverview(ctx context.Context, req *analyticsv1.GetOverviewR
 	if err != nil {
 		return nil, err
 	}
+	loc, err := parseTZ(req.GetTz())
+	if err != nil {
+		return nil, err
+	}
 
 	ov, err := h.repo.Overview(ctx, t, since)
 	if err != nil {
 		return nil, unavailable(err)
 	}
-	days, err := h.repo.StudyDays(ctx, t)
+	days, err := h.repo.StudyDays(ctx, t, loc)
 	if err != nil {
 		return nil, unavailable(err)
 	}
@@ -70,7 +74,7 @@ func (h *Handler) GetOverview(ctx context.Context, req *analyticsv1.GetOverviewR
 		Correct:    ov.Correct,
 		Accuracy:   accuracy,
 		TimeMs:     ov.TimeMs,
-		StreakDays: int32(computeStreak(days, h.today())),
+		StreakDays: int32(computeStreak(days, h.today(loc))),
 	}, nil
 }
 
@@ -80,14 +84,18 @@ func (h *Handler) GetHeatmap(ctx context.Context, req *analyticsv1.GetHeatmapReq
 	if err != nil {
 		return nil, err
 	}
+	loc, err := parseTZ(req.GetTz())
+	if err != nil {
+		return nil, err
+	}
 	year := int(req.GetYear())
 	if year == 0 {
-		year = h.now().Year()
+		year = h.now().In(loc).Year()
 	}
-	start := time.Date(year, 1, 1, 0, 0, 0, 0, time.UTC)
+	start := time.Date(year, 1, 1, 0, 0, 0, 0, loc)
 	end := start.AddDate(1, 0, 0)
 
-	days, err := h.repo.Heatmap(ctx, t, start, end)
+	days, err := h.repo.Heatmap(ctx, t, loc, start, end)
 	if err != nil {
 		return nil, unavailable(err)
 	}
@@ -141,8 +149,12 @@ func (h *Handler) GetBreakdown(ctx context.Context, req *analyticsv1.GetBreakdow
 	if err != nil {
 		return nil, err
 	}
+	loc, err := parseTZ(req.GetTz())
+	if err != nil {
+		return nil, err
+	}
 
-	buckets, err := h.repo.Breakdown(ctx, t, by, since)
+	buckets, err := h.repo.Breakdown(ctx, t, by, loc, since)
 	if err != nil {
 		return nil, unavailable(err)
 	}
@@ -159,10 +171,22 @@ func (h *Handler) GetBreakdown(ctx context.Context, req *analyticsv1.GetBreakdow
 	return resp, nil
 }
 
-// today returns the current UTC date truncated to midnight.
-func (h *Handler) today() time.Time {
-	n := h.now()
+// today returns the current date in loc, as UTC midnight like the dates StudyDays returns.
+func (h *Handler) today(loc *time.Location) time.Time {
+	n := h.now().In(loc)
 	return time.Date(n.Year(), n.Month(), n.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+// parseTZ resolves an IANA zone name; empty means UTC. "Local" would mean the server's zone.
+func parseTZ(name string) (*time.Location, error) {
+	if name == "" {
+		return time.UTC, nil
+	}
+	loc, err := time.LoadLocation(name)
+	if err != nil || name == "Local" {
+		return nil, platformerrors.InvalidArgument(`tz must be an IANA time zone name, e.g. "Europe/Berlin"`)
+	}
+	return loc, nil
 }
 
 // parseRange turns a relative window ("7d", "30d", "all", "") into a lower-bound

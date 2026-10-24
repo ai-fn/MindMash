@@ -74,9 +74,10 @@ describe('StatsScreen', () => {
     vi.clearAllMocks()
     // Pin "today" so the rolling trailing-year heatmap window is deterministic (the
     // populated-heatmap fixture dates 2026-01-01/02 fall inside a window ending 2026-07-04).
-    // shouldAdvanceTime keeps userEvent's internal timers working under fake timers.
+    // shouldAdvanceTime keeps userEvent's internal timers working under fake timers. Midday UTC
+    // is 2026-07-04 locally in every zone within ±11h, since the heatmap follows local days.
     vi.useFakeTimers({ shouldAdvanceTime: true })
-    vi.setSystemTime(new Date('2026-07-04T00:00:00Z'))
+    vi.setSystemTime(new Date('2026-07-04T12:00:00Z'))
   })
 
   afterEach(() => {
@@ -113,6 +114,26 @@ describe('StatsScreen', () => {
     expect(screen.getByText('No stats yet')).toBeInTheDocument()
     expect(screen.getByText('Study a few cards to see your stats.')).toBeInTheDocument()
     expect(screen.queryByText('Reviews')).not.toBeInTheDocument()
+  })
+
+  it("asks for days and hours in the viewer's time zone", async () => {
+    const {
+      useAnalyticsServiceGetOverview,
+      useAnalyticsServiceGetHeatmap,
+      useAnalyticsServiceGetRetention,
+      useAnalyticsServiceGetBreakdown,
+    } = await import('../../lib/api/analytics/analytics-service/analytics-service')
+    vi.mocked(useAnalyticsServiceGetOverview).mockReturnValue(populatedOverview as never)
+    vi.mocked(useAnalyticsServiceGetHeatmap).mockReturnValue(populatedHeatmap as never)
+    vi.mocked(useAnalyticsServiceGetRetention).mockReturnValue(populatedRetention as never)
+    vi.mocked(useAnalyticsServiceGetBreakdown).mockReturnValue(populatedBreakdown as never)
+
+    await renderScreen()
+
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
+    expect(useAnalyticsServiceGetOverview).toHaveBeenCalledWith(expect.objectContaining({ tz }))
+    expect(useAnalyticsServiceGetHeatmap).toHaveBeenCalledWith(expect.objectContaining({ tz }))
+    expect(useAnalyticsServiceGetBreakdown).toHaveBeenCalledWith(expect.objectContaining({ tz }))
   })
 
   it('shows the empty state when overview.reviews is absent', async () => {
@@ -368,7 +389,9 @@ describe('StatsScreen', () => {
 
     await user.selectOptions(screen.getByLabelText('Group by'), 'state')
 
-    expect(useAnalyticsServiceGetBreakdown).toHaveBeenLastCalledWith({ by: 'state', range: '30d' })
+    expect(useAnalyticsServiceGetBreakdown).toHaveBeenLastCalledWith(
+      expect.objectContaining({ by: 'state', range: '30d' }),
+    )
   })
 
   it('changing the range selector calls overview/retention/breakdown hooks with the new range', async () => {
@@ -388,9 +411,15 @@ describe('StatsScreen', () => {
 
     await user.selectOptions(screen.getByLabelText('Range'), '7')
 
-    expect(useAnalyticsServiceGetOverview).toHaveBeenLastCalledWith({ range: '7d' })
-    expect(useAnalyticsServiceGetRetention).toHaveBeenLastCalledWith({ range: '7d' })
-    expect(useAnalyticsServiceGetBreakdown).toHaveBeenLastCalledWith({ by: 'deck', range: '7d' })
+    expect(useAnalyticsServiceGetOverview).toHaveBeenLastCalledWith(
+      expect.objectContaining({ range: '7d' }),
+    )
+    expect(useAnalyticsServiceGetRetention).toHaveBeenLastCalledWith(
+      expect.objectContaining({ range: '7d' }),
+    )
+    expect(useAnalyticsServiceGetBreakdown).toHaveBeenLastCalledWith(
+      expect.objectContaining({ by: 'deck', range: '7d' }),
+    )
   })
 
   it('changing the year selector calls the heatmap hook with the new year', async () => {
@@ -413,7 +442,9 @@ describe('StatsScreen', () => {
     const targetYear = new Date().getUTCFullYear() - 2
     await user.selectOptions(screen.getByLabelText('Year'), String(targetYear))
 
-    expect(useAnalyticsServiceGetHeatmap).toHaveBeenCalledWith({ year: targetYear })
+    expect(useAnalyticsServiceGetHeatmap).toHaveBeenCalledWith(
+      expect.objectContaining({ year: targetYear }),
+    )
   })
 
   it('year selector offers every year from the registration year through last year', async () => {

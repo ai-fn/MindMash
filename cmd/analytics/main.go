@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	_ "time/tzdata" // parseTZ must not depend on the base image shipping zoneinfo
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"go.uber.org/zap"
@@ -158,7 +159,9 @@ func run() error {
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return grpcSrv.Start(gctx) })
 	g.Go(func() error { return httpSrv.Start(gctx) })
-	g.Go(func() error { return consumer.Subscribe(gctx, []string{analytics.ReviewTopic}, aggregator.Handle) })
+	g.Go(func() error {
+		return consumer.SubscribeBatch(gctx, []string{analytics.ReviewTopic}, analytics.Batch, aggregator.HandleBatch)
+	})
 	if err := g.Wait(); err != nil {
 		return fmt.Errorf("analytics: server: %w", err)
 	}

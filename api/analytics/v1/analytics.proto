@@ -47,8 +47,11 @@ service AnalyticsService {
 
 // range is a relative window like "7d", "30d", "365d", or "all". Empty defaults
 // to "30d". It is shared by the overview, retention, and breakdown RPCs.
+// tz is the caller's IANA time zone (e.g. "Europe/Berlin") that days and hours
+// are counted in; empty means UTC.
 message GetOverviewRequest {
   string range = 1;
+  string tz = 2; // days for streak_days
 }
 
 message GetOverviewResponse {
@@ -60,7 +63,8 @@ message GetOverviewResponse {
 }
 
 message GetHeatmapRequest {
-  int32 year = 1; // calendar year (UTC); 0 defaults to the current year
+  int32 year = 1; // calendar year in tz; 0 defaults to the current year
+  string tz = 2; // see GetOverviewRequest.tz
 }
 
 message GetHeatmapResponse {
@@ -68,7 +72,7 @@ message GetHeatmapResponse {
 }
 
 message HeatmapDay {
-  string date = 1; // YYYY-MM-DD (UTC)
+  string date = 1; // YYYY-MM-DD in the request's tz
   int64 reviews = 2;
 }
 
@@ -87,6 +91,7 @@ message GetRetentionResponse {
 message GetBreakdownRequest {
   string by = 1; // "deck" | "state" | "hour"
   string range = 2; // relative window, see GetOverviewRequest.range
+  string tz = 3; // hour-of-day for by = "hour"; see GetOverviewRequest.tz
 }
 
 message GetBreakdownResponse {

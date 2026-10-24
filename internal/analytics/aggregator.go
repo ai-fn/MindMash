@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"go.uber.org/zap"
 
@@ -41,12 +40,9 @@ type reviewPayload struct {
 	Ts        time.Time `json:"ts"`
 }
 
-// Aggregator inserts review events into ClickHouse. It is at-least-once and
-// idempotent: review_events is a ReplacingMergeTree keyed on review_id, so a
-// redelivered review collapses to a single row on merge. Inserts use
-// ClickHouse server-side async batching (async_insert) and wait for the buffer
-// flush before returning, so an offset is committed only once the row is
-// durable.
+// Aggregator inserts review events into ClickHouse, one insert per Kafka batch. It is
+// at-least-once and idempotent: review_events is a ReplacingMergeTree keyed on review_id,
+// so a redelivered review collapses to a single row on merge.
 type Aggregator struct {
 	conn driver.Conn
 	log  *zap.Logger
@@ -57,45 +53,53 @@ func NewAggregator(conn driver.Conn, log *zap.Logger) *Aggregator {
 	return &Aggregator{conn: conn, log: log}
 }
 
-// asyncInsertCtx attaches the async-insert settings to ctx. async_insert=1 lets
-// the server batch many small inserts into larger parts; wait_for_async_insert=1
-// blocks until that batch is flushed, giving us durability for the offset commit.
-func asyncInsertCtx(ctx context.Context) context.Context {
-	return clickhouse.Context(ctx, clickhouse.WithSettings(clickhouse.Settings{
-		"async_insert":          1,
-		"wait_for_async_insert": 1,
-	}))
-}
+// Batch bounds for SubscribeBatch: few large inserts keep ClickHouse's part count down.
+var Batch = events.BatchOptions{Size: 1000, Wait: time.Second}
 
-const insertReviewEvent = `INSERT INTO review_events
-	(review_id, user_id, profile_id, card_id, deck_id, grade, prev_state, new_state, ivl, time_ms, ts)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+const insertReviewEvents = `INSERT INTO review_events
+	(review_id, user_id, profile_id, card_id, deck_id, grade, prev_state, new_state, ivl, time_ms, ts)`
 
-// Handle processes one Kafka message. It is the handler passed to
-// events.Consumer.Subscribe: returning nil commits the offset, an error leaves
-// the message for redelivery. Malformed messages are dropped (logged + committed)
-// rather than poison-looping the consumer.
-func (a *Aggregator) Handle(ctx context.Context, msg events.Message) error {
-	if et := msg.Headers["event_type"]; et != eventReviewRecorded {
-		// Unknown/irrelevant event on this topic — nothing to do.
+// HandleBatch is the events.KafkaConsumer.SubscribeBatch handler: nil commits the batch, an error
+// redelivers it. Malformed and unrelated messages are skipped rather than poison-looping.
+func (a *Aggregator) HandleBatch(ctx context.Context, msgs []events.Message) error {
+	var rows []reviewPayload
+	for _, msg := range msgs {
+		if p, ok := a.decode(msg); ok {
+			rows = append(rows, p)
+		}
+	}
+	if len(rows) == 0 {
 		return nil
 	}
-
-	var p reviewPayload
-	if err := json.Unmarshal(msg.Value, &p); err != nil {
-		a.log.Warn("aggregator: undecodable payload", zap.Error(err))
-		return nil
+	b, err := a.conn.PrepareBatch(ctx, insertReviewEvents)
+	if err != nil {
+		return fmt.Errorf("aggregator: prepare batch: %w", err)
 	}
-	if p.ID == "" || p.UserID == "" {
-		a.log.Warn("aggregator: payload missing id/user_id")
-		return nil
+	defer func() { _ = b.Abort() }()
+	for _, p := range rows {
+		if err := b.Append(p.ID, p.UserID, p.ProfileID, p.CardID, p.DeckID,
+			p.Grade, p.PrevState, p.NewState, p.NewIvl, p.TimeMs, p.Ts); err != nil {
+			return fmt.Errorf("aggregator: append review_event %s: %w", p.ID, err)
+		}
 	}
-
-	if err := a.conn.Exec(asyncInsertCtx(ctx), insertReviewEvent,
-		p.ID, p.UserID, p.ProfileID, p.CardID, p.DeckID,
-		p.Grade, p.PrevState, p.NewState, p.NewIvl, p.TimeMs, p.Ts,
-	); err != nil {
-		return fmt.Errorf("aggregator: insert review_event %s: %w", p.ID, err)
+	if err := b.Send(); err != nil {
+		return fmt.Errorf("aggregator: insert %d review_events: %w", len(rows), err)
 	}
 	return nil
+}
+
+func (a *Aggregator) decode(msg events.Message) (reviewPayload, bool) {
+	if msg.Headers["event_type"] != eventReviewRecorded {
+		return reviewPayload{}, false
+	}
+	var p reviewPayload
+	if err := json.Unmarshal(msg.Value, &p); err != nil {
+		a.log.Warn("aggregator: undecodable payload", zap.String("event_id", msg.Headers["event_id"]), zap.Error(err))
+		return reviewPayload{}, false
+	}
+	if p.ID == "" || p.UserID == "" {
+		a.log.Warn("aggregator: payload missing id/user_id", zap.String("event_id", msg.Headers["event_id"]))
+		return reviewPayload{}, false
+	}
+	return p, true
 }

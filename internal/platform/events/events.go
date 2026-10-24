@@ -276,8 +276,172 @@ func NewConsumer(cfg Config, log *zap.Logger) (*KafkaConsumer, error) {
 // should pass them all in one Subscribe call rather than calling Subscribe
 // once per topic, which would open a redundant reader per topic.
 func (c *KafkaConsumer) Subscribe(ctx context.Context, topics []string, handler func(ctx context.Context, msg Message) error) (retErr error) {
+	r, closeReader, err := c.open(ctx, topics)
+	if err != nil || r == nil {
+		return err
+	}
+	defer func() {
+		if err := closeReader(); err != nil && retErr == nil {
+			retErr = err
+		}
+	}()
+
+	for {
+		km, err := r.FetchMessage(ctx)
+		if err != nil {
+			if ctx.Err() != nil {
+				// Normal shutdown via context cancellation.
+				return nil
+			}
+			return fmt.Errorf("events: fetch message: %w", err)
+		}
+
+		// process only fails on shutdown; the uncommitted message is redelivered after restart.
+		if err := c.process(ctx, km, toMessage(km), handler); err != nil {
+			return nil
+		}
+		if err := c.commit(ctx, r, km); err != nil {
+			return err
+		}
+	}
+}
+
+// BatchOptions bounds a batch: at most Size messages, collected for at most Wait after the first.
+type BatchOptions struct {
+	Size int
+	Wait time.Duration
+}
+
+// SubscribeBatch is Subscribe for handlers that work in bulk (e.g. one ClickHouse insert per batch).
+// The batch is committed once handler accepts it. A batch that keeps failing is replayed message by
+// message with Subscribe's retry and dead-letter rules, so one bad message doesn't sink the rest.
+func (c *KafkaConsumer) SubscribeBatch(ctx context.Context, topics []string, opts BatchOptions, handler func(ctx context.Context, msgs []Message) error) (retErr error) {
+	if opts.Size < 1 {
+		return fmt.Errorf("events: subscribe batch: size must be positive")
+	}
+	r, closeReader, err := c.open(ctx, topics)
+	if err != nil || r == nil {
+		return err
+	}
+	defer func() {
+		if err := closeReader(); err != nil && retErr == nil {
+			retErr = err
+		}
+	}()
+
+	for {
+		kms, err := fetchBatch(ctx, r, opts)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			return fmt.Errorf("events: fetch message: %w", err)
+		}
+		if err := c.processBatch(ctx, kms, handler); err != nil {
+			return nil
+		}
+		if err := c.commit(ctx, r, kms...); err != nil {
+			return err
+		}
+	}
+}
+
+// Each message gets the full retry budget in the replay, so the batch itself gives up early.
+const maxBatchAttempts = 3
+
+// fetchBatch blocks for the first message, then takes whatever else arrives within opts.Wait.
+func fetchBatch(ctx context.Context, r *kafka.Reader, opts BatchOptions) ([]kafka.Message, error) {
+	km, err := r.FetchMessage(ctx)
+	if err != nil {
+		return nil, err
+	}
+	kms := []kafka.Message{km}
+	wctx, cancel := context.WithTimeout(ctx, opts.Wait)
+	defer cancel()
+	for len(kms) < opts.Size {
+		km, err := r.FetchMessage(wctx)
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+				break
+			}
+			return nil, err
+		}
+		kms = append(kms, km)
+	}
+	return kms, nil
+}
+
+func (c *KafkaConsumer) processBatch(ctx context.Context, kms []kafka.Message, handler func(context.Context, []Message) error) (err error) {
+	msgs := make([]Message, len(kms))
+	links := make([]trace.Link, len(kms))
+	for i, km := range kms {
+		msgs[i] = toMessage(km)
+		mctx := otel.GetTextMapPropagator().Extract(ctx, propagation.MapCarrier(msgs[i].Headers))
+		links[i] = trace.Link{SpanContext: trace.SpanContextFromContext(mctx)}
+	}
+	// A batch has many parents, so producers' traces are linked rather than continued.
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "consume batch",
+		trace.WithSpanKind(trace.SpanKindConsumer),
+		trace.WithLinks(links...),
+		trace.WithAttributes(
+			attribute.String("messaging.system", "kafka"),
+			attribute.String("messaging.consumer.group.name", c.cfg.GroupID),
+			attribute.Int("messaging.batch.message_count", len(kms)),
+		))
+	defer span.End()
+
+	backoff := c.retryBase
+	for attempt := 1; ; attempt++ {
+		actx, cancel := context.WithTimeout(ctx, c.cfg.HandlerTimeout)
+		err := handler(actx, msgs)
+		cancel()
+		if err == nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		for _, t := range batchTopics(kms) {
+			consumerHandlerFailures.WithLabelValues(t, c.cfg.GroupID).Inc()
+		}
+		span.RecordError(err, trace.WithAttributes(attribute.Int("attempt", attempt)))
+		fields := []zap.Field{
+			zap.Int("messages", len(kms)), zap.Int("attempt", attempt),
+			zap.Bool("timeout", errors.Is(err, context.DeadlineExceeded)), zap.Error(err),
+		}
+		if attempt >= min(c.cfg.HandlerMaxAttempts, maxBatchAttempts) {
+			c.log.Error("events: batch handler failed, retrying messages one by one", fields...)
+			break
+		}
+		c.log.Warn("events: batch handler failed, retrying", fields...)
+		if !relaySleep(ctx, backoff) {
+			return ctx.Err()
+		}
+		backoff = min(backoff*2, c.retryMax)
+	}
+	single := func(ctx context.Context, m Message) error { return handler(ctx, []Message{m}) }
+	for i, km := range kms {
+		if err := c.process(ctx, km, msgs[i], single); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func batchTopics(kms []kafka.Message) []string {
+	var ts []string
+	for _, km := range kms {
+		if !slices.Contains(ts, km.Topic) {
+			ts = append(ts, km.Topic)
+		}
+	}
+	return ts
+}
+
+// open ensures topics, then returns a group reader and its close func; a nil reader means ctx ended first.
+func (c *KafkaConsumer) open(ctx context.Context, topics []string) (*kafka.Reader, func() error, error) {
 	if len(topics) == 0 {
-		return fmt.Errorf("events: subscribe: topics must not be empty")
+		return nil, nil, fmt.Errorf("events: subscribe: topics must not be empty")
 	}
 	toEnsure := slices.Clone(topics)
 	for _, t := range topics {
@@ -289,7 +453,7 @@ func (c *KafkaConsumer) Subscribe(ctx context.Context, topics []string, handler 
 			break
 		}
 		if errors.Is(err, ErrTopicsMisconfigured) {
-			return fmt.Errorf("events: subscribe: %w", err)
+			return nil, nil, fmt.Errorf("events: subscribe: %w", err)
 		}
 		level := zap.WarnLevel
 		if attempt >= 10 {
@@ -297,7 +461,7 @@ func (c *KafkaConsumer) Subscribe(ctx context.Context, topics []string, handler 
 		}
 		c.log.Log(level, "events: ensure topics failed, retrying", zap.Strings("topics", toEnsure), zap.Int("attempt", attempt), zap.Error(err))
 		if !relaySleep(ctx, backoff) {
-			return nil
+			return nil, nil, nil
 		}
 	}
 
@@ -314,55 +478,40 @@ func (c *KafkaConsumer) Subscribe(ctx context.Context, topics []string, handler 
 		readerCfg.GroupTopics = topics
 	}
 	r := kafka.NewReader(readerCfg)
-	// Partitions move to other members on rebalance; don't leave their last lag behind.
-	defer func() {
+	return r, func() error {
+		// Partitions move to other members on rebalance; don't leave their last lag behind.
 		for _, t := range topics {
 			consumerLag.DeletePartialMatch(prometheus.Labels{"topic": t, "group": c.cfg.GroupID})
 		}
-	}()
-	defer func() {
-		if err := r.Close(); err != nil && retErr == nil {
-			retErr = fmt.Errorf("events: close reader: %w", err)
+		if err := r.Close(); err != nil {
+			return fmt.Errorf("events: close reader: %w", err)
 		}
-	}()
+		return nil
+	}, nil
+}
 
-	for {
-		km, err := r.FetchMessage(ctx)
-		if err != nil {
-			if ctx.Err() != nil {
-				// Normal shutdown via context cancellation.
-				return nil
-			}
-			return fmt.Errorf("events: fetch message: %w", err)
-		}
-
-		headers := make(map[string]string, len(km.Headers))
-		for _, h := range km.Headers {
-			headers[h.Key] = string(h.Value)
-		}
-
-		msg := Message{
-			Topic:   km.Topic,
-			Key:     km.Key,
-			Value:   km.Value,
-			Headers: headers,
-		}
-
-		// process only fails on shutdown; the uncommitted message is redelivered after restart.
-		if err := c.process(ctx, km, msg, handler); err != nil {
+// commit returns nil on shutdown too: the uncommitted messages are redelivered after restart.
+func (c *KafkaConsumer) commit(ctx context.Context, r *kafka.Reader, kms ...kafka.Message) error {
+	if err := r.CommitMessages(ctx, kms...); err != nil {
+		if ctx.Err() != nil {
 			return nil
 		}
-
-		if err := r.CommitMessages(ctx, km); err != nil {
-			if ctx.Err() != nil {
-				return nil
-			}
-			return fmt.Errorf("events: commit offset: %w", err)
-		}
+		return fmt.Errorf("events: commit offset: %w", err)
+	}
+	for _, km := range kms {
 		// HighWaterMark is the partition's next offset as of the fetch that returned km.
 		consumerLag.WithLabelValues(km.Topic, c.cfg.GroupID, strconv.Itoa(km.Partition)).
 			Set(float64(max(km.HighWaterMark-km.Offset-1, 0)))
 	}
+	return nil
+}
+
+func toMessage(km kafka.Message) Message {
+	headers := make(map[string]string, len(km.Headers))
+	for _, h := range km.Headers {
+		headers[h.Key] = string(h.Value)
+	}
+	return Message{Topic: km.Topic, Key: km.Key, Value: km.Value, Headers: headers}
 }
 
 func (c *KafkaConsumer) process(ctx context.Context, km kafka.Message, msg Message, handler func(context.Context, Message) error) (err error) {

@@ -24,9 +24,12 @@ const (
 
 // range is a relative window like "7d", "30d", "365d", or "all". Empty defaults
 // to "30d". It is shared by the overview, retention, and breakdown RPCs.
+// tz is the caller's IANA time zone (e.g. "Europe/Berlin") that days and hours
+// are counted in; empty means UTC.
 type GetOverviewRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Range         string                 `protobuf:"bytes,1,opt,name=range,proto3" json:"range,omitempty"`
+	Tz            string                 `protobuf:"bytes,2,opt,name=tz,proto3" json:"tz,omitempty"` // days for streak_days
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -64,6 +67,13 @@ func (*GetOverviewRequest) Descriptor() ([]byte, []int) {
 func (x *GetOverviewRequest) GetRange() string {
 	if x != nil {
 		return x.Range
+	}
+	return ""
+}
+
+func (x *GetOverviewRequest) GetTz() string {
+	if x != nil {
+		return x.Tz
 	}
 	return ""
 }
@@ -146,7 +156,8 @@ func (x *GetOverviewResponse) GetStreakDays() int32 {
 
 type GetHeatmapRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Year          int32                  `protobuf:"varint,1,opt,name=year,proto3" json:"year,omitempty"` // calendar year (UTC); 0 defaults to the current year
+	Year          int32                  `protobuf:"varint,1,opt,name=year,proto3" json:"year,omitempty"` // calendar year in tz; 0 defaults to the current year
+	Tz            string                 `protobuf:"bytes,2,opt,name=tz,proto3" json:"tz,omitempty"`      // see GetOverviewRequest.tz
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -186,6 +197,13 @@ func (x *GetHeatmapRequest) GetYear() int32 {
 		return x.Year
 	}
 	return 0
+}
+
+func (x *GetHeatmapRequest) GetTz() string {
+	if x != nil {
+		return x.Tz
+	}
+	return ""
 }
 
 type GetHeatmapResponse struct {
@@ -234,7 +252,7 @@ func (x *GetHeatmapResponse) GetDays() []*HeatmapDay {
 
 type HeatmapDay struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Date          string                 `protobuf:"bytes,1,opt,name=date,proto3" json:"date,omitempty"` // YYYY-MM-DD (UTC)
+	Date          string                 `protobuf:"bytes,1,opt,name=date,proto3" json:"date,omitempty"` // YYYY-MM-DD in the request's tz
 	Reviews       int64                  `protobuf:"varint,2,opt,name=reviews,proto3" json:"reviews,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -408,6 +426,7 @@ type GetBreakdownRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	By            string                 `protobuf:"bytes,1,opt,name=by,proto3" json:"by,omitempty"`       // "deck" | "state" | "hour"
 	Range         string                 `protobuf:"bytes,2,opt,name=range,proto3" json:"range,omitempty"` // relative window, see GetOverviewRequest.range
+	Tz            string                 `protobuf:"bytes,3,opt,name=tz,proto3" json:"tz,omitempty"`       // hour-of-day for by = "hour"; see GetOverviewRequest.tz
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -452,6 +471,13 @@ func (x *GetBreakdownRequest) GetBy() string {
 func (x *GetBreakdownRequest) GetRange() string {
 	if x != nil {
 		return x.Range
+	}
+	return ""
+}
+
+func (x *GetBreakdownRequest) GetTz() string {
+	if x != nil {
+		return x.Tz
 	}
 	return ""
 }
@@ -572,18 +598,20 @@ var File_analytics_v1_analytics_proto protoreflect.FileDescriptor
 
 const file_analytics_v1_analytics_proto_rawDesc = "" +
 	"\n" +
-	"\x1canalytics/v1/analytics.proto\x12\fanalytics.v1\x1a\x1cgoogle/api/annotations.proto\"*\n" +
+	"\x1canalytics/v1/analytics.proto\x12\fanalytics.v1\x1a\x1cgoogle/api/annotations.proto\":\n" +
 	"\x12GetOverviewRequest\x12\x14\n" +
-	"\x05range\x18\x01 \x01(\tR\x05range\"\x9f\x01\n" +
+	"\x05range\x18\x01 \x01(\tR\x05range\x12\x0e\n" +
+	"\x02tz\x18\x02 \x01(\tR\x02tz\"\x9f\x01\n" +
 	"\x13GetOverviewResponse\x12\x18\n" +
 	"\areviews\x18\x01 \x01(\x03R\areviews\x12\x18\n" +
 	"\acorrect\x18\x02 \x01(\x03R\acorrect\x12\x1a\n" +
 	"\baccuracy\x18\x03 \x01(\x01R\baccuracy\x12\x17\n" +
 	"\atime_ms\x18\x04 \x01(\x03R\x06timeMs\x12\x1f\n" +
 	"\vstreak_days\x18\x05 \x01(\x05R\n" +
-	"streakDays\"'\n" +
+	"streakDays\"7\n" +
 	"\x11GetHeatmapRequest\x12\x12\n" +
-	"\x04year\x18\x01 \x01(\x05R\x04year\"B\n" +
+	"\x04year\x18\x01 \x01(\x05R\x04year\x12\x0e\n" +
+	"\x02tz\x18\x02 \x01(\tR\x02tz\"B\n" +
 	"\x12GetHeatmapResponse\x12,\n" +
 	"\x04days\x18\x01 \x03(\v2\x18.analytics.v1.HeatmapDayR\x04days\":\n" +
 	"\n" +
@@ -599,10 +627,11 @@ const file_analytics_v1_analytics_proto_rawDesc = "" +
 	"\vdue_reviews\x18\x03 \x01(\x03R\n" +
 	"dueReviews\x12\x1f\n" +
 	"\vdue_correct\x18\x04 \x01(\x03R\n" +
-	"dueCorrect\";\n" +
+	"dueCorrect\"K\n" +
 	"\x13GetBreakdownRequest\x12\x0e\n" +
 	"\x02by\x18\x01 \x01(\tR\x02by\x12\x14\n" +
-	"\x05range\x18\x02 \x01(\tR\x05range\"O\n" +
+	"\x05range\x18\x02 \x01(\tR\x05range\x12\x0e\n" +
+	"\x02tz\x18\x03 \x01(\tR\x02tz\"O\n" +
 	"\x14GetBreakdownResponse\x127\n" +
 	"\abuckets\x18\x01 \x03(\v2\x1d.analytics.v1.BreakdownBucketR\abuckets\"p\n" +
 	"\x0fBreakdownBucket\x12\x10\n" +

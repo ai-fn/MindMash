@@ -79,3 +79,24 @@ func TestStateName(t *testing.T) {
 		}
 	}
 }
+
+func TestParseTZ(t *testing.T) {
+	for _, tc := range []struct {
+		in, want string
+		ok       bool
+	}{
+		{"", "UTC", true},
+		{"Europe/Berlin", "Europe/Berlin", true},
+		{"Local", "", false}, // the server's zone, not the caller's
+		{"Mars/Olympus", "", false},
+	} {
+		loc, err := parseTZ(tc.in)
+		if (err == nil) != tc.ok {
+			t.Errorf("parseTZ(%q) err = %v, want ok=%v", tc.in, err, tc.ok)
+			continue
+		}
+		if tc.ok && loc.String() != tc.want {
+			t.Errorf("parseTZ(%q) = %s, want %s", tc.in, loc, tc.want)
+		}
+	}
+}

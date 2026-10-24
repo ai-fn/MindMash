@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 )
 
@@ -26,6 +27,14 @@ func NewRepo(conn driver.Conn) *Repo {
 	return &Repo{conn: conn}
 }
 
+// finalCtx lets FINAL dedupe each partition on its own: duplicates of a review share its ts,
+// so they never span the monthly partitions.
+func finalCtx(ctx context.Context) context.Context {
+	return clickhouse.Context(ctx, clickhouse.WithSettings(clickhouse.Settings{
+		"do_not_merge_across_partitions_select_final": 1,
+	}))
+}
+
 // Overview is the headline aggregate for a range.
 type Overview struct {
 	Reviews int64
@@ -39,21 +48,21 @@ func (r *Repo) Overview(ctx context.Context, t Tenant, since time.Time) (Overvie
 		FROM review_events FINAL
 		WHERE user_id = ? AND ts >= ?`
 	var o Overview
-	row := r.conn.QueryRow(ctx, q, t.UserID, since)
+	row := r.conn.QueryRow(finalCtx(ctx), q, t.UserID, since)
 	if err := row.Scan(&o.Reviews, &o.Correct, &o.TimeMs); err != nil {
 		return Overview{}, fmt.Errorf("analytics: overview: %w", err)
 	}
 	return o, nil
 }
 
-// StudyDays returns the distinct UTC dates (descending) on which the tenant
-// reviewed at least one card, used to compute the current study streak.
-func (r *Repo) StudyDays(ctx context.Context, t Tenant) ([]time.Time, error) {
-	const q = `SELECT DISTINCT toDate(ts) AS day
+// StudyDays returns the distinct dates in loc (descending, as UTC midnights) on which the
+// tenant reviewed at least one card, used to compute the current study streak.
+func (r *Repo) StudyDays(ctx context.Context, t Tenant, loc *time.Location) ([]time.Time, error) {
+	const q = `SELECT DISTINCT toDate(ts, ?) AS day
 		FROM review_events FINAL
 		WHERE user_id = ?
 		ORDER BY day DESC`
-	rows, err := r.conn.Query(ctx, q, t.UserID)
+	rows, err := r.conn.Query(finalCtx(ctx), q, loc.String(), t.UserID)
 	if err != nil {
 		return nil, fmt.Errorf("analytics: study days: %w", err)
 	}
@@ -75,13 +84,13 @@ type HeatmapDay struct {
 	Reviews int64
 }
 
-// Heatmap returns per-day review counts within [start, end).
-func (r *Repo) Heatmap(ctx context.Context, t Tenant, start, end time.Time) ([]HeatmapDay, error) {
-	const q = `SELECT toString(toDate(ts)) AS day, toInt64(count())
+// Heatmap returns per-day review counts within [start, end), days counted in loc.
+func (r *Repo) Heatmap(ctx context.Context, t Tenant, loc *time.Location, start, end time.Time) ([]HeatmapDay, error) {
+	const q = `SELECT toString(toDate(ts, ?)) AS day, toInt64(count())
 		FROM review_events FINAL
 		WHERE user_id = ? AND ts >= ? AND ts < ?
 		GROUP BY day ORDER BY day`
-	rows, err := r.conn.Query(ctx, q, t.UserID, start, end)
+	rows, err := r.conn.Query(finalCtx(ctx), q, loc.String(), t.UserID, start.UTC(), end.UTC())
 	if err != nil {
 		return nil, fmt.Errorf("analytics: heatmap: %w", err)
 	}
@@ -116,7 +125,7 @@ func (r *Repo) Retention(ctx context.Context, t Tenant, deckID string, since tim
 		args = append(args, deckID)
 	}
 	var ret Retention
-	row := r.conn.QueryRow(ctx, q, args...)
+	row := r.conn.QueryRow(finalCtx(ctx), q, args...)
 	if err := row.Scan(&ret.DueReviews, &ret.DueCorrect); err != nil {
 		return Retention{}, fmt.Errorf("analytics: retention: %w", err)
 	}
@@ -133,16 +142,18 @@ type Bucket struct {
 
 // Breakdown groups reviews since `since` by deck_id, the card state at review
 // time (prev_state), or hour-of-day. `by` must be one of "deck", "state",
-// "hour"; an unknown value returns an error.
-func (r *Repo) Breakdown(ctx context.Context, t Tenant, by string, since time.Time) ([]Bucket, error) {
+// "hour" (in loc); an unknown value returns an error.
+func (r *Repo) Breakdown(ctx context.Context, t Tenant, by string, loc *time.Location, since time.Time) ([]Bucket, error) {
 	var keyExpr string
+	args := []any{t.UserID, since}
 	switch by {
 	case "deck":
 		keyExpr = "deck_id"
 	case "state":
 		keyExpr = "toString(prev_state)"
 	case "hour":
-		keyExpr = "toString(toHour(ts))"
+		keyExpr = "toString(toHour(ts, ?))"
+		args = append([]any{loc.String()}, args...)
 	default:
 		return nil, fmt.Errorf("analytics: invalid breakdown dimension %q", by)
 	}
@@ -153,7 +164,7 @@ func (r *Repo) Breakdown(ctx context.Context, t Tenant, by string, since time.Ti
 		FROM review_events FINAL
 		WHERE user_id = ? AND ts >= ?
 		GROUP BY k ORDER BY k`, keyExpr)
-	rows, err := r.conn.Query(ctx, q, t.UserID, since)
+	rows, err := r.conn.Query(finalCtx(ctx), q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("analytics: breakdown: %w", err)
 	}

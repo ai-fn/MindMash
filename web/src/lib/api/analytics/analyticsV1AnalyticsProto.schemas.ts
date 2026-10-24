@@ -59,17 +59,29 @@ export type AnalyticsServiceGetBreakdownParams = {
    * relative window, see GetOverviewRequest.range
    */
   range?: string
+  /**
+   * hour-of-day for by = "hour"; see GetOverviewRequest.tz
+   */
+  tz?: string
 }
 
 export type AnalyticsServiceGetHeatmapParams = {
   /**
-   * calendar year (UTC); 0 defaults to the current year
+   * calendar year in tz; 0 defaults to the current year
    */
   year?: number
+  /**
+   * see GetOverviewRequest.tz
+   */
+  tz?: string
 }
 
 export type AnalyticsServiceGetOverviewParams = {
   range?: string
+  /**
+   * days for streak_days
+   */
+  tz?: string
 }
 
 export type AnalyticsServiceGetRetentionParams = {

@@ -132,7 +132,8 @@ const PADDING_CELL: HeatmapCell = { date: '', reviews: -1 }
  *     The first/last month blocks are partial (only their in-window days).
  *   - mode <year>    → that full calendar year (Jan 1 – Dec 31), 12 full month blocks.
  *
- * All dates are UTC, matching the backend's UTC day bucketing.
+ * Dates are the viewer's calendar days held as UTC midnights, matching the backend, which
+ * buckets days in the `tz` the screen sends.
  */
 function buildHeatmapModel(
   mode: 'current' | number,
@@ -192,10 +193,14 @@ function buildHeatmapModel(
 
 export function StatsScreen() {
   const { t, i18n } = useTranslation('stats')
-  // Computed once per mount: `today` anchors the rolling heatmap window and `currentYear`
-  // (its UTC year) is what the "Current" selection resolves to.
-  const today = useMemo(() => new Date(), [])
+  // Computed once per mount: `today` (the viewer's local date, held as a UTC midnight) anchors
+  // the rolling heatmap window and its year is what the "Current" selection resolves to.
+  const today = useMemo(() => {
+    const now = new Date()
+    return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()))
+  }, [])
   const currentYear = today.getUTCFullYear()
+  const tz = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone, [])
   const [range, setRange] = useState<RangeValue>('30')
   // Heatmap selection: 'current' = rolling trailing 12 months ending today; a number = that
   // full calendar year.
@@ -207,13 +212,13 @@ export function StatsScreen() {
   // the bare keys ('7', '30', …) for its labels, so convert to the wire format at the boundary.
   const apiRange = range === 'all' ? 'all' : `${range}d`
 
-  const overviewQuery = useAnalyticsServiceGetOverview({ range: apiRange })
+  const overviewQuery = useAnalyticsServiceGetOverview({ range: apiRange, tz })
   // The rolling trailing-year window spans two calendar years, and the backend serves one
   // calendar year per call, so fetch the primary year and the one before it and merge.
-  const heatmapQuery = useAnalyticsServiceGetHeatmap({ year: primaryYear })
-  const heatmapPrevQuery = useAnalyticsServiceGetHeatmap({ year: primaryYear - 1 })
+  const heatmapQuery = useAnalyticsServiceGetHeatmap({ year: primaryYear, tz })
+  const heatmapPrevQuery = useAnalyticsServiceGetHeatmap({ year: primaryYear - 1, tz })
   const retentionQuery = useAnalyticsServiceGetRetention({ range: apiRange })
-  const breakdownQuery = useAnalyticsServiceGetBreakdown({ by: breakdownBy, range: apiRange })
+  const breakdownQuery = useAnalyticsServiceGetBreakdown({ by: breakdownBy, range: apiRange, tz })
 
   // See DecksScreen.tsx / StudyScreen.tsx for the established pattern: customFetch already
   // throws on non-2xx, so by the time `data` is defined here it's always the success shape.

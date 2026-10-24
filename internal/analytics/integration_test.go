@@ -5,11 +5,14 @@ package analytics
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"testing"
 	"time"
 
 	chdriver "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	chmod "github.com/testcontainers/testcontainers-go/modules/clickhouse"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	analyticsv1 "github.com/mindmesh/mindmesh/api/analytics/v1"
 	"github.com/mindmesh/mindmesh/internal/platform/auth"
@@ -28,7 +31,7 @@ const (
 // setupClickHouse starts a ClickHouse container, applies the analytics schema,
 // and returns a connected client. The Kafka transport is exercised by the
 // shared platform consumer's own tests and Search's pipeline test; here we drive
-// Aggregator.Handle directly (it is exactly what Subscribe invokes per message),
+// Aggregator.HandleBatch directly (it is exactly what SubscribeBatch invokes),
 // which covers ingestion, dedup, and every query path against real ClickHouse.
 func setupClickHouseConn(t *testing.T) (chdriver.Conn, context.Context) {
 	t.Helper()
@@ -72,19 +75,25 @@ func TestAnalytics_IngestAggregateIsolation(t *testing.T) {
 	h.now = func() time.Time { return now }
 	today := now.Truncate(24 * time.Hour)
 
-	// userA: 3 reviews today across two decks, mixed grades & states.
-	feed(t, ctx, agg, ev{"a1", userA, profA, "c1", deckSpanish, 3, 2, 2, 1500, today}) // review, correct
-	feed(t, ctx, agg, ev{"a2", userA, profA, "c2", deckSpanish, 1, 2, 3, 800, today})  // review, lapse (grade Again)
-	feed(t, ctx, agg, ev{"a3", userA, profA, "c3", deckFrench, 4, 0, 1, 1200, today})  // new card, correct
-	// userA: 2 reviews yesterday (to make a 2-day streak).
-	feed(t, ctx, agg, ev{"a4", userA, profA, "c1", deckSpanish, 3, 2, 2, 1000, today.AddDate(0, 0, -1)})
-	// Reviewed under another of userA's profiles: stats are per user, not per profile.
-	feed(t, ctx, agg, ev{"a5", userA, "prof-a2", "c4", deckFrench, 2, 2, 2, 900, today.AddDate(0, 0, -1)})
-	// userB: 1 review today — must never leak into userA's stats.
-	feed(t, ctx, agg, ev{"b1", userB, profB, "c9", "deck-b", 3, 2, 2, 500, today})
-
+	feed(t, ctx, agg,
+		// userA: 3 reviews today across two decks, mixed grades & states.
+		msgOf(t, ev{"a1", userA, profA, "c1", deckSpanish, 3, 2, 2, 1500, today}), // review, correct
+		msgOf(t, ev{"a2", userA, profA, "c2", deckSpanish, 1, 2, 3, 800, today}),  // review, lapse (grade Again)
+		// Dropped without failing the batch: undecodable, and another event type.
+		events.Message{Topic: ReviewTopic, Value: []byte("{"), Headers: map[string]string{"event_type": eventReviewRecorded}},
+		events.Message{Topic: ReviewTopic, Value: []byte("{}"), Headers: map[string]string{"event_type": "review.undone"}},
+		msgOf(t, ev{"a3", userA, profA, "c3", deckFrench, 4, 0, 1, 1200, today}), // new card, correct
+		// userA: 2 reviews yesterday (to make a 2-day streak).
+		msgOf(t, ev{"a4", userA, profA, "c1", deckSpanish, 3, 2, 2, 1000, today.AddDate(0, 0, -1)}),
+		// Reviewed under another of userA's profiles: stats are per user, not per profile.
+		msgOf(t, ev{"a5", userA, "prof-a2", "c4", deckFrench, 2, 2, 2, 900, today.AddDate(0, 0, -1)}),
+		// userB: 1 review today — must never leak into userA's stats.
+		msgOf(t, ev{"b1", userB, profB, "c9", "deck-b", 3, 2, 2, 500, today}),
+	)
 	// Idempotency: redeliver a1 — ReplacingMergeTree + FINAL must fold it.
-	feed(t, ctx, agg, ev{"a1", userA, profA, "c1", deckSpanish, 3, 2, 2, 1500, today})
+	feed(t, ctx, agg, msgOf(t, ev{"a1", userA, profA, "c1", deckSpanish, 3, 2, 2, 1500, today}))
+	// A batch of nothing to insert is a no-op, not an error.
+	feed(t, ctx, agg, events.Message{Topic: ReviewTopic, Value: []byte("{}"), Headers: map[string]string{"event_type": "review.undone"}})
 
 	ctxA := auth.WithIdentity(ctx, auth.IdentityContext{UserID: userA, ProfileID: profA})
 
@@ -198,9 +207,15 @@ type ev struct {
 	ts                         time.Time
 }
 
-// feed marshals an event and drives it through the aggregator exactly as the
-// Kafka consumer would.
-func feed(t *testing.T, ctx context.Context, agg *Aggregator, e ev) {
+// feed drives one batch through the aggregator exactly as the Kafka consumer would.
+func feed(t *testing.T, ctx context.Context, agg *Aggregator, msgs ...events.Message) {
+	t.Helper()
+	if err := agg.HandleBatch(ctx, msgs); err != nil {
+		t.Fatalf("aggregator handle batch: %v", err)
+	}
+}
+
+func msgOf(t *testing.T, e ev) events.Message {
 	t.Helper()
 	payload := reviewPayload{
 		ID: e.id, UserID: e.user, ProfileID: e.prof, CardID: e.card, DeckID: e.deck,
@@ -211,12 +226,73 @@ func feed(t *testing.T, ctx context.Context, agg *Aggregator, e ev) {
 	if err != nil {
 		t.Fatalf("marshal event: %v", err)
 	}
-	msg := events.Message{
+	return events.Message{
 		Topic:   ReviewTopic,
 		Value:   b,
 		Headers: map[string]string{"event_type": eventReviewRecorded},
 	}
-	if err := agg.Handle(ctx, msg); err != nil {
-		t.Fatalf("aggregator handle %s: %v", e.id, err)
+}
+
+func TestAnalytics_DaysAndHoursInCallerTimeZone(t *testing.T) {
+	d, ctx := setupClickHouseConn(t)
+	agg := NewAggregator(d, zap.NewNop())
+	h := NewHandler(NewRepo(d))
+	h.now = func() time.Time { return time.Date(2026, 3, 11, 1, 0, 0, 0, time.UTC) }
+
+	// Two UTC days, but both on 2026-03-11 in Tokyo (UTC+9).
+	feed(t, ctx, agg,
+		msgOf(t, ev{"tz1", userA, profA, "c1", deckSpanish, 3, 2, 2, 100, time.Date(2026, 3, 10, 23, 30, 0, 0, time.UTC)}),
+		msgOf(t, ev{"tz2", userA, profA, "c2", deckSpanish, 3, 2, 2, 100, time.Date(2026, 3, 11, 0, 30, 0, 0, time.UTC)}),
+	)
+	ctxA := auth.WithIdentity(ctx, auth.IdentityContext{UserID: userA, ProfileID: profA})
+
+	for _, tc := range []struct {
+		tz     string
+		streak int32
+		dates  []string
+		hours  []string
+	}{
+		{"", 2, []string{"2026-03-10", "2026-03-11"}, []string{"0", "23"}},
+		{"Asia/Tokyo", 1, []string{"2026-03-11"}, []string{"8", "9"}},
+	} {
+		t.Run("tz="+tc.tz, func(t *testing.T) {
+			ov, err := h.GetOverview(ctxA, &analyticsv1.GetOverviewRequest{Range: "all", Tz: tc.tz})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if ov.StreakDays != tc.streak {
+				t.Errorf("streak = %d, want %d", ov.StreakDays, tc.streak)
+			}
+
+			hm, err := h.GetHeatmap(ctxA, &analyticsv1.GetHeatmapRequest{Year: 2026, Tz: tc.tz})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var dates []string
+			for _, day := range hm.Days {
+				dates = append(dates, day.Date)
+			}
+			if !slices.Equal(dates, tc.dates) {
+				t.Errorf("heatmap dates = %v, want %v", dates, tc.dates)
+			}
+
+			br, err := h.GetBreakdown(ctxA, &analyticsv1.GetBreakdownRequest{By: "hour", Range: "all", Tz: tc.tz})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var hours []string
+			for _, b := range br.Buckets {
+				hours = append(hours, b.Key)
+			}
+			slices.Sort(hours)
+			if !slices.Equal(hours, tc.hours) {
+				t.Errorf("hours = %v, want %v", hours, tc.hours)
+			}
+		})
+	}
+
+	_, err := h.GetOverview(ctxA, &analyticsv1.GetOverviewRequest{Tz: "Mars/Olympus"})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Errorf("unknown tz: code = %v, want InvalidArgument", status.Code(err))
 	}
 }

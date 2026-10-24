@@ -49,6 +49,13 @@
             "in": "query",
             "required": false,
             "type": "string"
+          },
+          {
+            "name": "tz",
+            "description": "hour-of-day for by = \"hour\"; see GetOverviewRequest.tz",
+            "in": "query",
+            "required": false,
+            "type": "string"
           }
         ],
         "tags": [
@@ -77,11 +84,18 @@
         "parameters": [
           {
             "name": "year",
-            "description": "calendar year (UTC); 0 defaults to the current year",
+            "description": "calendar year in tz; 0 defaults to the current year",
             "in": "query",
             "required": false,
             "type": "integer",
             "format": "int32"
+          },
+          {
+            "name": "tz",
+            "description": "see GetOverviewRequest.tz",
+            "in": "query",
+            "required": false,
+            "type": "string"
           }
         ],
         "tags": [
@@ -110,6 +124,13 @@
         "parameters": [
           {
             "name": "range",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "tz",
+            "description": "days for streak_days",
             "in": "query",
             "required": false,
             "type": "string"
@@ -295,7 +316,7 @@
       "properties": {
         "date": {
           "type": "string",
-          "title": "YYYY-MM-DD (UTC)"
+          "title": "YYYY-MM-DD in the request's tz"
         },
         "reviews": {
           "type": "string",
