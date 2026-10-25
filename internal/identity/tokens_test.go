@@ -57,11 +57,13 @@ func TestResetPassword_RevokesSessionsAndVerifiesEmail(t *testing.T) {
 	svc, repo, emailer, _, _ := newTestService(t)
 	ctx := context.Background()
 	uid := mustRegister(t, svc, "stolen@example.com")
-	_, refreshA, _, _, _, err := svc.Login(ctx, "stolen@example.com", "password1")
+	tok, err := svc.Login(ctx, "stolen@example.com", "password1")
+	refreshA := tok.RefreshToken
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, refreshB, _, _, _, err := svc.Login(ctx, "stolen@example.com", "password1")
+	tok2, err := svc.Login(ctx, "stolen@example.com", "password1")
+	refreshB := tok2.RefreshToken
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +78,7 @@ func TestResetPassword_RevokesSessionsAndVerifiesEmail(t *testing.T) {
 	}
 
 	for name, token := range map[string]string{"A": refreshA, "B": refreshB} {
-		if _, _, _, err := svc.Refresh(ctx, token); err == nil {
+		if _, err := svc.Refresh(ctx, token); err == nil {
 			t.Errorf("session %s survived the password reset", name)
 		}
 	}
@@ -86,7 +88,7 @@ func TestResetPassword_RevokesSessionsAndVerifiesEmail(t *testing.T) {
 	if err := svc.ResetPassword(ctx, emailer.resets[1], "another-new-pw"); err == nil {
 		t.Error("a second outstanding reset token must be invalidated")
 	}
-	if _, _, _, _, _, err := svc.Login(ctx, "stolen@example.com", "password1"); err == nil {
+	if _, err := svc.Login(ctx, "stolen@example.com", "password1"); err == nil {
 		t.Error("old password still works")
 	}
 }
@@ -101,7 +103,8 @@ func TestOAuthLink_ClaimsPasswordAccount(t *testing.T) {
 			svc, repo, emailer, exchanger, _ := newTestService(t)
 			ctx := context.Background()
 			uid := mustRegister(t, svc, "victim@example.com") // password set by whoever registered first
-			_, attackerRefresh, _, _, _, err := svc.Login(ctx, "victim@example.com", "password1")
+			tok, err := svc.Login(ctx, "victim@example.com", "password1")
+			attackerRefresh := tok.RefreshToken
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -112,15 +115,16 @@ func TestOAuthLink_ClaimsPasswordAccount(t *testing.T) {
 			}
 			exchanger.responses["c"] = OAuthUserInfo{Provider: "google", Subject: "owner", Email: "victim@example.com", EmailVerified: true}
 
-			_, _, _, gotUID, _, isNew, err := oauthLogin(ctx, svc, "google", "c")
+			tok2, isNew, err := oauthLogin(ctx, svc, "google", "c")
+			gotUID := tok2.UserID
 			if err != nil || gotUID != uid || isNew {
 				t.Fatalf("link: uid=%s new=%v err=%v", gotUID, isNew, err)
 			}
 
-			if _, _, _, _, _, err := svc.Login(ctx, "victim@example.com", "password1"); grpcCode(err) != codes.Unauthenticated {
+			if _, err := svc.Login(ctx, "victim@example.com", "password1"); grpcCode(err) != codes.Unauthenticated {
 				t.Errorf("the pre-link password must stop working, got %v", grpcCode(err))
 			}
-			if _, _, _, err := svc.Refresh(ctx, attackerRefresh); err == nil {
+			if _, err := svc.Refresh(ctx, attackerRefresh); err == nil {
 				t.Error("sessions opened before the link must be revoked")
 			}
 			if u, _ := repo.GetUserByID(ctx, uid); !u.EmailVerified || u.PasswordHash != nil {
@@ -145,14 +149,15 @@ func TestOAuthLink_PasswordlessAccountKeepsSessions(t *testing.T) {
 	ctx := context.Background()
 	exchanger.responses["g"] = OAuthUserInfo{Provider: "google", Subject: "g1", Email: "both@example.com", EmailVerified: true}
 	exchanger.responses["a"] = OAuthUserInfo{Provider: "apple", Subject: "a1", Email: "both@example.com", EmailVerified: true}
-	_, refresh, _, _, _, _, err := oauthLogin(ctx, svc, "google", "g")
+	tok, _, err := oauthLogin(ctx, svc, "google", "g")
+	refresh := tok.RefreshToken
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, _, _, _, err := oauthLogin(ctx, svc, "apple", "a"); err != nil {
+	if _, _, err := oauthLogin(ctx, svc, "apple", "a"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := svc.Refresh(ctx, refresh); err != nil {
+	if _, err := svc.Refresh(ctx, refresh); err != nil {
 		t.Fatalf("adding a provider must not log the owner out: %v", err)
 	}
 }
@@ -243,7 +248,7 @@ func TestLoginCannotOutliveAConcurrentPasswordChange(t *testing.T) {
 		repo.users[uid].PasswordHash = nil
 		repo.mu.Unlock()
 	}
-	if _, _, _, _, _, err := svc.Login(ctx, "race@example.com", "password1"); grpcCode(err) != codes.Unauthenticated {
+	if _, err := svc.Login(ctx, "race@example.com", "password1"); grpcCode(err) != codes.Unauthenticated {
 		t.Fatalf("got %v, want Unauthenticated", grpcCode(err))
 	}
 	repo.mu.Lock()

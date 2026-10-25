@@ -64,7 +64,7 @@ func (w *Worker) Handle(ctx context.Context, msg platformevents.Message) error {
 		return fmt.Errorf("media worker: load %s: %w", p.ID, err)
 	}
 
-	thumb, mime, ext, w2, h2, err := w.renderThumb(ctx, m)
+	thumb, err := w.renderThumb(ctx, m)
 	if err != nil {
 		// A corrupt/mislabeled image can never be decoded on retry — ack it.
 		// Transient errors (download/upload/DB) are returned so Kafka redelivers.
@@ -75,8 +75,8 @@ func (w *Worker) Handle(ctx context.Context, msg platformevents.Message) error {
 		return fmt.Errorf("media worker: render thumb for %s: %w", m.ID, err)
 	}
 
-	variantKey := variantKeyFor(m.UserID, m.Checksum, thumbVariant, ext)
-	if err := w.blob.Upload(ctx, w.bucket, variantKey, bytes.NewReader(thumb), mime); err != nil {
+	variantKey := variantKeyFor(m.UserID, m.Checksum, thumbVariant, thumb.ext)
+	if err := w.blob.Upload(ctx, w.bucket, variantKey, bytes.NewReader(thumb.data), thumb.mime); err != nil {
 		return fmt.Errorf("media worker: upload thumb %s: %w", variantKey, err)
 	}
 	if err := w.repo.InsertVariant(ctx, Variant{
@@ -84,9 +84,9 @@ func (w *Worker) Handle(ctx context.Context, msg platformevents.Message) error {
 		MediaID: m.ID,
 		Variant: thumbVariant,
 		S3Key:   variantKey,
-		Mime:    mime,
-		Width:   w2,
-		Height:  h2,
+		Mime:    thumb.mime,
+		Width:   thumb.width,
+		Height:  thumb.height,
 	}); err != nil {
 		return fmt.Errorf("media worker: record variant %s: %w", m.ID, err)
 	}
@@ -95,33 +95,39 @@ func (w *Worker) Handle(ctx context.Context, msg platformevents.Message) error {
 	return nil
 }
 
+type thumbnail struct {
+	data          []byte
+	mime, ext     string
+	width, height int
+}
+
 // renderThumb downloads the original, decodes it, resizes the longest edge to
 // thumbMaxEdge, and re-encodes. Sources with an alpha channel encode to PNG to
 // preserve transparency; the rest encode to JPEG.
-func (w *Worker) renderThumb(ctx context.Context, m *Media) (data []byte, mime, ext string, width, height int, err error) {
+func (w *Worker) renderThumb(ctx context.Context, m *Media) (thumbnail, error) {
 	rc, err := w.blob.Download(ctx, w.bucket, m.S3Key)
 	if err != nil {
-		return nil, "", "", 0, 0, err
+		return thumbnail{}, err
 	}
 	defer func() { _ = rc.Close() }()
 
 	raw, err := io.ReadAll(io.LimitReader(rc, m.Bytes+1))
 	if err != nil {
-		return nil, "", "", 0, 0, err
+		return thumbnail{}, err
 	}
 	if int64(len(raw)) > m.Bytes {
-		return nil, "", "", 0, 0, fmt.Errorf("%w: object larger than its confirmed %d bytes", errBadImage, m.Bytes)
+		return thumbnail{}, fmt.Errorf("%w: object larger than its confirmed %d bytes", errBadImage, m.Bytes)
 	}
 	cfg, _, err := image.DecodeConfig(bytes.NewReader(raw))
 	if err != nil {
-		return nil, "", "", 0, 0, fmt.Errorf("%w: %w", errBadImage, err)
+		return thumbnail{}, fmt.Errorf("%w: %w", errBadImage, err)
 	}
 	if int64(cfg.Width)*int64(cfg.Height) > maxDecodePixels {
-		return nil, "", "", 0, 0, fmt.Errorf("%w: %dx%d exceeds %d pixels", errBadImage, cfg.Width, cfg.Height, maxDecodePixels)
+		return thumbnail{}, fmt.Errorf("%w: %dx%d exceeds %d pixels", errBadImage, cfg.Width, cfg.Height, maxDecodePixels)
 	}
 	src, format, err := image.Decode(bytes.NewReader(raw))
 	if err != nil {
-		return nil, "", "", 0, 0, fmt.Errorf("%w: %w", errBadImage, err)
+		return thumbnail{}, fmt.Errorf("%w: %w", errBadImage, err)
 	}
 
 	dw, dh := scaledSize(src.Bounds().Dx(), src.Bounds().Dy(), thumbMaxEdge)
@@ -131,14 +137,14 @@ func (w *Worker) renderThumb(ctx context.Context, m *Media) (data []byte, mime, 
 	var buf bytes.Buffer
 	if hasAlpha(format) {
 		if err := png.Encode(&buf, dst); err != nil {
-			return nil, "", "", 0, 0, err
+			return thumbnail{}, err
 		}
-		return buf.Bytes(), "image/png", "png", dw, dh, nil
+		return thumbnail{data: buf.Bytes(), mime: "image/png", ext: "png", width: dw, height: dh}, nil
 	}
 	if err := jpeg.Encode(&buf, dst, &jpeg.Options{Quality: jpegQuality}); err != nil {
-		return nil, "", "", 0, 0, err
+		return thumbnail{}, err
 	}
-	return buf.Bytes(), "image/jpeg", "jpg", dw, dh, nil
+	return thumbnail{data: buf.Bytes(), mime: "image/jpeg", ext: "jpg", width: dw, height: dh}, nil
 }
 
 // scaledSize returns the dimensions that fit (w,h) within a maxEdge-length

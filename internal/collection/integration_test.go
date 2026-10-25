@@ -96,7 +96,7 @@ func basicNoteType(t *testing.T, c integrationComponents) *NoteType {
 
 func defaultDeck(t *testing.T, c integrationComponents) *Deck {
 	t.Helper()
-	d, err := c.svc.CreateDeck(context.Background(), testUserID, testProfileID, "Default", "", "")
+	d, err := c.svc.CreateDeck(context.Background(), testUserID, testProfileID, DeckFields{Name: "Default"})
 	if err != nil {
 		t.Fatalf("CreateDeck: %v", err)
 	}
@@ -452,7 +452,7 @@ func TestBulkCards_Move(t *testing.T) {
 	ctx := context.Background()
 
 	deck1 := defaultDeck(t, c)
-	deck2, _ := c.svc.CreateDeck(ctx, testUserID, testProfileID, "Deck2", "", "")
+	deck2, _ := c.svc.CreateDeck(ctx, testUserID, testProfileID, DeckFields{Name: "Deck2"})
 	nt := basicNoteType(t, c)
 	note, _ := c.svc.CreateNote(ctx, testUserID, testProfileID, nt.ID, deck1.ID,
 		map[string]string{"Front": "x", "Back": "y"}, nil, 0)
@@ -554,11 +554,11 @@ func TestGetSearchDocs_ByDeckSubtree(t *testing.T) {
 	ctx := context.Background()
 
 	nt := basicNoteType(t, c)
-	parent, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, "Spanish", "", "")
+	parent, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, DeckFields{Name: "Spanish"})
 	if err != nil {
 		t.Fatalf("CreateDeck parent: %v", err)
 	}
-	child, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, "Verbs", parent.ID, "")
+	child, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, DeckFields{Name: "Verbs", ParentID: parent.ID})
 	if err != nil {
 		t.Fatalf("CreateDeck child: %v", err)
 	}
@@ -674,18 +674,18 @@ func TestUpdateDeck_RejectsCycles(t *testing.T) {
 	ctx := context.Background()
 
 	root := defaultDeck(t, c)
-	child, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, "Child", root.ID, "")
+	child, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, DeckFields{Name: "Child", ParentID: root.ID})
 	if err != nil {
 		t.Fatalf("CreateDeck child: %v", err)
 	}
-	grandchild, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, "Grandchild", child.ID, "")
+	grandchild, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, DeckFields{Name: "Grandchild", ParentID: child.ID})
 	if err != nil {
 		t.Fatalf("CreateDeck grandchild: %v", err)
 	}
 
 	for name, parentID := range map[string]string{"self": root.ID, "child": child.ID, "grandchild": grandchild.ID} {
 		t.Run(name, func(t *testing.T) {
-			_, err := c.svc.UpdateDeck(ctx, testUserID, root.ID, 0, root.Name, parentID, "")
+			_, err := c.svc.UpdateDeck(ctx, testUserID, root.ID, 0, DeckFields{Name: root.Name, ParentID: parentID})
 			if !apperr.IsInvalidArgument(err) {
 				t.Fatalf("got %v, want InvalidArgument", err)
 			}
@@ -706,11 +706,11 @@ func TestUpdateDeck_ConcurrentSwapNoCycle(t *testing.T) {
 	ctx := context.Background()
 
 	for i := range 10 {
-		a, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, "A", "", "")
+		a, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, DeckFields{Name: "A"})
 		if err != nil {
 			t.Fatalf("CreateDeck A: %v", err)
 		}
-		b, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, "B", "", "")
+		b, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, DeckFields{Name: "B"})
 		if err != nil {
 			t.Fatalf("CreateDeck B: %v", err)
 		}
@@ -719,7 +719,7 @@ func TestUpdateDeck_ConcurrentSwapNoCycle(t *testing.T) {
 		errs := make(chan error, 2)
 		move := func(id, name, parentID string) {
 			<-start
-			_, err := c.svc.UpdateDeck(ctx, testUserID, id, 0, name, parentID, "")
+			_, err := c.svc.UpdateDeck(ctx, testUserID, id, 0, DeckFields{Name: name, ParentID: parentID})
 			errs <- err
 		}
 		go move(a.ID, "A", b.ID)
@@ -761,11 +761,11 @@ func TestCreateDeck_ConcurrentWithParentMove(t *testing.T) {
 	ctx := context.Background()
 
 	for i := range 10 {
-		parent, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, "P", "", "")
+		parent, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, DeckFields{Name: "P"})
 		if err != nil {
 			t.Fatalf("CreateDeck P: %v", err)
 		}
-		target, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, "T", "", "")
+		target, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, DeckFields{Name: "T"})
 		if err != nil {
 			t.Fatalf("CreateDeck T: %v", err)
 		}
@@ -777,12 +777,12 @@ func TestCreateDeck_ConcurrentWithParentMove(t *testing.T) {
 		go func() {
 			<-start
 			var err error
-			child, err = c.svc.CreateDeck(ctx, testUserID, testProfileID, "C", parent.ID, "")
+			child, err = c.svc.CreateDeck(ctx, testUserID, testProfileID, DeckFields{Name: "C", ParentID: parent.ID})
 			createErr <- err
 		}()
 		go func() {
 			<-start
-			_, err := c.svc.UpdateDeck(ctx, testUserID, parent.ID, 0, "P", target.ID, "")
+			_, err := c.svc.UpdateDeck(ctx, testUserID, parent.ID, 0, DeckFields{Name: "P", ParentID: target.ID})
 			moved <- err
 		}()
 		close(start)
@@ -820,15 +820,15 @@ func TestDeleteDeck_ReparentsChildrenToGrandparent(t *testing.T) {
 	ctx := context.Background()
 
 	root := defaultDeck(t, c)
-	mid, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, "Mid", root.ID, "")
+	mid, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, DeckFields{Name: "Mid", ParentID: root.ID})
 	if err != nil {
 		t.Fatalf("CreateDeck mid: %v", err)
 	}
-	child, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, "Child", mid.ID, "")
+	child, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, DeckFields{Name: "Child", ParentID: mid.ID})
 	if err != nil {
 		t.Fatalf("CreateDeck child: %v", err)
 	}
-	grandchild, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, "Grandchild", child.ID, "")
+	grandchild, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, DeckFields{Name: "Grandchild", ParentID: child.ID})
 	if err != nil {
 		t.Fatalf("CreateDeck grandchild: %v", err)
 	}
@@ -880,7 +880,7 @@ func TestDeleteDeck_RootChildrenBecomeRoots(t *testing.T) {
 	ctx := context.Background()
 
 	root := defaultDeck(t, c)
-	child, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, "Child", root.ID, "")
+	child, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, DeckFields{Name: "Child", ParentID: root.ID})
 	if err != nil {
 		t.Fatalf("CreateDeck child: %v", err)
 	}
@@ -901,7 +901,7 @@ func TestDeleteDeck_WithCardsFailsAndKeepsChildren(t *testing.T) {
 	ctx := context.Background()
 
 	deck := defaultDeck(t, c)
-	child, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, "Child", deck.ID, "")
+	child, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, DeckFields{Name: "Child", ParentID: deck.ID})
 	if err != nil {
 		t.Fatalf("CreateDeck child: %v", err)
 	}
@@ -933,7 +933,7 @@ func TestDeleteDeckConfig_ResetsDecks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateDeckConfig: %v", err)
 	}
-	deck, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, "Uses config", "", cfg.ID)
+	deck, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, DeckFields{Name: "Uses config", ConfigID: cfg.ID})
 	if err != nil {
 		t.Fatalf("CreateDeck: %v", err)
 	}
@@ -990,7 +990,7 @@ func TestMigrations_Citus(t *testing.T) {
 	}
 
 	root := defaultDeck(t, c)
-	child, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, "Child", root.ID, "")
+	child, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, DeckFields{Name: "Child", ParentID: root.ID})
 	if err != nil {
 		t.Fatalf("CreateDeck child: %v", err)
 	}
@@ -1011,7 +1011,7 @@ func TestMigrations_Citus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateDeckConfig: %v", err)
 	}
-	if _, err := c.svc.UpdateDeck(ctx, testUserID, child.ID, 0, child.Name, "", cfg.ID); err != nil {
+	if _, err := c.svc.UpdateDeck(ctx, testUserID, child.ID, 0, DeckFields{Name: child.Name, ConfigID: cfg.ID}); err != nil {
 		t.Fatalf("UpdateDeck config: %v", err)
 	}
 	if err := c.svc.DeleteDeckConfig(ctx, testUserID, cfg.ID, 0); err != nil {
@@ -1023,7 +1023,7 @@ func TestRepoDeleteDeck_WithSubdecksFailedPrecondition(t *testing.T) {
 	c := setupIntegration(t)
 	ctx := context.Background()
 	root := defaultDeck(t, c)
-	if _, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, "Child", root.ID, ""); err != nil {
+	if _, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, DeckFields{Name: "Child", ParentID: root.ID}); err != nil {
 		t.Fatalf("CreateDeck child: %v", err)
 	}
 	err := c.repo.DeleteDeck(ctx, testUserID, root.ID)
@@ -1093,7 +1093,7 @@ func TestUpdateNote_NewCardJoinsFirstCardsDeck(t *testing.T) {
 	c := setupIntegration(t)
 	ctx := context.Background()
 	deck := defaultDeck(t, c)
-	other, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, "Other", "", "")
+	other, err := c.svc.CreateDeck(ctx, testUserID, testProfileID, DeckFields{Name: "Other"})
 	if err != nil {
 		t.Fatalf("CreateDeck: %v", err)
 	}

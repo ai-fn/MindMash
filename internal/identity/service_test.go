@@ -412,10 +412,10 @@ const testRedirect = "https://app/cb"
 var testOAuth = func() Option { return WithOAuth(&fakeStateStore{}, []string{testRedirect}) }
 
 // oauthLogin runs a full start + exchange, as the SPA would.
-func oauthLogin(ctx context.Context, svc *Service, provider, code string) (access, refresh string, expiresIn int64, userID, profileID string, isNew bool, err error) {
+func oauthLogin(ctx context.Context, svc *Service, provider, code string) (TokenSet, bool, error) {
 	_, state, err := svc.OAuthStart(ctx, provider, testRedirect)
 	if err != nil {
-		return "", "", 0, "", "", false, err
+		return TokenSet{}, false, err
 	}
 	return svc.OAuthExchange(ctx, provider, code, state, testRedirect)
 }
@@ -568,7 +568,8 @@ func TestLogin(t *testing.T) {
 	t.Run("success returns valid tokens and expiresIn", func(t *testing.T) {
 		svc, signer, ctx := setup(t)
 
-		access, refresh, expiresIn, userID, profileID, err := svc.Login(ctx, "carol@example.com", "hunter2-pw")
+		tok, err := svc.Login(ctx, "carol@example.com", "hunter2-pw")
+		access, refresh, expiresIn, userID, profileID := tok.AccessToken, tok.RefreshToken, tok.ExpiresIn, tok.UserID, tok.ProfileID
 		if err != nil {
 			t.Fatalf("Login: %v", err)
 		}
@@ -600,7 +601,7 @@ func TestLogin(t *testing.T) {
 
 	t.Run("wrong password returns Unauthenticated", func(t *testing.T) {
 		svc, _, ctx := setup(t)
-		_, _, _, _, _, err := svc.Login(ctx, "carol@example.com", "wrong")
+		_, err := svc.Login(ctx, "carol@example.com", "wrong")
 		if err == nil {
 			t.Fatal("expected error")
 		}
@@ -611,7 +612,7 @@ func TestLogin(t *testing.T) {
 
 	t.Run("unknown email returns Unauthenticated (not NotFound — no enumeration)", func(t *testing.T) {
 		svc, _, ctx := setup(t)
-		_, _, _, _, _, err := svc.Login(ctx, "nobody@example.com", "password1")
+		_, err := svc.Login(ctx, "nobody@example.com", "password1")
 		if err == nil {
 			t.Fatal("expected error")
 		}
@@ -645,7 +646,7 @@ func TestLogin(t *testing.T) {
 			t.Fatalf("CreateProfile: %v", err)
 		}
 
-		_, _, _, _, _, err := svc.Login(ctx, "oauth@example.com", "any")
+		_, err := svc.Login(ctx, "oauth@example.com", "any")
 		if err == nil {
 			t.Fatal("expected error")
 		}
@@ -665,7 +666,8 @@ func TestRefresh(t *testing.T) {
 		if _, err := svc.Register(ctx, "dave@example.com", "password1", "de"); err != nil {
 			t.Fatalf("Register: %v", err)
 		}
-		_, refresh, _, _, _, err := svc.Login(ctx, "dave@example.com", "password1")
+		tok, err := svc.Login(ctx, "dave@example.com", "password1")
+		refresh := tok.RefreshToken
 		if err != nil {
 			t.Fatalf("Login: %v", err)
 		}
@@ -681,7 +683,8 @@ func TestRefresh(t *testing.T) {
 		}
 		oldJTI := oldClaims.ID
 
-		newAccess, newRefresh, expiresIn, err := svc.Refresh(ctx, oldRefresh)
+		tok2, err := svc.Refresh(ctx, oldRefresh)
+		newAccess, newRefresh, expiresIn := tok2.AccessToken, tok2.RefreshToken, tok2.ExpiresIn
 		if err != nil {
 			t.Fatalf("Refresh: %v", err)
 		}
@@ -690,6 +693,9 @@ func TestRefresh(t *testing.T) {
 		}
 		if expiresIn != int64((15 * time.Minute).Seconds()) {
 			t.Fatalf("unexpected expiresIn %d", expiresIn)
+		}
+		if tok2.UserID != oldClaims.Subject || tok2.ProfileID != oldClaims.ProfileID || tok2.ProfileID == "" {
+			t.Fatalf("tokens for %s/%s, want %s/%s", tok2.UserID, tok2.ProfileID, oldClaims.Subject, oldClaims.ProfileID)
 		}
 
 		newClaims, err := signer.Verify(newRefresh)
@@ -705,12 +711,14 @@ func TestRefresh(t *testing.T) {
 		svc, repo, ctx, oldRefresh := registerAndLogin(t, "reuse@example.com")
 
 		// Rotate once legitimately — oldRefresh → tokenB.
-		_, tokenB, _, err := svc.Refresh(ctx, oldRefresh)
+		tok3, err := svc.Refresh(ctx, oldRefresh)
+		tokenB := tok3.RefreshToken
 		if err != nil {
 			t.Fatalf("first Refresh: %v", err)
 		}
 		// Rotate again with tokenB so the family has >1 member — tokenB → tokenC.
-		_, tokenC, _, err := svc.Refresh(ctx, tokenB)
+		tok4, err := svc.Refresh(ctx, tokenB)
+		tokenC := tok4.RefreshToken
 		if err != nil {
 			t.Fatalf("second Refresh: %v", err)
 		}
@@ -718,7 +726,7 @@ func TestRefresh(t *testing.T) {
 
 		// Replayed after the concurrent-refresh grace window, the original token is theft: revoke the family.
 		ageRotations(repo, time.Minute)
-		_, _, _, err = svc.Refresh(ctx, oldRefresh)
+		_, err = svc.Refresh(ctx, oldRefresh)
 		if err == nil {
 			t.Fatal("expected error on revoked-token reuse")
 		}
@@ -728,7 +736,7 @@ func TestRefresh(t *testing.T) {
 
 		// GAP-2: the currently-valid token (tokenC) must also now be rejected because
 		// the family was fully revoked when the replay was detected.
-		_, _, _, err = svc.Refresh(ctx, tokenC)
+		_, err = svc.Refresh(ctx, tokenC)
 		if err == nil {
 			t.Fatal("expected tokenC to be rejected after family revocation")
 		}
@@ -739,7 +747,7 @@ func TestRefresh(t *testing.T) {
 
 	t.Run("invalid/garbage token returns Unauthenticated", func(t *testing.T) {
 		svc, _, ctx, _ := setup(t)
-		_, _, _, err := svc.Refresh(ctx, "not.a.jwt")
+		_, err := svc.Refresh(ctx, "not.a.jwt")
 		if grpcCode(err) != codes.Unauthenticated {
 			t.Fatalf("expected Unauthenticated, got %v", grpcCode(err))
 		}
@@ -758,7 +766,8 @@ func TestOAuthExchange(t *testing.T) {
 			Email: "eve@example.com", EmailVerified: true,
 		}
 
-		_, _, _, userID, _, isNew, err := oauthLogin(ctx, svc, "google", "code1")
+		tok, isNew, err := oauthLogin(ctx, svc, "google", "code1")
+		userID := tok.UserID
 		if err != nil {
 			t.Fatalf("OAuthExchange: %v", err)
 		}
@@ -791,12 +800,14 @@ func TestOAuthExchange(t *testing.T) {
 			Email: "frank@example.com", EmailVerified: true,
 		}
 
-		_, _, _, userID1, _, _, err := oauthLogin(ctx, svc, "google", "code2")
+		tok2, _, err := oauthLogin(ctx, svc, "google", "code2")
+		userID1 := tok2.UserID
 		if err != nil {
 			t.Fatalf("first OAuthExchange: %v", err)
 		}
 
-		_, _, _, userID2, _, isNew, err := oauthLogin(ctx, svc, "google", "code2")
+		tok3, isNew, err := oauthLogin(ctx, svc, "google", "code2")
+		userID2 := tok3.UserID
 		if err != nil {
 			t.Fatalf("second OAuthExchange: %v", err)
 		}
@@ -826,7 +837,8 @@ func TestOAuthExchange(t *testing.T) {
 			Email: "grace@example.com", EmailVerified: true,
 		}
 
-		_, _, _, returnedUserID, _, isNew, err := oauthLogin(ctx, svc, "google", "code3")
+		tok4, isNew, err := oauthLogin(ctx, svc, "google", "code3")
+		returnedUserID := tok4.UserID
 		if err != nil {
 			t.Fatalf("OAuthExchange: %v", err)
 		}
@@ -879,7 +891,7 @@ func TestOAuthExchange_RefusesUnverifiedEmails(t *testing.T) {
 				Provider: "google", Subject: "g-attacker", Email: "ivy@example.com", EmailVerified: tc.providerVerified,
 			}
 
-			_, _, _, _, _, _, err := oauthLogin(ctx, svc, "google", "c")
+			_, _, err := oauthLogin(ctx, svc, "google", "c")
 			if got := grpcCode(err); got != tc.want {
 				t.Fatalf("want %v, got %v (%v)", tc.want, got, err)
 			}
@@ -908,7 +920,7 @@ func TestOAuthExchange_LookupErrorCreatesNothing(t *testing.T) {
 	svc := NewService(repo, newTestSigner(t), exchanger, &fakeEmailSender{}, zap.NewNop(),
 		auth.Config{AccessTokenTTL: time.Minute, RefreshTokenTTL: time.Hour}, testOAuth())
 
-	if _, _, _, _, _, _, err := oauthLogin(context.Background(), svc, "google", "c"); err == nil || !strings.Contains(err.Error(), "db down") {
+	if _, _, err := oauthLogin(context.Background(), svc, "google", "c"); err == nil || !strings.Contains(err.Error(), "db down") {
 		t.Fatalf("want the lookup error, got %v", err)
 	}
 	if _, err := repo.GetOAuthIdentity(context.Background(), "google", "g-1"); !apperr.IsNotFound(err) {
@@ -926,10 +938,10 @@ func TestOAuthExchange_RejectsMissingClaims(t *testing.T) {
 	exchanger.responses["no-email"] = OAuthUserInfo{Provider: "google", Subject: "g-1", EmailVerified: true}
 	exchanger.responses["no-sub"] = OAuthUserInfo{Provider: "google", Email: "jo@example.com", EmailVerified: true}
 
-	if _, _, _, _, _, _, err := oauthLogin(ctx, svc, "google", "no-email"); !apperr.IsFailedPrecondition(err) {
+	if _, _, err := oauthLogin(ctx, svc, "google", "no-email"); !apperr.IsFailedPrecondition(err) {
 		t.Fatalf("empty email: want FailedPrecondition, got %v", err)
 	}
-	if _, _, _, _, _, _, err := oauthLogin(ctx, svc, "google", "no-sub"); !apperr.IsUnauthenticated(err) {
+	if _, _, err := oauthLogin(ctx, svc, "google", "no-sub"); !apperr.IsUnauthenticated(err) {
 		t.Fatalf("empty subject: want Unauthenticated, got %v", err)
 	}
 }
@@ -945,7 +957,8 @@ func TestActivateProfile(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Register: %v", err)
 		}
-		_, _, _, _, loginProfileID, err := svc.Login(ctx, "henry@example.com", "password1")
+		tok, err := svc.Login(ctx, "henry@example.com", "password1")
+		loginProfileID := tok.ProfileID
 		if err != nil {
 			t.Fatalf("Login: %v", err)
 		}

@@ -757,7 +757,8 @@ func deckPath(id, parentPath string) string {
 	return parentPath + "." + label
 }
 
-func (s *Service) CreateDeck(ctx context.Context, userID, profileID, name, parentID, configID string) (*Deck, error) {
+func (s *Service) CreateDeck(ctx context.Context, userID, profileID string, f DeckFields) (*Deck, error) {
+	name, parentID, configID := f.Name, f.ParentID, f.ConfigID
 	if err := validateDeck(name, parentID, configID); err != nil {
 		return nil, err
 	}
@@ -817,7 +818,8 @@ func (s *Service) ListDecks(ctx context.Context, userID string, page Page) ([]De
 	return s.repo.ListDecks(ctx, userID, page)
 }
 
-func (s *Service) UpdateDeck(ctx context.Context, userID, id string, expectedUSN int64, name, parentID, configID string) (*Deck, error) {
+func (s *Service) UpdateDeck(ctx context.Context, userID, id string, expectedUSN int64, f DeckFields) (*Deck, error) {
+	name, parentID, configID := f.Name, f.ParentID, f.ConfigID
 	if err := validate.ID("id", id); err != nil {
 		return nil, err
 	}

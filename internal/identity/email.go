@@ -19,27 +19,34 @@ func NewLogEmailSender(log *zap.Logger, logSecrets bool) *LogEmailSender {
 	return &LogEmailSender{log: log, logSecrets: logSecrets}
 }
 
+type emailTemplate struct{ kind, subjectID, bodyID string }
+
+var (
+	verificationEmail  = emailTemplate{"verification", i18n.MsgVerificationSubject, i18n.MsgVerificationBody}
+	passwordResetEmail = emailTemplate{"password-reset", i18n.MsgPasswordResetSubject, i18n.MsgPasswordResetBody}
+)
+
 func (s *LogEmailSender) SendVerification(_ context.Context, email, token, locale string) error {
-	s.logMessage("verification", email, token, locale, i18n.MsgVerificationSubject, i18n.MsgVerificationBody)
+	s.logMessage(verificationEmail, email, token, locale)
 	return nil
 }
 
 func (s *LogEmailSender) SendPasswordReset(_ context.Context, email, token, locale string) error {
-	s.logMessage("password-reset", email, token, locale, i18n.MsgPasswordResetSubject, i18n.MsgPasswordResetBody)
+	s.logMessage(passwordResetEmail, email, token, locale)
 	return nil
 }
 
-func (s *LogEmailSender) logMessage(kind, email, token, locale, subjectID, bodyID string) {
+func (s *LogEmailSender) logMessage(t emailTemplate, email, token, locale string) {
 	if !s.logSecrets {
-		s.log.Warn("identity: email stub dropped a "+kind+" message; configure a real sender", zap.String("locale", locale))
+		s.log.Warn("identity: email stub dropped a "+t.kind+" message; configure a real sender", zap.String("locale", locale))
 		return
 	}
 	p := i18n.Printer(i18n.ResolveTag(locale, ""))
-	s.log.Info("identity: send "+kind+" email (stub)",
+	s.log.Info("identity: send "+t.kind+" email (stub)",
 		zap.String("email", email),
 		zap.String("token", token),
 		zap.String("locale", locale),
-		zap.String("subject", p.Sprintf(subjectID)),
-		zap.String("body", p.Sprintf(bodyID, token)),
+		zap.String("subject", p.Sprintf(t.subjectID)),
+		zap.String("body", p.Sprintf(t.bodyID, token)),
 	)
 }

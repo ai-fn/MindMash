@@ -212,26 +212,26 @@ func (s *Service) Register(ctx context.Context, email, password, locale string) 
 // ─── Login ───────────────────────────────────────────────────────────────────
 
 // Login authenticates a user by email/password and issues a token set.
-func (s *Service) Login(ctx context.Context, email, password string) (accessToken, refreshToken string, expiresIn int64, userID, profileID string, err error) {
+func (s *Service) Login(ctx context.Context, email, password string) (TokenSet, error) {
 	invalid := apperr.Unauthenticated("invalid credentials").WithMsgID(i18n.MsgInvalidCredentials)
 
 	email, normErr := normalizeEmail(email)
 	if normErr != nil || len(password) > maxPasswordBytes {
-		return "", "", 0, "", "", invalid
+		return TokenSet{}, invalid
 	}
 	if err := s.allow(ctx, "login", email, loginLimit, loginWindow); err != nil {
-		return "", "", 0, "", "", err
+		return TokenSet{}, err
 	}
 
 	user, lookupErr := s.repo.GetUserByEmail(ctx, email)
 	if lookupErr != nil && !apperr.IsNotFound(lookupErr) {
-		return "", "", 0, "", "", fmt.Errorf("identity: login lookup user: %w", lookupErr)
+		return TokenSet{}, fmt.Errorf("identity: login lookup user: %w", lookupErr)
 	}
 
 	// Unknown and OAuth-only accounts still pay for a hash so timing matches a wrong password.
 	hash, hashErr := s.dummyPasswordHash()
 	if hashErr != nil {
-		return "", "", 0, "", "", hashErr
+		return TokenSet{}, hashErr
 	}
 	known := lookupErr == nil && user.PasswordHash != nil
 	if known {
@@ -239,27 +239,23 @@ func (s *Service) Login(ctx context.Context, email, password string) (accessToke
 	}
 	ok, verifyErr := s.verifyPassword(ctx, password, hash)
 	if verifyErr != nil {
-		return "", "", 0, "", "", fmt.Errorf("identity: login verify password: %w", verifyErr)
+		return TokenSet{}, fmt.Errorf("identity: login verify password: %w", verifyErr)
 	}
 	if !known || !ok {
-		return "", "", 0, "", "", invalid
+		return TokenSet{}, invalid
 	}
 	if err := requireActive(user); err != nil {
-		return "", "", 0, "", "", err
+		return TokenSet{}, err
 	}
 	// Successful sign-ins must not eat the budget meant for guessing, or an attacker could lock the owner out.
 	s.resetLimit(ctx, "login", email)
 
 	profile, err := s.pickDefaultProfile(ctx, user.ID)
 	if err != nil {
-		return "", "", 0, "", "", err
+		return TokenSet{}, err
 	}
 
-	access, refresh, expiresIn, err := s.issueTokens(ctx, user, profile)
-	if err != nil {
-		return "", "", 0, "", "", err
-	}
-	return access, refresh, expiresIn, user.ID, profile.ID, nil
+	return s.issueTokens(ctx, user, profile)
 }
 
 // ─── OAuth ───────────────────────────────────────────────────────────────────
@@ -295,30 +291,30 @@ func (s *Service) OAuthStart(ctx context.Context, provider, redirectURI string) 
 }
 
 // OAuthExchange completes a flow started by OAuthStart and either creates a new account or links/finds an existing one.
-func (s *Service) OAuthExchange(ctx context.Context, provider, code, state, redirectURI string) (accessToken, refreshToken string, expiresIn int64, userID, profileID string, isNew bool, err error) {
+func (s *Service) OAuthExchange(ctx context.Context, provider, code, state, redirectURI string) (tokens TokenSet, isNew bool, err error) {
 	if s.oauthStates == nil {
-		return "", "", 0, "", "", false, apperr.FailedPrecondition("oauth is not configured")
+		return TokenSet{}, false, apperr.FailedPrecondition("oauth is not configured")
 	}
 	if state == "" || code == "" {
-		return "", "", 0, "", "", false, apperr.InvalidArgument("code and state are required")
+		return TokenSet{}, false, apperr.InvalidArgument("code and state are required")
 	}
 	st, found, err := s.oauthStates.Take(ctx, state)
 	if err != nil {
-		return "", "", 0, "", "", false, err
+		return TokenSet{}, false, err
 	}
 	if !found || st.Provider != provider || (redirectURI != "" && redirectURI != st.RedirectURI) {
-		return "", "", 0, "", "", false, apperr.Unauthenticated("invalid or expired oauth state")
+		return TokenSet{}, false, apperr.Unauthenticated("invalid or expired oauth state")
 	}
 	info, err := s.exchanger.Exchange(ctx, provider, code, st.OAuthFlow)
 	if err != nil {
 		var appErr *apperr.AppError
 		if errors.As(err, &appErr) {
-			return "", "", 0, "", "", false, err // already client-safe; wrapping would expose the cause in the status message
+			return TokenSet{}, false, err // already client-safe; wrapping would expose the cause in the status message
 		}
-		return "", "", 0, "", "", false, fmt.Errorf("identity: oauth exchange: %w", err)
+		return TokenSet{}, false, fmt.Errorf("identity: oauth exchange: %w", err)
 	}
 	if info.Subject == "" {
-		return "", "", 0, "", "", false, apperr.Unauthenticated("oauth provider returned no subject")
+		return TokenSet{}, false, apperr.Unauthenticated("oauth provider returned no subject")
 	}
 	info.Email = strings.TrimSpace(info.Email)
 
@@ -328,32 +324,32 @@ func (s *Service) OAuthExchange(ctx context.Context, provider, code, state, redi
 		// Known provider+uid → load the user.
 		user, err := s.repo.GetUserByID(ctx, oauthID.UserID)
 		if err != nil {
-			return "", "", 0, "", "", false, fmt.Errorf("identity: oauth exchange load user: %w", err)
+			return TokenSet{}, false, fmt.Errorf("identity: oauth exchange load user: %w", err)
 		}
 		if err := requireActive(user); err != nil {
-			return "", "", 0, "", "", false, err
+			return TokenSet{}, false, err
 		}
 		profile, err := s.pickDefaultProfile(ctx, user.ID)
 		if err != nil {
-			return "", "", 0, "", "", false, err
+			return TokenSet{}, false, err
 		}
-		access, refresh, expiresIn, err := s.issueTokens(ctx, user, profile)
+		tokens, err = s.issueTokens(ctx, user, profile)
 		if err != nil {
-			return "", "", 0, "", "", false, err
+			return TokenSet{}, false, err
 		}
-		return access, refresh, expiresIn, user.ID, profile.ID, false, nil
+		return tokens, false, nil
 	}
 
 	if !apperr.IsNotFound(lookupErr) {
-		return "", "", 0, "", "", false, fmt.Errorf("identity: oauth exchange lookup identity: %w", lookupErr)
+		return TokenSet{}, false, fmt.Errorf("identity: oauth exchange lookup identity: %w", lookupErr)
 	}
 	// An empty email would match any other account stored without one.
 	if info.Email == "" {
-		return "", "", 0, "", "", false, apperr.FailedPrecondition("oauth provider returned no email")
+		return TokenSet{}, false, apperr.FailedPrecondition("oauth provider returned no email")
 	}
 	// Linking or creating from an unproven address would let its holder squat or take over the account.
 	if !info.EmailVerified {
-		return "", "", 0, "", "", false, apperr.FailedPrecondition("oauth email is not verified").
+		return TokenSet{}, false, apperr.FailedPrecondition("oauth email is not verified").
 			WithMsgID(i18n.MsgOAuthEmailUnverified)
 	}
 
@@ -361,7 +357,7 @@ func (s *Service) OAuthExchange(ctx context.Context, provider, code, state, redi
 	now := time.Now()
 	existingUser, emailErr := s.repo.GetUserByEmail(ctx, info.Email)
 	if emailErr != nil && !apperr.IsNotFound(emailErr) {
-		return "", "", 0, "", "", false, fmt.Errorf("identity: oauth exchange lookup email: %w", emailErr)
+		return TokenSet{}, false, fmt.Errorf("identity: oauth exchange lookup email: %w", emailErr)
 	}
 	if emailErr == nil {
 		// The provider proved the mailbox, so the account is now theirs: a password set before that
@@ -399,18 +395,18 @@ func (s *Service) OAuthExchange(ctx context.Context, provider, code, state, redi
 			}
 			return txRepo.InvalidateEmailVerifications(ctx, cur.ID)
 		}); txErr != nil {
-			return "", "", 0, "", "", false, fmt.Errorf("identity: oauth exchange link identity: %w", txErr)
+			return TokenSet{}, false, fmt.Errorf("identity: oauth exchange link identity: %w", txErr)
 		}
 		existingUser.PasswordHash = nil
 		profile, err := s.pickDefaultProfile(ctx, existingUser.ID)
 		if err != nil {
-			return "", "", 0, "", "", false, err
+			return TokenSet{}, false, err
 		}
-		access, refresh, expiresIn, err := s.issueTokens(ctx, existingUser, profile)
+		tokens, err = s.issueTokens(ctx, existingUser, profile)
 		if err != nil {
-			return "", "", 0, "", "", false, err
+			return TokenSet{}, false, err
 		}
-		return access, refresh, expiresIn, existingUser.ID, profile.ID, false, nil
+		return tokens, false, nil
 	}
 
 	// Brand-new user: create user, profile, and identity atomically so a crash
@@ -452,35 +448,32 @@ func (s *Service) OAuthExchange(ctx context.Context, provider, code, state, redi
 		}
 		return nil
 	}); txErr != nil {
-		return "", "", 0, "", "", false, txErr
+		return TokenSet{}, false, txErr
 	}
 
-	access, refresh, expiresIn, err := s.issueTokens(ctx, newUser, newProfile)
+	tokens, err = s.issueTokens(ctx, newUser, newProfile)
 	if err != nil {
-		return "", "", 0, "", "", false, err
+		return TokenSet{}, false, err
 	}
-	return access, refresh, expiresIn, newUser.ID, newProfile.ID, true, nil
+	return tokens, true, nil
 }
 
 // ─── Token rotation ──────────────────────────────────────────────────────────
 
 // Refresh rotates the refresh token. Presenting a token that was rotated earlier revokes its whole family
 // (theft detection), unless the rotation was within refreshGrace, which only mints a sibling token.
-func (s *Service) Refresh(ctx context.Context, refreshToken string) (accessToken, newRefreshToken string, expiresIn int64, err error) {
+func (s *Service) Refresh(ctx context.Context, refreshToken string) (TokenSet, error) {
 	claims, err := s.signer.Verify(refreshToken)
 	if err != nil {
-		return "", "", 0, apperr.Unauthenticated("invalid token")
+		return TokenSet{}, apperr.Unauthenticated("invalid token")
 	}
 	if claims.Kind != "refresh" {
-		return "", "", 0, apperr.Unauthenticated("invalid token")
+		return TokenSet{}, apperr.Unauthenticated("invalid token")
 	}
 	jti := claims.ID
 
 	var (
-		newAccessToken   string
-		newRefreshString string
-		newExpiresIn     int64
-		newJTI           string
+		newJTI string
 		// Captured in the tx; the family is revoked after it returns, since an error would roll the revoke back.
 		reuseFamilyID   string
 		rotatedFamilyID string
@@ -553,10 +546,10 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (accessToken
 
 	if errors.Is(txErr, errTokenReuse) {
 		s.revokeFamilyBestEffort(ctx, claims.Subject, reuseFamilyID)
-		return "", "", 0, apperr.Unauthenticated("token reuse detected")
+		return TokenSet{}, apperr.Unauthenticated("token reuse detected")
 	}
 	if txErr != nil {
-		return "", "", 0, txErr
+		return TokenSet{}, txErr
 	}
 
 	// Signed after commit so no row lock is held during crypto.
@@ -564,25 +557,23 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (accessToken
 
 	user, err := s.repo.GetUserByID(ctx, userID)
 	if err != nil {
-		return "", "", 0, fmt.Errorf("identity: refresh load user: %w", err)
+		return TokenSet{}, fmt.Errorf("identity: refresh load user: %w", err)
 	}
 	if err := requireActive(user); err != nil {
 		s.revokeFamilyBestEffort(ctx, userID, rotatedFamilyID)
-		return "", "", 0, err
+		return TokenSet{}, err
 	}
 
-	newAccessToken, _, err = s.signer.SignAccess(userID, txProfileID, user.Locale, DefaultRoles())
+	tokens := TokenSet{UserID: userID, ProfileID: txProfileID, ExpiresIn: int64(s.accessTTL.Seconds())}
+	tokens.AccessToken, _, err = s.signer.SignAccess(userID, txProfileID, user.Locale, DefaultRoles())
 	if err != nil {
-		return "", "", 0, fmt.Errorf("identity: refresh sign access: %w", err)
+		return TokenSet{}, fmt.Errorf("identity: refresh sign access: %w", err)
 	}
-	newExpiresIn = int64(s.accessTTL.Seconds())
-
-	newRefreshString, err = s.signer.SignRefreshWithID(userID, txProfileID, newJTI)
+	tokens.RefreshToken, err = s.signer.SignRefreshWithID(userID, txProfileID, newJTI)
 	if err != nil {
-		return "", "", 0, fmt.Errorf("identity: refresh sign refresh: %w", err)
+		return TokenSet{}, fmt.Errorf("identity: refresh sign refresh: %w", err)
 	}
-
-	return newAccessToken, newRefreshString, newExpiresIn, nil
+	return tokens, nil
 }
 
 // ─── Logout ──────────────────────────────────────────────────────────────────
@@ -822,17 +813,18 @@ func (s *Service) JWKS() auth.JWKS {
 // ─── Private helpers ─────────────────────────────────────────────────────────
 
 // issueTokens starts a new token family and returns the signed pair.
-func (s *Service) issueTokens(ctx context.Context, user *User, profile *Profile) (accessToken, refreshToken string, expiresIn int64, err error) {
+func (s *Service) issueTokens(ctx context.Context, user *User, profile *Profile) (TokenSet, error) {
 	familyID := ids.NewULID()
+	tokens := TokenSet{UserID: user.ID, ProfileID: profile.ID, ExpiresIn: int64(s.accessTTL.Seconds())}
 
-	accessToken, _, err = s.signer.SignAccess(user.ID, profile.ID, user.Locale, DefaultRoles())
+	access, _, err := s.signer.SignAccess(user.ID, profile.ID, user.Locale, DefaultRoles())
 	if err != nil {
-		return "", "", 0, fmt.Errorf("identity: issue tokens sign access: %w", err)
+		return TokenSet{}, fmt.Errorf("identity: issue tokens sign access: %w", err)
 	}
 
-	refreshToken, jti, err := s.signer.SignRefresh(user.ID, profile.ID)
+	refresh, jti, err := s.signer.SignRefresh(user.ID, profile.ID)
 	if err != nil {
-		return "", "", 0, fmt.Errorf("identity: issue tokens sign refresh: %w", err)
+		return TokenSet{}, fmt.Errorf("identity: issue tokens sign refresh: %w", err)
 	}
 
 	now := time.Now()
@@ -860,11 +852,11 @@ func (s *Service) issueTokens(ctx context.Context, user *User, profile *Profile)
 		return txRepo.CreateRefreshToken(ctx, rt)
 	})
 	if err != nil {
-		return "", "", 0, fmt.Errorf("identity: issue tokens create refresh token: %w", err)
+		return TokenSet{}, fmt.Errorf("identity: issue tokens create refresh token: %w", err)
 	}
 
-	expiresIn = int64(s.accessTTL.Seconds())
-	return accessToken, refreshToken, expiresIn, nil
+	tokens.AccessToken, tokens.RefreshToken = access, refresh
+	return tokens, nil
 }
 
 func samePassword(a, b *string) bool {

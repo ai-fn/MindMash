@@ -91,14 +91,14 @@ func TestRenderThumbRejectsHostileImages(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			w := NewWorker(nil, blobWith{data: tc.data}, "b", zap.NewNop())
-			_, _, _, gw, gh, err := w.renderThumb(context.Background(), &Media{S3Key: "k", Bytes: tc.bytes})
+			thumb, err := w.renderThumb(context.Background(), &Media{S3Key: "k", Bytes: tc.bytes})
 			if tc.wantErr != "" {
 				assert.True(t, errors.Is(err, errBadImage), "want errBadImage, got %v", err)
 				assert.ErrorContains(t, err, tc.wantErr)
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, [2]int{4, 4}, [2]int{gw, gh})
+			assert.Equal(t, [2]int{4, 4}, [2]int{thumb.width, thumb.height})
 		})
 	}
 }

@@ -133,6 +133,13 @@ type RenderedFront struct {
 	Front  string
 }
 
+// DeckFields are the client-settable deck fields; empty ParentID or ConfigID means none.
+type DeckFields struct {
+	Name     string
+	ParentID string
+	ConfigID string
+}
+
 // Deck is a node in the hierarchical deck tree. Path is an ltree value encoding
 // the ancestor chain; ParentID/ConfigID are nullable.
 type Deck struct {

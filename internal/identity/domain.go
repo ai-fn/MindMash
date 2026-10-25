@@ -16,6 +16,15 @@ func DefaultRoles() []string { return []string{"user"} }
 
 // ─── Domain entities ────────────────────────────────────────────────────────
 
+// TokenSet is what a sign-in or a refresh hands the client.
+type TokenSet struct {
+	AccessToken  string
+	RefreshToken string
+	ExpiresIn    int64 // access-token lifetime, seconds
+	UserID       string
+	ProfileID    string
+}
+
 // User is the root aggregate for an authenticated principal.
 type User struct {
 	ID            string

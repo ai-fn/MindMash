@@ -269,11 +269,11 @@ func TestIndexer_EnrichUpsertDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateNoteType: %v", err)
 	}
-	parent, err := coll.svc.CreateDeck(ctx, userA, profA, "Spanish", "", "")
+	parent, err := coll.svc.CreateDeck(ctx, userA, profA, collection.DeckFields{Name: "Spanish"})
 	if err != nil {
 		t.Fatalf("CreateDeck parent: %v", err)
 	}
-	child, err := coll.svc.CreateDeck(ctx, userA, profA, "Verbs", parent.ID, "")
+	child, err := coll.svc.CreateDeck(ctx, userA, profA, collection.DeckFields{Name: "Verbs", ParentID: parent.ID})
 	if err != nil {
 		t.Fatalf("CreateDeck child: %v", err)
 	}
@@ -340,7 +340,7 @@ func TestIndexer_SchedulingEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateNoteType: %v", err)
 	}
-	deck, err := coll.svc.CreateDeck(ctx, userA, profA, "Spanish", "", "")
+	deck, err := coll.svc.CreateDeck(ctx, userA, profA, collection.DeckFields{Name: "Spanish"})
 	if err != nil {
 		t.Fatalf("CreateDeck: %v", err)
 	}
@@ -400,7 +400,7 @@ func TestIndexer_PagesDeckReindex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateNoteType: %v", err)
 	}
-	deck, err := coll.svc.CreateDeck(ctx, userA, profA, "Spanish", "", "")
+	deck, err := coll.svc.CreateDeck(ctx, userA, profA, collection.DeckFields{Name: "Spanish"})
 	if err != nil {
 		t.Fatalf("CreateDeck: %v", err)
 	}
@@ -478,7 +478,7 @@ func TestIndexer_KafkaPipeline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateNoteType: %v", err)
 	}
-	deck, err := coll.svc.CreateDeck(ctx, userA, profA, "Geography", "", "")
+	deck, err := coll.svc.CreateDeck(ctx, userA, profA, collection.DeckFields{Name: "Geography"})
 	if err != nil {
 		t.Fatalf("CreateDeck: %v", err)
 	}
@@ -610,7 +610,7 @@ func TestIndexer_LanguageBuckets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateNoteType: %v", err)
 	}
-	deck, err := coll.svc.CreateDeck(ctx, userA, profA, "Chinese", "", "")
+	deck, err := coll.svc.CreateDeck(ctx, userA, profA, collection.DeckFields{Name: "Chinese"})
 	if err != nil {
 		t.Fatalf("CreateDeck: %v", err)
 	}

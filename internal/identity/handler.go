@@ -37,16 +37,16 @@ func (h *Handler) Register(ctx context.Context, req *identityv1.RegisterRequest)
 }
 
 func (h *Handler) Login(ctx context.Context, req *identityv1.LoginRequest) (*identityv1.LoginResponse, error) {
-	access, refresh, expiresIn, userID, profileID, err := h.svc.Login(ctx, req.Email, req.Password)
+	t, err := h.svc.Login(ctx, req.Email, req.Password)
 	if err != nil {
 		return nil, err
 	}
 	return &identityv1.LoginResponse{
-		AccessToken:  access,
-		RefreshToken: refresh,
-		UserId:       userID,
-		ProfileId:    profileID,
-		ExpiresIn:    expiresIn,
+		AccessToken:  t.AccessToken,
+		RefreshToken: t.RefreshToken,
+		UserId:       t.UserID,
+		ProfileId:    t.ProfileID,
+		ExpiresIn:    t.ExpiresIn,
 	}, nil
 }
 
@@ -59,29 +59,29 @@ func (h *Handler) OAuthStart(ctx context.Context, req *identityv1.OAuthStartRequ
 }
 
 func (h *Handler) OAuthExchange(ctx context.Context, req *identityv1.OAuthExchangeRequest) (*identityv1.OAuthExchangeResponse, error) {
-	access, refresh, expiresIn, userID, profileID, isNew, err := h.svc.OAuthExchange(ctx, req.Provider, req.Code, req.State, req.RedirectUri)
+	t, isNew, err := h.svc.OAuthExchange(ctx, req.Provider, req.Code, req.State, req.RedirectUri)
 	if err != nil {
 		return nil, err
 	}
 	return &identityv1.OAuthExchangeResponse{
-		AccessToken:  access,
-		RefreshToken: refresh,
-		UserId:       userID,
-		ProfileId:    profileID,
-		ExpiresIn:    expiresIn,
+		AccessToken:  t.AccessToken,
+		RefreshToken: t.RefreshToken,
+		UserId:       t.UserID,
+		ProfileId:    t.ProfileID,
+		ExpiresIn:    t.ExpiresIn,
 		IsNewUser:    isNew,
 	}, nil
 }
 
 func (h *Handler) Refresh(ctx context.Context, req *identityv1.RefreshRequest) (*identityv1.RefreshResponse, error) {
-	access, refresh, expiresIn, err := h.svc.Refresh(ctx, req.RefreshToken)
+	t, err := h.svc.Refresh(ctx, req.RefreshToken)
 	if err != nil {
 		return nil, err
 	}
 	return &identityv1.RefreshResponse{
-		AccessToken:  access,
-		RefreshToken: refresh,
-		ExpiresIn:    expiresIn,
+		AccessToken:  t.AccessToken,
+		RefreshToken: t.RefreshToken,
+		ExpiresIn:    t.ExpiresIn,
 	}, nil
 }
 

@@ -41,10 +41,10 @@ func (s *stubOAuthExchanger) Exchange(context.Context, string, string, OAuthFlow
 const integrationRedirect = "https://app/cb"
 
 // oauthLogin runs a full start + exchange, as the SPA would.
-func oauthLogin(ctx context.Context, svc *Service, provider, code string) (access, refresh string, expiresIn int64, userID, profileID string, isNew bool, err error) {
+func oauthLogin(ctx context.Context, svc *Service, provider, code string) (TokenSet, bool, error) {
 	_, state, err := svc.OAuthStart(ctx, provider, integrationRedirect)
 	if err != nil {
-		return "", "", 0, "", "", false, err
+		return TokenSet{}, false, err
 	}
 	return svc.OAuthExchange(ctx, provider, code, state, integrationRedirect)
 }
@@ -188,7 +188,8 @@ func TestRegisterLogin_Integration(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, userID)
 
-	accessToken, refreshToken, expiresIn, gotUserID, profileID, err := c.svc.Login(ctx, "alice@example.com", "s3cret-pw!")
+	tok, err := c.svc.Login(ctx, "alice@example.com", "s3cret-pw!")
+	accessToken, refreshToken, expiresIn, gotUserID, profileID := tok.AccessToken, tok.RefreshToken, tok.ExpiresIn, tok.UserID, tok.ProfileID
 	require.NoError(t, err)
 	assert.NotEmpty(t, accessToken)
 	assert.NotEmpty(t, refreshToken)
@@ -211,18 +212,21 @@ func TestFullAuthCycle_Integration(t *testing.T) {
 	_, err := c.svc.Register(ctx, "bob@example.com", "hunter2-pw", "en")
 	require.NoError(t, err)
 
-	_, origRefresh, _, _, _, err := c.svc.Login(ctx, "bob@example.com", "hunter2-pw")
+	tok, err := c.svc.Login(ctx, "bob@example.com", "hunter2-pw")
+	origRefresh := tok.RefreshToken
 	require.NoError(t, err)
 
 	// First Refresh: token should rotate.
-	newAccess, newRefresh, _, err := c.svc.Refresh(ctx, origRefresh)
+	tok2, err := c.svc.Refresh(ctx, origRefresh)
+	newAccess, newRefresh := tok2.AccessToken, tok2.RefreshToken
 	require.NoError(t, err)
 	assert.NotEmpty(t, newAccess)
 	assert.NotEmpty(t, newRefresh)
 	assert.NotEqual(t, origRefresh, newRefresh, "refresh token must rotate")
 
 	// Second Refresh with the rotated token should succeed.
-	newAccess2, newRefresh2, _, err := c.svc.Refresh(ctx, newRefresh)
+	tok3, err := c.svc.Refresh(ctx, newRefresh)
+	newAccess2, newRefresh2 := tok3.AccessToken, tok3.RefreshToken
 	require.NoError(t, err)
 	assert.NotEmpty(t, newAccess2)
 	assert.NotEmpty(t, newRefresh2)
@@ -231,7 +235,7 @@ func TestFullAuthCycle_Integration(t *testing.T) {
 	c.svc.Logout(ctx, newRefresh2)
 
 	// After logout, the current refresh token must be rejected.
-	_, _, _, err = c.svc.Refresh(ctx, newRefresh2)
+	_, err = c.svc.Refresh(ctx, newRefresh2)
 	require.Error(t, err)
 	assert.Equal(t, codes.Unauthenticated, status.Code(err))
 }
@@ -249,11 +253,13 @@ func TestRefreshReuseDetection_Integration(t *testing.T) {
 	_, err := c.svc.Register(ctx, "carol@example.com", "p@ssw0rd", "en")
 	require.NoError(t, err)
 
-	_, origRefresh, _, _, _, err := c.svc.Login(ctx, "carol@example.com", "p@ssw0rd")
+	tok, err := c.svc.Login(ctx, "carol@example.com", "p@ssw0rd")
+	origRefresh := tok.RefreshToken
 	require.NoError(t, err)
 
 	// First, legitimately rotate the token.
-	_, survivingRefresh, _, err := c.svc.Refresh(ctx, origRefresh)
+	tok2, err := c.svc.Refresh(ctx, origRefresh)
+	survivingRefresh := tok2.RefreshToken
 	require.NoError(t, err)
 
 	// Re-use the already-rotated original token → triggers family revocation.
@@ -261,12 +267,12 @@ func TestRefreshReuseDetection_Integration(t *testing.T) {
 	_, err = c.repo.pool.Exec(ctx, `UPDATE refresh_tokens SET rotated_at = now() - interval '1 minute' WHERE rotated_at IS NOT NULL`)
 	require.NoError(t, err)
 
-	_, _, _, err = c.svc.Refresh(ctx, origRefresh)
+	_, err = c.svc.Refresh(ctx, origRefresh)
 	require.Error(t, err)
 	assert.Equal(t, codes.Unauthenticated, status.Code(err))
 
 	// The surviving token from the first rotation must also be revoked now.
-	_, _, _, err = c.svc.Refresh(ctx, survivingRefresh)
+	_, err = c.svc.Refresh(ctx, survivingRefresh)
 	require.Error(t, err)
 	assert.Equal(t, codes.Unauthenticated, status.Code(err))
 
@@ -347,12 +353,13 @@ func TestPasswordReset_Integration(t *testing.T) {
 	require.NoError(t, c.svc.ResetPassword(ctx, resetToken, "newpass1"))
 
 	// Old password must no longer work.
-	_, _, _, _, _, err = c.svc.Login(ctx, "eve@example.com", "oldpass1")
+	_, err = c.svc.Login(ctx, "eve@example.com", "oldpass1")
 	require.Error(t, err)
 	assert.Equal(t, codes.Unauthenticated, status.Code(err))
 
 	// New password must work.
-	access, refresh, _, _, _, err := c.svc.Login(ctx, "eve@example.com", "newpass1")
+	tok, err := c.svc.Login(ctx, "eve@example.com", "newpass1")
+	access, refresh := tok.AccessToken, tok.RefreshToken
 	require.NoError(t, err)
 	assert.NotEmpty(t, access)
 	assert.NotEmpty(t, refresh)
@@ -379,7 +386,8 @@ func TestOAuthExchange_Integration(t *testing.T) {
 	c := setupFull(t, NewLogEmailSender(zap.NewNop(), true), stub)
 
 	// First call: brand-new OAuth user.
-	access, refresh, _, userID, profileID, isNew, err := oauthLogin(ctx, c.svc, "google", "code-abc")
+	tok, isNew, err := oauthLogin(ctx, c.svc, "google", "code-abc")
+	access, refresh, userID, profileID := tok.AccessToken, tok.RefreshToken, tok.UserID, tok.ProfileID
 	require.NoError(t, err)
 	assert.True(t, isNew, "first OAuth exchange must report isNew=true")
 	assert.NotEmpty(t, access)
@@ -388,7 +396,8 @@ func TestOAuthExchange_Integration(t *testing.T) {
 	assert.NotEmpty(t, profileID)
 
 	// Second call with same provider+subject: existing identity.
-	access2, refresh2, _, userID2, _, isNew2, err := oauthLogin(ctx, c.svc, "google", "code-abc")
+	tok2, isNew2, err := oauthLogin(ctx, c.svc, "google", "code-abc")
+	access2, refresh2, userID2 := tok2.AccessToken, tok2.RefreshToken, tok2.UserID
 	require.NoError(t, err)
 	assert.False(t, isNew2, "second OAuth exchange must report isNew=false")
 	assert.NotEmpty(t, access2)
@@ -450,10 +459,10 @@ func TestLoginRateLimit_Integration(t *testing.T) {
 	require.NoError(t, err)
 
 	for range loginLimit {
-		_, _, _, _, _, err = c.svc.Login(ctx, "frank@example.com", "wrong-password")
+		_, err = c.svc.Login(ctx, "frank@example.com", "wrong-password")
 		require.Equal(t, codes.Unauthenticated, status.Code(err))
 	}
-	_, _, _, _, _, err = c.svc.Login(ctx, "frank@example.com", "correct-horse")
+	_, err = c.svc.Login(ctx, "frank@example.com", "correct-horse")
 	assert.Equal(t, codes.ResourceExhausted, status.Code(err))
 }
 
@@ -473,13 +482,14 @@ func TestAccountRecoveryRevokesSessions_Integration(t *testing.T) {
 	// Reset: a stolen session dies, tokens are stored hashed and bound to their purpose.
 	uid, err := c.svc.Register(ctx, "stolen@example.com", "password-one", "en")
 	require.NoError(t, err)
-	_, stolenRefresh, _, _, _, err := c.svc.Login(ctx, "stolen@example.com", "password-one")
+	tok, err := c.svc.Login(ctx, "stolen@example.com", "password-one")
+	stolenRefresh := tok.RefreshToken
 	require.NoError(t, err)
 	require.NoError(t, c.svc.RequestPasswordReset(ctx, "stolen@example.com"))
 
 	assert.Equal(t, codes.InvalidArgument, status.Code(c.svc.VerifyEmail(ctx, sender.resetToken)), "purpose binding")
 	require.NoError(t, c.svc.ResetPassword(ctx, sender.resetToken, "password-two"))
-	_, _, _, err = c.svc.Refresh(ctx, stolenRefresh)
+	_, err = c.svc.Refresh(ctx, stolenRefresh)
 	assert.Error(t, err, "sessions must not survive a reset")
 	user, err := c.repo.GetUserByID(ctx, uid)
 	require.NoError(t, err)
@@ -497,16 +507,18 @@ func TestAccountRecoveryRevokesSessions_Integration(t *testing.T) {
 	// Claim: the provider-verified owner takes over an account whose password predates the proof.
 	_, err = c.svc.Register(ctx, "victim@example.com", "attackers-pw", "en")
 	require.NoError(t, err)
-	_, attackerRefresh, _, _, _, err := c.svc.Login(ctx, "victim@example.com", "attackers-pw")
+	tok2, err := c.svc.Login(ctx, "victim@example.com", "attackers-pw")
+	attackerRefresh := tok2.RefreshToken
 	require.NoError(t, err)
 
-	_, _, _, ownerID, _, isNew, err := oauthLogin(ctx, c.svc, "google", "code")
+	tok3, isNew, err := oauthLogin(ctx, c.svc, "google", "code")
+	ownerID := tok3.UserID
 	require.NoError(t, err)
 	assert.False(t, isNew)
 
-	_, _, _, _, _, err = c.svc.Login(ctx, "victim@example.com", "attackers-pw")
+	_, err = c.svc.Login(ctx, "victim@example.com", "attackers-pw")
 	assert.Equal(t, codes.Unauthenticated, status.Code(err))
-	_, _, _, err = c.svc.Refresh(ctx, attackerRefresh)
+	_, err = c.svc.Refresh(ctx, attackerRefresh)
 	assert.Error(t, err)
 	owner, err := c.repo.GetUserByID(ctx, ownerID)
 	require.NoError(t, err)
@@ -530,14 +542,16 @@ func TestClaimEndsRacingRefreshLoop_Integration(t *testing.T) {
 
 	uid, err := c.svc.Register(ctx, "race@example.com", "attackers-pw", "en")
 	require.NoError(t, err)
-	_, refresh, _, _, _, err := c.svc.Login(ctx, "race@example.com", "attackers-pw")
+	tok, err := c.svc.Login(ctx, "race@example.com", "attackers-pw")
+	refresh := tok.RefreshToken
 	require.NoError(t, err)
 
 	loopDone := make(chan struct{})
 	go func() {
 		defer close(loopDone)
 		for token := refresh; ; {
-			_, next, _, err := c.svc.Refresh(ctx, token)
+			tok2, err := c.svc.Refresh(ctx, token)
+			next := tok2.RefreshToken
 			if err != nil {
 				return
 			}
@@ -546,7 +560,7 @@ func TestClaimEndsRacingRefreshLoop_Integration(t *testing.T) {
 	}()
 	time.Sleep(200 * time.Millisecond)
 
-	_, _, _, _, _, _, err = oauthLogin(ctx, c.svc, "google", "code")
+	_, _, err = oauthLogin(ctx, c.svc, "google", "code")
 	require.NoError(t, err)
 
 	select {
@@ -598,17 +612,18 @@ func TestClaimRevokesInFlightRotation_Integration(t *testing.T) {
 
 	uid, err := c.svc.Register(ctx, "mint@example.com", "attackers-pw", "en")
 	require.NoError(t, err)
-	_, refresh, _, _, _, err := c.svc.Login(ctx, "mint@example.com", "attackers-pw")
+	tok, err := c.svc.Login(ctx, "mint@example.com", "attackers-pw")
+	refresh := tok.RefreshToken
 	require.NoError(t, err)
 
 	refreshDone := make(chan error, 1)
 	go func() {
-		_, _, _, err := slow.Refresh(ctx, refresh)
+		_, err := slow.Refresh(ctx, refresh)
 		refreshDone <- err
 	}()
 	time.Sleep(300 * time.Millisecond) // Refresh now holds its locks and is sleeping before the insert
 
-	_, _, _, _, _, _, err = oauthLogin(ctx, c.svc, "google", "code")
+	_, _, err = oauthLogin(ctx, c.svc, "google", "code")
 	require.NoError(t, err)
 	<-refreshDone
 
@@ -628,7 +643,7 @@ func TestPurgeExpired_Integration(t *testing.T) {
 	c := setupIntegration(t)
 	uid, err := c.svc.Register(ctx, "purge@example.com", "password-one", "en")
 	require.NoError(t, err) // leaves one live verification token
-	_, _, _, _, _, err = c.svc.Login(ctx, "purge@example.com", "password-one")
+	_, err = c.svc.Login(ctx, "purge@example.com", "password-one")
 	require.NoError(t, err) // and one live refresh token
 
 	_, err = c.repo.pool.Exec(ctx, `
@@ -666,14 +681,16 @@ func TestConcurrentRefreshWithOneToken_Integration(t *testing.T) {
 	c := setupIntegration(t)
 	_, err := c.svc.Register(ctx, "tabs@example.com", "password-one", "en")
 	require.NoError(t, err)
-	_, refresh, _, _, _, err := c.svc.Login(ctx, "tabs@example.com", "password-one")
+	tok, err := c.svc.Login(ctx, "tabs@example.com", "password-one")
+	refresh := tok.RefreshToken
 	require.NoError(t, err)
 
 	errs := make(chan error, 2)
 	tokens := make(chan string, 2)
 	for range 2 {
 		go func() {
-			_, next, _, err := c.svc.Refresh(ctx, refresh)
+			tok2, err := c.svc.Refresh(ctx, refresh)
+			next := tok2.RefreshToken
 			errs <- err
 			tokens <- next
 		}()
@@ -684,12 +701,12 @@ func TestConcurrentRefreshWithOneToken_Integration(t *testing.T) {
 	assert.NotEqual(t, first, second)
 
 	for _, tok := range []string{first, second} {
-		_, _, _, err := c.svc.Refresh(ctx, tok)
+		_, err := c.svc.Refresh(ctx, tok)
 		require.NoError(t, err, "both siblings stay usable")
 	}
 
 	c.svc.Logout(ctx, first)
-	_, _, _, err = c.svc.Refresh(ctx, refresh)
+	_, err = c.svc.Refresh(ctx, refresh)
 	assert.Error(t, err, "logout must end the family, grace window included")
 }
 
@@ -707,17 +724,20 @@ func TestLogoutRevokesSiblingMintedMidFlight_Integration(t *testing.T) {
 
 	uid, err := c.svc.Register(ctx, "tabs2@example.com", "password-one", "en")
 	require.NoError(t, err)
-	_, root, _, _, _, err := c.svc.Login(ctx, "tabs2@example.com", "password-one")
+	tok, err := c.svc.Login(ctx, "tabs2@example.com", "password-one")
+	root := tok.RefreshToken
 	require.NoError(t, err)
-	_, tabOne, _, err := c.svc.Refresh(ctx, root)
+	tok2, err := c.svc.Refresh(ctx, root)
+	tabOne := tok2.RefreshToken
 	require.NoError(t, err)
-	_, tabTwo, _, err := c.svc.Refresh(ctx, root) // inside the grace window: a sibling
+	tok3, err := c.svc.Refresh(ctx, root) // inside the grace window: a sibling
+	tabTwo := tok3.RefreshToken
 	require.NoError(t, err)
 
 	refreshDone := make(chan struct{})
 	go func() {
 		defer close(refreshDone)
-		_, _, _, _ = slow.Refresh(ctx, tabTwo) // mid-flight when the logout arrives
+		_, _ = slow.Refresh(ctx, tabTwo) // mid-flight when the logout arrives
 	}()
 	time.Sleep(300 * time.Millisecond)
 	c.svc.Logout(ctx, tabOne)
@@ -794,16 +814,17 @@ func TestRefreshLosingTheRotationRaceIsNotTheft_Integration(t *testing.T) {
 
 	_, err := c.svc.Register(ctx, "photo@example.com", "password-one", "en")
 	require.NoError(t, err)
-	_, refresh, _, _, _, err := c.svc.Login(ctx, "photo@example.com", "password-one")
+	tok, err := c.svc.Login(ctx, "photo@example.com", "password-one")
+	refresh := tok.RefreshToken
 	require.NoError(t, err)
 
 	slowDone := make(chan error, 1)
 	go func() {
-		_, _, _, err := slow.Refresh(ctx, refresh) // begins first, locks the token last
+		_, err := slow.Refresh(ctx, refresh) // begins first, locks the token last
 		slowDone <- err
 	}()
 	time.Sleep(150 * time.Millisecond)
-	_, _, _, err = c.svc.Refresh(ctx, refresh) // begins later, rotates first
+	_, err = c.svc.Refresh(ctx, refresh) // begins later, rotates first
 	require.NoError(t, err)
 
 	require.NoError(t, <-slowDone, "the loser of the race must get a sibling, not a family revoke")

@@ -394,8 +394,9 @@ func (h *Handler) CreateDeck(ctx context.Context, req *collectionv1.CreateDeckRe
 	if err != nil {
 		return nil, err
 	}
-	d, err := h.svc.CreateDeck(ctx, id.UserID, id.ProfileID,
-		req.GetName(), req.GetParentId(), req.GetConfigId())
+	d, err := h.svc.CreateDeck(ctx, id.UserID, id.ProfileID, DeckFields{
+		Name: req.GetName(), ParentID: req.GetParentId(), ConfigID: req.GetConfigId(),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -407,8 +408,9 @@ func (h *Handler) UpdateDeck(ctx context.Context, req *collectionv1.UpdateDeckRe
 	if err != nil {
 		return nil, err
 	}
-	d, err := h.svc.UpdateDeck(ctx, id.UserID, req.GetId(), req.GetExpectedUsn(),
-		req.GetName(), req.GetParentId(), req.GetConfigId())
+	d, err := h.svc.UpdateDeck(ctx, id.UserID, req.GetId(), req.GetExpectedUsn(), DeckFields{
+		Name: req.GetName(), ParentID: req.GetParentId(), ConfigID: req.GetConfigId(),
+	})
 	if err != nil {
 		return nil, err
 	}

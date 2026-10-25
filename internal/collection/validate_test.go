@@ -143,15 +143,15 @@ func TestServiceRejectsInvalidInput(t *testing.T) {
 
 		{"GetDeck id", func() error { _, err := s.GetDeck(ctx, u, bad); return err }},
 		{"ListDecks token", func() error { _, _, err := s.ListDecks(ctx, u, Page{Token: bad}); return err }},
-		{"CreateDeck blank name", func() error { _, err := s.CreateDeck(ctx, u, u, "", "", ""); return err }},
-		{"CreateDeck parent", func() error { _, err := s.CreateDeck(ctx, u, u, "D", bad, ""); return err }},
-		{"CreateDeck config", func() error { _, err := s.CreateDeck(ctx, u, u, "D", "", bad); return err }},
-		{"UpdateDeck id", func() error { _, err := s.UpdateDeck(ctx, u, bad, 1, "D", "", ""); return err }},
+		{"CreateDeck blank name", func() error { _, err := s.CreateDeck(ctx, u, u, DeckFields{Name: ""}); return err }},
+		{"CreateDeck parent", func() error { _, err := s.CreateDeck(ctx, u, u, DeckFields{Name: "D", ParentID: bad}); return err }},
+		{"CreateDeck config", func() error { _, err := s.CreateDeck(ctx, u, u, DeckFields{Name: "D", ConfigID: bad}); return err }},
+		{"UpdateDeck id", func() error { _, err := s.UpdateDeck(ctx, u, bad, 1, DeckFields{Name: "D"}); return err }},
 		{"UpdateDeck long name", func() error {
-			_, err := s.UpdateDeck(ctx, u, u, 1, long(maxNameRunes+1), "", "")
+			_, err := s.UpdateDeck(ctx, u, u, 1, DeckFields{Name: long(maxNameRunes + 1)})
 			return err
 		}},
-		{"UpdateDeck parent", func() error { _, err := s.UpdateDeck(ctx, u, u, 1, "D", bad, ""); return err }},
+		{"UpdateDeck parent", func() error { _, err := s.UpdateDeck(ctx, u, u, 1, DeckFields{Name: "D", ParentID: bad}); return err }},
 		{"DeleteDeck id", func() error { return s.DeleteDeck(ctx, u, bad, 1) }},
 
 		{"GetDeckConfig id", func() error { _, err := s.GetDeckConfig(ctx, u, bad); return err }},

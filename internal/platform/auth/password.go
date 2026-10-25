@@ -46,49 +46,55 @@ func HashPassword(password string) (string, error) {
 // VerifyPassword returns (false, nil) on mismatch; errors only on parse or crypto failure.
 // Uses constant-time comparison to prevent timing attacks.
 func VerifyPassword(password, encodedHash string) (bool, error) {
-	memory, iterations, parallelism, salt, hash, err := parseArgon2Hash(encodedHash)
+	h, err := parseArgon2Hash(encodedHash)
 	if err != nil {
 		return false, err
 	}
 
-	computed := argon2.IDKey([]byte(password), salt, iterations, memory, parallelism, uint32(len(hash)))
-	if subtle.ConstantTimeCompare(computed, hash) == 1 {
+	computed := argon2.IDKey([]byte(password), h.salt, h.iterations, h.memory, h.parallelism, uint32(len(h.hash)))
+	if subtle.ConstantTimeCompare(computed, h.hash) == 1 {
 		return true, nil
 	}
 	return false, nil
 }
 
-func parseArgon2Hash(encoded string) (memory uint32, iterations uint32, parallelism uint8, salt, hash []byte, err error) {
+type argon2Hash struct {
+	memory, iterations uint32
+	parallelism        uint8
+	salt, hash         []byte
+}
+
+func parseArgon2Hash(encoded string) (argon2Hash, error) {
 	parts := strings.Split(encoded, "$")
 	// Expected parts after split on "$": ["", "argon2id", "v=19", "m=...,t=...,p=...", "<salt>", "<hash>"]
 	if len(parts) != 6 {
-		return 0, 0, 0, nil, nil, fmt.Errorf("auth: invalid encoded hash format")
+		return argon2Hash{}, fmt.Errorf("auth: invalid encoded hash format")
 	}
 	if parts[1] != "argon2id" {
-		return 0, 0, 0, nil, nil, fmt.Errorf("auth: unsupported algorithm %q", parts[1])
+		return argon2Hash{}, fmt.Errorf("auth: unsupported algorithm %q", parts[1])
 	}
 
 	var version int
 	if _, scanErr := fmt.Sscanf(parts[2], "v=%d", &version); scanErr != nil {
-		return 0, 0, 0, nil, nil, fmt.Errorf("auth: parse version: %w", scanErr)
+		return argon2Hash{}, fmt.Errorf("auth: parse version: %w", scanErr)
 	}
 	if version != argon2.Version {
-		return 0, 0, 0, nil, nil, fmt.Errorf("auth: unsupported argon2 version %d", version)
+		return argon2Hash{}, fmt.Errorf("auth: unsupported argon2 version %d", version)
 	}
 
 	var m, t, p uint32
 	if _, scanErr := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &m, &t, &p); scanErr != nil {
-		return 0, 0, 0, nil, nil, fmt.Errorf("auth: parse params: %w", scanErr)
+		return argon2Hash{}, fmt.Errorf("auth: parse params: %w", scanErr)
 	}
 
-	salt, err = base64.RawStdEncoding.DecodeString(parts[4])
+	salt, err := base64.RawStdEncoding.DecodeString(parts[4])
 	if err != nil {
-		return 0, 0, 0, nil, nil, fmt.Errorf("auth: decode salt: %w", err)
+		return argon2Hash{}, fmt.Errorf("auth: decode salt: %w", err)
 	}
-	hash, err = base64.RawStdEncoding.DecodeString(parts[5])
+	hash, err := base64.RawStdEncoding.DecodeString(parts[5])
 	if err != nil {
-		return 0, 0, 0, nil, nil, fmt.Errorf("auth: decode hash: %w", err)
+		return argon2Hash{}, fmt.Errorf("auth: decode hash: %w", err)
 	}
 
-	return m, t, uint8(p), salt, hash, nil
+	return argon2Hash{memory: m, iterations: t, parallelism: uint8(p), salt: salt, hash: hash}, nil
 }
