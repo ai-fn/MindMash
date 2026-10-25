@@ -39,7 +39,7 @@ func TestPublic(t *testing.T) {
 		{"unmapped pg error", pg("42P01"), codes.Internal, "internal error", true},
 		{"pg error inside errors.Join", errors.Join(secret, pg("22P02")), codes.InvalidArgument, "invalid argument", true},
 		{"downstream not found passes through", status.Error(codes.NotFound, "deck not found"), codes.NotFound, "deck not found", false},
-		{"wrapped downstream keeps its code, not the wrapper text", fmt.Errorf("sched: %w: %v", status.Error(codes.NotFound, "deck not found"), secret), codes.NotFound, "deck not found", false},
+		{"wrapped downstream keeps its code, not the wrapper text", fmt.Errorf("sched: %w: %w", status.Error(codes.NotFound, "deck not found"), secret), codes.NotFound, "deck not found", false},
 		{"downstream unauthenticated passes through", status.Error(codes.Unauthenticated, "token expired"), codes.Unauthenticated, "token expired", false},
 		{"downstream permission denied passes through", status.Error(codes.PermissionDenied, "not yours"), codes.PermissionDenied, "not yours", false},
 		// A rejected internal request is the calling service's bug, not the user's.

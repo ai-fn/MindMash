@@ -3,6 +3,7 @@ package cache
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -94,7 +95,7 @@ func SetNX(ctx context.Context, client *redis.Client, key string, value any, ttl
 // empty, not an error).
 func GetDel(ctx context.Context, client *redis.Client, key string) (string, error) {
 	val, err := client.GetDel(ctx, key).Result()
-	if err == redis.Nil {
+	if errors.Is(err, redis.Nil) {
 		return "", nil
 	}
 	if err != nil {

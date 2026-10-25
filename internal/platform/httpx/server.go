@@ -152,7 +152,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	select {
 	case err := <-serveErr:
-		if err == http.ErrServerClosed {
+		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
 		return fmt.Errorf("httpx: ListenAndServe: %w", err)

@@ -16,6 +16,7 @@ linters:
     - bodyclose
     - nakedret
     - unconvert
+    - errorlint
   settings:
     revive:
       rules:

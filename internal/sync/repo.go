@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -306,7 +307,7 @@ func (r *PostgresRepository) GetAppliedOp(ctx context.Context, userID, opID stri
 		`SELECT outcome, new_usn, applied_at FROM sync_applied_ops WHERE user_id = $1 AND op_id = $2`,
 		userID, opID).Scan(&op.Outcome, &op.NewUSN, &op.AppliedAt)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("sync: get applied op: %w", err)

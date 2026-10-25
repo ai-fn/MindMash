@@ -4,6 +4,7 @@ package grpcx
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"runtime/debug"
@@ -182,7 +183,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	select {
 	case err := <-serveErr:
-		if err == grpc.ErrServerStopped {
+		if errors.Is(err, grpc.ErrServerStopped) {
 			return nil
 		}
 		return fmt.Errorf("grpcx: Serve: %w", err)

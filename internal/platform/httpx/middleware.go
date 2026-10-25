@@ -58,7 +58,7 @@ func observe(next http.Handler) http.Handler {
 			p := recover()
 			abort := p != nil
 			switch {
-			case p == http.ErrAbortHandler: // the handler chose to cut the response; not a crash
+			case p == http.ErrAbortHandler: //nolint:errorlint // a panic value, matched exactly as net/http does; the handler cut the response
 				if !rec.wroteHeader {
 					rec.status = statusNoResponse
 				}

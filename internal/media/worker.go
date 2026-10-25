@@ -114,14 +114,14 @@ func (w *Worker) renderThumb(ctx context.Context, m *Media) (data []byte, mime, 
 	}
 	cfg, _, err := image.DecodeConfig(bytes.NewReader(raw))
 	if err != nil {
-		return nil, "", "", 0, 0, fmt.Errorf("%w: %v", errBadImage, err)
+		return nil, "", "", 0, 0, fmt.Errorf("%w: %w", errBadImage, err)
 	}
 	if int64(cfg.Width)*int64(cfg.Height) > maxDecodePixels {
 		return nil, "", "", 0, 0, fmt.Errorf("%w: %dx%d exceeds %d pixels", errBadImage, cfg.Width, cfg.Height, maxDecodePixels)
 	}
 	src, format, err := image.Decode(bytes.NewReader(raw))
 	if err != nil {
-		return nil, "", "", 0, 0, fmt.Errorf("%w: %v", errBadImage, err)
+		return nil, "", "", 0, 0, fmt.Errorf("%w: %w", errBadImage, err)
 	}
 
 	dw, dh := scaledSize(src.Bounds().Dx(), src.Bounds().Dy(), thumbMaxEdge)
