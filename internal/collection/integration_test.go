@@ -21,6 +21,7 @@ import (
 )
 
 type integrationComponents struct {
+	dsn  string
 	pool *pgxpool.Pool
 	repo *PostgresRepository
 	svc  *Service
@@ -74,7 +75,7 @@ func setupIntegrationOn(t *testing.T, image string, citus bool) integrationCompo
 
 	repo := NewPostgresRepository(pool)
 	svc := NewService(repo, zap.NewNop())
-	return integrationComponents{pool: pool, repo: repo, svc: svc}
+	return integrationComponents{dsn: dsn, pool: pool, repo: repo, svc: svc}
 }
 
 const (

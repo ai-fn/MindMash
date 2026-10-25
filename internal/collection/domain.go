@@ -222,6 +222,8 @@ type Repository interface {
 	GetNote(ctx context.Context, userID, id string) (*Note, error)
 	UpdateNote(ctx context.Context, n *Note) error
 	DeleteNote(ctx context.Context, userID, id string) error
+	// DeleteOrphanNotes deletes those of noteIDs that have no cards left and returns them.
+	DeleteOrphanNotes(ctx context.Context, userID string, noteIDs []string) ([]Note, error)
 
 	// Card
 	CreateCard(ctx context.Context, c *Card) error
@@ -232,7 +234,7 @@ type Repository interface {
 	ListCardRenderSources(ctx context.Context, userID string, ids []string) ([]CardRenderSource, error)
 	GetCardsByIDs(ctx context.Context, userID string, ids []string) ([]Card, error)
 	ListCardsByNote(ctx context.Context, userID, noteID string) ([]Card, error)
-	DeleteCard(ctx context.Context, userID, id string) error
+	DeleteCardsByNote(ctx context.Context, userID, noteID string) ([]Card, error)
 	// ListCardIDs returns all card ids for the user (keyset). Query-based
 	// selection is owned by the Search service (spec 05) and is not implemented
 	// here; the service rejects non-empty queries with Unimplemented.
@@ -268,8 +270,8 @@ type Repository interface {
 	// Tag registry. UpsertTag is idempotent on (user_id, name).
 	UpsertTag(ctx context.Context, t *Tag) error
 
-	// Tombstone records a hard delete for the Sync service.
-	WriteTombstone(ctx context.Context, userID, typ, id string, usn int64) error
+	// WriteTombstones records hard deletes for the Sync service.
+	WriteTombstones(ctx context.Context, userID, typ string, usn int64, ids ...string) error
 
 	// WriteOutbox appends outbox entries to the outbox table within the current
 	// transaction. Must be called inside a WithTx callback — calling it on the

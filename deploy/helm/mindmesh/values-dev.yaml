@@ -108,6 +108,7 @@ media:
   image: { registry: mindmesh, tag: dev }
   env:
     MODE: all              # one pod runs the API and the worker; no separate worker in dev
+    DB_MAX_CONNS: "4"      # the API's and the worker's pools combined
   replicaCount: 1
   autoscaling: { enabled: false }
   pdb: { enabled: false }

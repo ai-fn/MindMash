@@ -134,7 +134,7 @@ func (s *Service) DeleteNoteType(ctx context.Context, userID, id string, expecte
 		if err := tx.DeleteNoteType(ctx, userID, id); err != nil {
 			return err
 		}
-		if err := tx.WriteTombstone(ctx, userID, TombstoneNoteType, id, usn); err != nil {
+		if err := tx.WriteTombstones(ctx, userID, TombstoneNoteType, usn, id); err != nil {
 			return err
 		}
 		return tx.WriteOutbox(ctx, []events.OutboxEntry{{
@@ -313,16 +313,23 @@ func (s *Service) UpdateNote(ctx context.Context, userID, id string, expectedUSN
 			}
 			outboxEntries = append(outboxEntries, cardEntry(c, EventCardCreated))
 		}
-		for i := range diff.ToDelete {
-			c := &diff.ToDelete[i]
-			if err := tx.DeleteCard(ctx, userID, c.ID); err != nil {
+		if len(diff.ToDelete) > 0 {
+			deleteIDs := make([]string, len(diff.ToDelete))
+			for i := range diff.ToDelete {
+				deleteIDs[i] = diff.ToDelete[i].ID
+			}
+			deleted, err := tx.DeleteCardsByIDs(ctx, userID, deleteIDs)
+			if err != nil {
 				return err
 			}
-			if err := tx.WriteTombstone(ctx, userID, TombstoneCard, c.ID, usn); err != nil {
+			deletedIDs := make([]string, len(deleted))
+			for i := range deleted {
+				deletedIDs[i] = deleted[i].ID
+				outboxEntries = append(outboxEntries, cardEntry(&deleted[i], EventCardDeleted))
+			}
+			if err := tx.WriteTombstones(ctx, userID, TombstoneCard, usn, deletedIDs...); err != nil {
 				return err
 			}
-			tmp := c
-			outboxEntries = append(outboxEntries, cardEntry(tmp, EventCardDeleted))
 		}
 
 		for _, tag := range tags {
@@ -363,26 +370,23 @@ func (s *Service) DeleteNote(ctx context.Context, userID, id string, expectedUSN
 			return platformerrors.Aborted("stale expected_usn; refetch and retry")
 		}
 
-		cards, err := tx.ListCardsByNote(ctx, userID, id)
+		cards, err := tx.DeleteCardsByNote(ctx, userID, id)
 		if err != nil {
 			return err
 		}
-
 		outboxEntries := make([]events.OutboxEntry, 0, len(cards)+1)
-		for _, c := range cards {
-			if err := tx.DeleteCard(ctx, userID, c.ID); err != nil {
-				return err
-			}
-			if err := tx.WriteTombstone(ctx, userID, TombstoneCard, c.ID, usn); err != nil {
-				return err
-			}
-			tmp := c
-			outboxEntries = append(outboxEntries, cardEntry(&tmp, EventCardDeleted))
+		cardIDs := make([]string, len(cards))
+		for i := range cards {
+			cardIDs[i] = cards[i].ID
+			outboxEntries = append(outboxEntries, cardEntry(&cards[i], EventCardDeleted))
+		}
+		if err := tx.WriteTombstones(ctx, userID, TombstoneCard, usn, cardIDs...); err != nil {
+			return err
 		}
 		if err := tx.DeleteNote(ctx, userID, id); err != nil {
 			return err
 		}
-		if err := tx.WriteTombstone(ctx, userID, TombstoneNote, id, usn); err != nil {
+		if err := tx.WriteTombstones(ctx, userID, TombstoneNote, usn, id); err != nil {
 			return err
 		}
 		outboxEntries = append(outboxEntries, noteEntry(existing, EventNoteDeleted))
@@ -574,41 +578,38 @@ func (s *Service) DeleteCards(ctx context.Context, userID string, cardIDs []stri
 		}
 		affected = int64(len(deleted))
 		outboxEntries := make([]events.OutboxEntry, 0, len(deleted))
+		deletedIDs := make([]string, len(deleted))
 		seen := make(map[string]bool)
 		var noteIDs []string
 		for i := range deleted {
 			c := &deleted[i]
-			if err := tx.WriteTombstone(ctx, userID, TombstoneCard, c.ID, usn); err != nil {
-				return err
-			}
+			deletedIDs[i] = c.ID
 			outboxEntries = append(outboxEntries, cardEntry(c, EventCardDeleted))
 			if !seen[c.NoteID] {
 				seen[c.NoteID] = true
 				noteIDs = append(noteIDs, c.NoteID)
 			}
 		}
+		if err := tx.WriteTombstones(ctx, userID, TombstoneCard, usn, deletedIDs...); err != nil {
+			return err
+		}
+		if len(noteIDs) == 0 {
+			return nil
+		}
 
 		// As in Anki, a note whose last card is deleted goes with it.
-		for _, noteID := range noteIDs {
-			remaining, err := tx.ListCardsByNote(ctx, userID, noteID)
-			if err != nil {
-				return err
-			}
-			if len(remaining) > 0 {
-				continue
-			}
-			note, err := tx.GetNote(ctx, userID, noteID)
-			if err != nil {
-				return err
-			}
-			if err := tx.DeleteNote(ctx, userID, noteID); err != nil {
-				return err
-			}
-			if err := tx.WriteTombstone(ctx, userID, TombstoneNote, noteID, usn); err != nil {
-				return err
-			}
-			note.USN = usn
-			outboxEntries = append(outboxEntries, noteEntry(note, EventNoteDeleted))
+		orphans, err := tx.DeleteOrphanNotes(ctx, userID, noteIDs)
+		if err != nil {
+			return err
+		}
+		orphanIDs := make([]string, len(orphans))
+		for i := range orphans {
+			orphanIDs[i] = orphans[i].ID
+			orphans[i].USN = usn
+			outboxEntries = append(outboxEntries, noteEntry(&orphans[i], EventNoteDeleted))
+		}
+		if err := tx.WriteTombstones(ctx, userID, TombstoneNote, usn, orphanIDs...); err != nil {
+			return err
 		}
 		return tx.WriteOutbox(ctx, outboxEntries)
 	}); err != nil {
@@ -960,7 +961,7 @@ func (s *Service) DeleteDeck(ctx context.Context, userID, id string, expectedUSN
 		if err := tx.DeleteDeck(ctx, userID, id); err != nil {
 			return err
 		}
-		if err := tx.WriteTombstone(ctx, userID, TombstoneDeck, id, usn); err != nil {
+		if err := tx.WriteTombstones(ctx, userID, TombstoneDeck, usn, id); err != nil {
 			return err
 		}
 		outboxEntries = append(outboxEntries, events.OutboxEntry{
@@ -1102,7 +1103,7 @@ func (s *Service) DeleteDeckConfig(ctx context.Context, userID, id string, expec
 		if err := tx.DeleteDeckConfig(ctx, userID, id); err != nil {
 			return err
 		}
-		if err := tx.WriteTombstone(ctx, userID, TombstoneDeckConfig, id, usn); err != nil {
+		if err := tx.WriteTombstones(ctx, userID, TombstoneDeckConfig, usn, id); err != nil {
 			return err
 		}
 		outboxEntries = append(outboxEntries, events.OutboxEntry{
@@ -1179,7 +1180,7 @@ func (s *Service) DeleteFilteredDeck(ctx context.Context, userID, id string) err
 		if err := tx.DeleteFilteredDeck(ctx, userID, id); err != nil {
 			return err
 		}
-		if err := tx.WriteTombstone(ctx, userID, TombstoneFilteredDeck, id, usn); err != nil {
+		if err := tx.WriteTombstones(ctx, userID, TombstoneFilteredDeck, usn, id); err != nil {
 			return err
 		}
 		return tx.WriteOutbox(ctx, []events.OutboxEntry{{

@@ -49,6 +49,7 @@ identity:
   env:
     SERVICE_NAME: identity
     OTEL_SERVICE_NAME: identity
+    DB_MAX_CONNS: "3"
     RUN_MIGRATIONS: "false"          # the pre-install Job owns migrations
     JWT_PRIVATE_KEY_PATH: /etc/mindmesh/keys/ed25519.pem
     JWT_PUBLIC_KEY_PATH: /etc/mindmesh/keys/ed25519.pub.pem
@@ -114,6 +115,7 @@ collection:
   env:
     SERVICE_NAME: collection
     OTEL_SERVICE_NAME: collection
+    DB_MAX_CONNS: "5"
     RUN_MIGRATIONS: "false"
     JWKS_URL: "http://identity:8080/.well-known/jwks.json"
     SERVICE_TRUSTED_KEYS: "search=/etc/mindmesh/service-keys/search.pub.pem"
@@ -156,6 +158,7 @@ scheduler:
   env:
     SERVICE_NAME: scheduler
     OTEL_SERVICE_NAME: scheduler
+    DB_MAX_CONNS: "6"
     RUN_MIGRATIONS: "false"
     JWKS_URL: "http://identity:8080/.well-known/jwks.json"
     COLLECTION_GRPC_ADDR: "collection:50051"
@@ -191,6 +194,7 @@ sync:
   env:
     SERVICE_NAME: sync
     OTEL_SERVICE_NAME: sync
+    DB_MAX_CONNS: "8"
     RUN_MIGRATIONS: "false"
     JWKS_URL: "http://identity:8080/.well-known/jwks.json"
     COLLECTION_GRPC_ADDR: "collection:50051"
@@ -276,6 +280,7 @@ media:
   env:
     SERVICE_NAME: media
     OTEL_SERVICE_NAME: media
+    DB_MAX_CONNS: "2"
     MODE: api
     RUN_MIGRATIONS: "false"
     JWKS_URL: "http://identity:8080/.well-known/jwks.json"
@@ -311,6 +316,7 @@ mediaWorker:
   env:
     SERVICE_NAME: media-worker
     OTEL_SERVICE_NAME: media-worker
+    DB_MAX_CONNS: "2"
     MODE: worker
     RUN_MIGRATIONS: "false"
     S3_ENDPOINT: "http://minio:9000"

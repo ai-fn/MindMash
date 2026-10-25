@@ -219,6 +219,26 @@ It sets:
 
 MinIO in dev has none of these APIs and allows CORS by default.
 
+### Database connections
+
+All Postgres services share one Citus coordinator. Each pod opens up to `DB_MAX_CONNS` pooled
+connections. Every collection, scheduler and media API pod also holds one dedicated relay
+connection. The sync pod running retention takes one more while it purges.
+
+| Service | `DB_MAX_CONNS` | Relay | Prod pods (max) | Prod connections |
+|---|---|---|---|---|
+| sync | 8 (two concurrent pulls of 4 reads) | no | 20 | 160 |
+| scheduler | 6 | yes | 20 | 140 |
+| collection | 5 | yes | 20 | 120 |
+| identity | 3 (bound by the argon2 slots) | no | 20 | 60 |
+| media | 2 | yes | 20 | 60 |
+| media-worker | 2 | no | 12 | 24 |
+
+At full HPA scale prod opens about 564 connections, and staging about 232. Set the coordinator's
+`max_connections` above that, leaving headroom for the migration jobs and admin sessions.
+Recompute the table whenever you raise `maxReplicas` or a pool. A pooler in front must use session
+mode, because the relay's advisory lock lives on its session.
+
 ### Kafka topics and dead letters
 
 Services create missing topics at startup (`KAFKA_CREATE_TOPICS`, `KAFKA_TOPIC_PARTITIONS`,

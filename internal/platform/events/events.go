@@ -628,9 +628,14 @@ type OutboxEntry struct {
 // user_id is required: the outbox is sharded by it and the relay uses it as the
 // Kafka partition key so a user's events stay ordered.
 func WriteOutbox(ctx context.Context, tx pgx.Tx, entries []OutboxEntry) error {
-	const q = `INSERT INTO outbox
-		(id, user_id, aggregate_type, aggregate_id, event_type, payload, created_at, trace_headers)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
+	for _, e := range entries {
+		// user_id is the shard key + Kafka partition key; an empty value would
+		// otherwise surface only as an opaque invalid-UUID error mid-transaction
+		// and break per-user event ordering. Fail fast and clearly instead.
+		if e.UserID == "" {
+			return fmt.Errorf("events: write outbox entry %s: user_id is required", e.ID)
+		}
+	}
 
 	carrier := propagation.MapCarrier{}
 	otel.GetTextMapPropagator().Inject(ctx, carrier)
@@ -642,20 +647,35 @@ func WriteOutbox(ctx context.Context, tx pgx.Tx, entries []OutboxEntry) error {
 		}
 	}
 
-	for _, e := range entries {
-		// user_id is the shard key + Kafka partition key; an empty value would
-		// otherwise surface only as an opaque invalid-UUID error mid-transaction
-		// and break per-user event ordering. Fail fast and clearly instead.
-		if e.UserID == "" {
-			return fmt.Errorf("events: write outbox entry %s: user_id is required", e.ID)
-		}
-		if _, err := tx.Exec(ctx, q,
-			e.ID, e.UserID, e.AggregateType, e.AggregateID, e.EventType, e.Payload, e.CreatedAt, traceHeaders,
-		); err != nil {
-			return fmt.Errorf("events: write outbox entry %s: %w", e.ID, err)
+	for chunk := range slices.Chunk(entries, outboxChunk) {
+		q, args := outboxInsert(chunk, traceHeaders)
+		if _, err := tx.Exec(ctx, q, args...); err != nil {
+			return fmt.Errorf("events: write outbox entries from %s: %w", chunk[0].ID, err)
 		}
 	}
 	return nil
+}
+
+// outboxChunk keeps one INSERT's parameters well under Postgres' 65535 limit.
+const outboxChunk = 1000
+
+// outboxInsert builds a multi-row VALUES insert: Citus router-plans it when the rows share a
+// shard, unlike INSERT ... SELECT FROM unnest, which it pulls through the coordinator.
+func outboxInsert(entries []OutboxEntry, traceHeaders []byte) (string, []any) {
+	var b strings.Builder
+	b.WriteString(`INSERT INTO outbox
+		(id, user_id, aggregate_type, aggregate_id, event_type, payload, created_at, trace_headers) VALUES `)
+	args := make([]any, 1, 1+7*len(entries))
+	args[0] = traceHeaders
+	for i, e := range entries {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		p := len(args) + 1
+		fmt.Fprintf(&b, "($%d, $%d, $%d, $%d, $%d, $%d, $%d, $1)", p, p+1, p+2, p+3, p+4, p+5, p+6)
+		args = append(args, e.ID, e.UserID, e.AggregateType, e.AggregateID, e.EventType, e.Payload, e.CreatedAt)
+	}
+	return b.String(), args
 }
 
 // envStr returns the env var value for key, or def when the variable is unset.

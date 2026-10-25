@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -350,6 +351,30 @@ func (r *PostgresRepository) DeleteNote(ctx context.Context, userID, id string) 
 	return nil
 }
 
+func (r *PostgresRepository) DeleteOrphanNotes(ctx context.Context, userID string, noteIDs []string) ([]Note, error) {
+	rows, err := r.db.Query(ctx, `
+		DELETE FROM notes n
+		WHERE n.user_id = $1 AND n.id = ANY($2::uuid[])
+		  AND NOT EXISTS (SELECT 1 FROM cards c WHERE c.user_id = $1 AND c.note_id = n.id)
+		RETURNING `+noteColumns, userID, noteIDs)
+	if err != nil {
+		return nil, fmt.Errorf("collection: delete orphan notes: %w", err)
+	}
+	defer rows.Close()
+	var notes []Note
+	for rows.Next() {
+		n, err := scanNote(rows)
+		if err != nil {
+			return nil, fmt.Errorf("collection: delete orphan notes scan: %w", err)
+		}
+		notes = append(notes, *n)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("collection: delete orphan notes rows: %w", err)
+	}
+	return notes, nil
+}
+
 // ─── Card ────────────────────────────────────────────────────────────────────
 
 // scanCard scans cardColumns followed by any extra columns into extra.
@@ -458,15 +483,13 @@ func (r *PostgresRepository) ListCardsByNote(ctx context.Context, userID, noteID
 	return collectCards(rows, "list cards by note")
 }
 
-func (r *PostgresRepository) DeleteCard(ctx context.Context, userID, id string) error {
-	ct, err := r.db.Exec(ctx, `DELETE FROM cards WHERE user_id = $1 AND id = $2`, userID, id)
+func (r *PostgresRepository) DeleteCardsByNote(ctx context.Context, userID, noteID string) ([]Card, error) {
+	rows, err := r.db.Query(ctx,
+		`DELETE FROM cards WHERE user_id = $1 AND note_id = $2 RETURNING `+cardColumns, userID, noteID)
 	if err != nil {
-		return fmt.Errorf("collection: delete card: %w", err)
+		return nil, fmt.Errorf("collection: delete cards by note: %w", err)
 	}
-	if ct.RowsAffected() == 0 {
-		return platformerrors.NotFound("card not found")
-	}
-	return nil
+	return collectCards(rows, "delete cards by note")
 }
 
 func (r *PostgresRepository) ListCardIDs(ctx context.Context, userID string, page Page) ([]string, string, error) {
@@ -909,17 +932,36 @@ func (r *PostgresRepository) UpsertTag(ctx context.Context, t *Tag) error {
 	return nil
 }
 
-func (r *PostgresRepository) WriteTombstone(ctx context.Context, userID, typ, id string, usn int64) error {
-	// excluded.deleted_at, not now(): Citus only allows IMMUTABLE functions in DO UPDATE SET.
-	_, err := r.db.Exec(ctx, `
-		INSERT INTO tombstones (user_id, type, id, usn)
-		VALUES ($1, $2, $3, $4)
-		ON CONFLICT (user_id, type, id) DO UPDATE SET usn = excluded.usn, deleted_at = excluded.deleted_at`,
-		userID, typ, id, usn)
-	if err != nil {
-		return fmt.Errorf("collection: write tombstone: %w", err)
+func (r *PostgresRepository) WriteTombstones(ctx context.Context, userID, typ string, usn int64, ids ...string) error {
+	for chunk := range slices.Chunk(ids, tombstoneChunk) {
+		q, args := tombstoneInsert(userID, typ, usn, chunk)
+		if _, err := r.db.Exec(ctx, q, args...); err != nil {
+			return fmt.Errorf("collection: write tombstones: %w", err)
+		}
 	}
 	return nil
+}
+
+// tombstoneChunk keeps one INSERT's parameters well under Postgres' 65535 limit.
+const tombstoneChunk = 5000
+
+// tombstoneInsert builds a multi-row VALUES upsert, which Citus router-plans (INSERT ... SELECT
+// FROM unnest would go through the coordinator). excluded.deleted_at, not now(): Citus only
+// allows IMMUTABLE functions in DO UPDATE SET.
+func tombstoneInsert(userID, typ string, usn int64, ids []string) (string, []any) {
+	var b strings.Builder
+	b.WriteString(`INSERT INTO tombstones (user_id, type, id, usn) VALUES `)
+	args := make([]any, 3, 3+len(ids))
+	args[0], args[1], args[2] = userID, typ, usn
+	for i, id := range ids {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		args = append(args, id)
+		fmt.Fprintf(&b, "($1, $2, $%d, $3)", len(args))
+	}
+	b.WriteString(` ON CONFLICT (user_id, type, id) DO UPDATE SET usn = excluded.usn, deleted_at = excluded.deleted_at`)
+	return b.String(), args
 }
 
 // ─── Bulk operations ─────────────────────────────────────────────────────────
