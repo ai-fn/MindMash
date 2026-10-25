@@ -54,9 +54,12 @@ docs/                 # architecture + detailed specs
 - **Errors:** typed app errors via `platform/apperr`, mapped to gRPC status / HTTP codes.
 - **Tenancy:** every distributed row carries `user_id` (Citus shard key); every query is scoped
   by it. Most rows also carry `profile_id`. Identity mints the `user_id`/`profile_id`.
-- **Auth:** every external call carries a JWT (Ed25519). The gateway validates it via cached
-  JWKS **without** calling Identity per request, and injects `user_id`/`profile_id`/`locale`/
-  `roles` as trusted context/metadata downstream.
+- **Auth:** every external call carries a JWT (Ed25519). There is no central API gateway: the
+  ingress only routes and rate-limits. Each service's gRPC server and in-process grpc-gateway REST
+  edge verify the token themselves (`platform/auth`) against Identity's cached JWKS, **without**
+  calling Identity per request, and put `user_id`/`profile_id`/`locale`/`roles` in the request
+  context. Service-to-service gRPC forwards the caller's JWT; Search reaches Collection's
+  internal service with its own service token.
 - **Events:** cross-service async effects flow over Kafka using the **transactional outbox**
   pattern (`outbox` table) with idempotency keys — keep request paths fast.
 
@@ -97,7 +100,7 @@ phases; don't block a service's core on them unless that phase is in scope.)
 
 - Default branch: `main`. Active work branch: `feat/dev-implementation`. Detailed specs live on
   the `docs` branch.
-- Commit/push only when asked. End commit messages with the required `Co-Authored-By` trailer.
+- Commit/push only when asked. No `Co-Authored-By` or other AI attribution in commits or PRs.
 
 ## Implementation progress tracking
 
