@@ -6,10 +6,8 @@ import (
 	"fmt"
 )
 
-// encodeCursor serializes a hit's sort values into an opaque, URL-safe cursor.
-// The sort tuple is [added_at(epoch_millis), card_id]; OpenSearch returns it as
-// JSON values, which we round-trip verbatim so the next page's search_after
-// matches the index's own representation exactly.
+// encodeCursor round-trips the hit's sort values verbatim, so search_after matches the index's
+// own representation.
 func encodeCursor(sortValues []any) (string, error) {
 	b, err := json.Marshal(sortValues)
 	if err != nil {

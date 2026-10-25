@@ -2,9 +2,6 @@ package search
 
 import "testing"
 
-// TestTemplateBody_LanguageAnalyzers asserts the index template maps the per-language
-// full-text fields to their built-in analyzers and keeps the agnostic fields_text +
-// keyword subfield. This is the index-time half of language-analyzer selection.
 func TestTemplateBody_LanguageAnalyzers(t *testing.T) {
 	props := templateBody()["template"].(map[string]any)["mappings"].(map[string]any)["properties"].(map[string]any)
 

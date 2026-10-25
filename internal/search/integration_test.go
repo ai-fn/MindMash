@@ -88,9 +88,7 @@ func (rejectUsers) Verify(string) (*auth.Claims, error) {
 	return nil, errors.New("no user tokens here")
 }
 
-// collectionHarness is a real Collection backed by Postgres+Redis, exposed both
-// in-process (svc, for seeding) and over a bufconn internal-gRPC server guarded
-// by the production auth interceptor (client, for the indexer to enrich through).
+// collectionHarness is a real Collection: svc for seeding, client over bufconn with production auth.
 type collectionHarness struct {
 	svc    *collection.Service
 	repo   *collection.PostgresRepository
@@ -191,9 +189,6 @@ func containsID(ids []string, want string) bool {
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-// TestSearchRepo_IsolationAndDeckPrefix indexes documents for two tenants with a
-// nested deck and asserts tenant isolation plus deck-subtree prefix matching,
-// driving the repo and handler directly (no Collection/Kafka).
 func TestSearchRepo_IsolationAndDeckPrefix(t *testing.T) {
 	repo := setupOpenSearch(t)
 	ctx := context.Background()
@@ -253,10 +248,6 @@ func TestSearchRepo_IsolationAndDeckPrefix(t *testing.T) {
 	}
 }
 
-// TestIndexer_EnrichUpsertDelete drives the indexer through Collection's real
-// internal API over bufconn (authenticated by a minted per-user token) and
-// asserts the resulting documents are queryable, that a deck.updated reindexes
-// the subtree, and that a card.deleted removes the document.
 func TestIndexer_EnrichUpsertDelete(t *testing.T) {
 	repo := setupOpenSearch(t)
 	coll := setupCollection(t)
@@ -450,9 +441,6 @@ func TestSearchRepo_UpsertSkipsStaleVersion(t *testing.T) {
 	}
 }
 
-// TestIndexer_KafkaPipeline exercises the full asynchronous path: a change event
-// published to Redpanda is consumed by the real events.Consumer + indexer,
-// enriched through Collection, and becomes queryable.
 func TestIndexer_KafkaPipeline(t *testing.T) {
 	repo := setupOpenSearch(t)
 	coll := setupCollection(t)
@@ -516,9 +504,7 @@ func TestIndexer_KafkaPipeline(t *testing.T) {
 	defer cancel()
 	go func() { _ = consumer.Subscribe(consumeCtx, IndexTopics, indexer.Handle) }()
 
-	// Poll until the asynchronously-indexed document is queryable. Until the
-	// consumer's first upsert the index does not exist, so a 404 is expected and
-	// retried — only a persistent failure past the deadline is fatal.
+	// The index doesn't exist until the first upsert, so 404s are retried until the deadline.
 	h := NewHandler(repo)
 	ctxA := auth.WithIdentity(context.Background(), auth.IdentityContext{UserID: userA, ProfileID: profA})
 	deadline := time.Now().Add(60 * time.Second)
@@ -535,11 +521,7 @@ func TestIndexer_KafkaPipeline(t *testing.T) {
 	}
 }
 
-// TestSearch_LanguageAnalyzerSelection proves that per-language fields are analyzed
-// by their own analyzer: a Russian/English inflected query matches text in the
-// language field (stemming) but NOT the same word placed only in the agnostic
-// standard field, and a CJK substring matches the cjk-segmented field. Driven
-// through the repo + handler directly.
+// An inflected query must match the stemmed language field but not the same word in fields_text.
 func TestSearch_LanguageAnalyzerSelection(t *testing.T) {
 	repo := setupOpenSearch(t)
 	ctx := context.Background()
@@ -595,10 +577,6 @@ func TestSearch_LanguageAnalyzerSelection(t *testing.T) {
 	}
 }
 
-// TestIndexer_LanguageBuckets exercises the full per-language path: a note type
-// with language-tagged fields → Collection groups field text by language into
-// lang_text → the indexer routes each bucket to its analyzer field → language
-// queries match. Proves the Collection→proto→indexer→mapping wiring end to end.
 func TestIndexer_LanguageBuckets(t *testing.T) {
 	repo := setupOpenSearch(t)
 	coll := setupCollection(t)

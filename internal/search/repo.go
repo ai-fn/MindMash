@@ -16,21 +16,13 @@ import (
 )
 
 const (
-	// AliasName is the read/write alias every card operation targets. It resolves
-	// to exactly one concrete index at a time (currentIndex); a mapping/analyzer
-	// change rolls a new concrete index in behind the alias without a destructive
-	// in-place reindex — see EnsureIndex.
+	// AliasName lets a mapping change roll in a new concrete index without an in-place reindex.
 	AliasName = "cards"
 
-	// currentIndex is the concrete index this build's mapping materializes; the
-	// alias is pointed here on boot. It is versioned in the name (cards-v2 adds the
-	// per-language analyzer fields over cards-v1's standard-only mapping) so the next
-	// mapping change bumps to cards-v3 and reindexes behind the alias the same way.
+	// currentIndex is bumped on every mapping change; boot points the alias at it.
 	currentIndex = "cards-v2"
 
-	// legacyIndex is the pre-alias v1 index that early deployments wrote to directly.
-	// When it exists and the alias does not, EnsureIndex reindexes it into
-	// currentIndex (behavior-parity copy) before pointing the alias at currentIndex.
+	// legacyIndex is the pre-alias index, copied into currentIndex when no alias exists yet.
 	legacyIndex = "cards-v1"
 
 	// templateName is the index-template name; its index_patterns match every
@@ -38,10 +30,7 @@ const (
 	templateName = "cards"
 )
 
-// Document is the denormalized card projection stored in OpenSearch. Its JSON
-// field names are the contract the query builder (query.go) filters against, so
-// the two must stay in lockstep. It mirrors collection.SearchDoc but is the
-// Search service's own type, decoded from the GetSearchDocs response.
+// Document's JSON names are what query.go filters on; keep the two in lockstep.
 type Document struct {
 	CardID      string     `json:"card_id"`
 	UserID      string     `json:"user_id"`
@@ -59,9 +48,7 @@ type Document struct {
 	Flags       int32      `json:"flags"`
 	Tags        []string   `json:"tags"`
 	FieldsText  string     `json:"fields_text"` // language-agnostic, standard analyzer
-	// FieldsTextEn/Ru/Zh hold the note's field text grouped by language tag, each
-	// indexed under its own analyzer (english/russian/cjk) so stemmed and CJK
-	// queries match. Empty when the note has no field tagged that language.
+	// FieldsTextEn/Ru/Zh: text of the fields tagged with that language, under its own analyzer.
 	FieldsTextEn string    `json:"fields_text_en,omitempty"`
 	FieldsTextRu string    `json:"fields_text_ru,omitempty"`
 	FieldsTextZh string    `json:"fields_text_zh,omitempty"`
@@ -127,14 +114,8 @@ func (r *Repo) Ping(ctx context.Context) error {
 	return nil
 }
 
-// templateBody is the shared cards-v* index template. Routing is required so every
-// document colocates on its user's shard and no cross-tenant scatter is possible.
-// fields_text is the language-agnostic full-text field (standard analyzer) plus a
-// keyword subfield for exact/prefix matching; fields_text_{en,ru,zh} index the note's
-// per-language field text under the matching built-in analyzer (english/russian
-// stemming, cjk bigram segmentation) so stemmed and CJK queries match. The analyzers
-// are all built-in (analysis-common) — no plugin/image change. Upgrading zh to
-// dictionary segmentation (smartcn/ICU) needs a plugin and is deferred.
+// templateBody requires routing, so a document lives on its user's shard and a query can't scatter
+// across tenants. Built-in analyzers only: zh dictionary segmentation needs a plugin.
 func templateBody() map[string]any {
 	return map[string]any{
 		"index_patterns": []string{"cards-v*"},
@@ -179,12 +160,8 @@ func templateBody() map[string]any {
 	}
 }
 
-// EnsureIndex idempotently bootstraps the search index on boot: it upserts the
-// cards-v* template, ensures the current concrete index exists, and points the
-// read/write alias at it. On a deployment that predates the alias (a bare
-// cards-v1 index, no alias), it reindexes cards-v1 into the current index for
-// behavior parity before swapping the alias in a single atomic action, so search
-// never regresses across the cutover. Safe to call on every boot.
+// EnsureIndex upserts the template, creates currentIndex and swaps the alias in one atomic action,
+// so search never regresses across a cutover. Safe on every boot.
 func (r *Repo) EnsureIndex(ctx context.Context) error {
 	if err := r.ensureTemplate(ctx); err != nil {
 		return err
@@ -205,9 +182,7 @@ func (r *Repo) EnsureIndex(ctx context.Context) error {
 		if err := r.createIndex(ctx, currentIndex); err != nil {
 			return err
 		}
-		// Only reindex into a freshly created current index, and only from a
-		// pre-alias legacy index — this copies the language-agnostic fields for
-		// parity; per-language buckets fill in via the forward path / backfill.
+		// Per-language fields aren't in the legacy index; the forward path and backfill fill them.
 		legacyExists, err := r.resourceExists(ctx, legacyIndex)
 		if err != nil {
 			return err
@@ -238,9 +213,7 @@ func (r *Repo) ensureTemplate(ctx context.Context) error {
 	return nil
 }
 
-// resourceExists reports whether an index or alias with the given name exists. A
-// HEAD /{name} returns 200 for both indices and aliases; a 404 is reported as a
-// non-error false so callers can branch on it.
+// resourceExists reports whether an index or alias with the given name exists.
 func (r *Repo) resourceExists(ctx context.Context, name string) (bool, error) {
 	resp, err := r.client.Indices.Exists(ctx, opensearchapi.IndicesExistsReq{Indices: []string{name}})
 	if err == nil {
@@ -278,9 +251,7 @@ func (r *Repo) pointAlias(ctx context.Context, alias, index string) error {
 	return nil
 }
 
-// Reindex synchronously copies every document from src into dst, carrying each
-// doc's external version so external_gte upserts stay monotonic afterward. Used at
-// the alias cutover to give the new index behavior parity with the old one.
+// Reindex keeps each doc's external version, so later external_gte upserts stay monotonic.
 func (r *Repo) Reindex(ctx context.Context, src, dst string) error {
 	body, err := json.Marshal(map[string]any{
 		"source": map[string]any{"index": src},
@@ -334,9 +305,7 @@ func (r *Repo) Upsert(ctx context.Context, docs ...Document) error {
 	return nil
 }
 
-// Delete removes a single card document by id, routed by user_id. A missing
-// document (404) is not an error: the indexer is at-least-once, so a delete may
-// be redelivered after the doc is already gone.
+// Delete ignores a missing doc: a redelivered delete finds it already gone.
 func (r *Repo) Delete(ctx context.Context, userID, cardID string) error {
 	_, err := r.client.Document.Delete(ctx, opensearchapi.DocumentDeleteReq{
 		Index:      r.index,
@@ -352,9 +321,7 @@ func (r *Repo) Delete(ctx context.Context, userID, cardID string) error {
 	return nil
 }
 
-// DeleteByField removes every document of a user matching field==value, routed
-// by user_id. Used to drop all of a note's or deck's cards on a *.deleted event
-// without the indexer having to enumerate the card ids itself.
+// DeleteByField removes a user's documents where field == value, e.g. all of a deleted note's cards.
 func (r *Repo) DeleteByField(ctx context.Context, userID, field, value string) error {
 	q := map[string]any{
 		"query": map[string]any{
@@ -384,9 +351,7 @@ func (r *Repo) DeleteByField(ctx context.Context, userID, field, value string) e
 	return nil
 }
 
-// Refresh forces the index to make recent writes visible to search. Production
-// relies on OpenSearch's periodic refresh (sub-second), so this is used mainly
-// by tests that must read their own writes immediately.
+// Refresh makes recent writes visible; production relies on the periodic refresh, tests call this.
 func (r *Repo) Refresh(ctx context.Context) error {
 	_, err := r.client.Indices.Refresh(ctx, &opensearchapi.IndicesRefreshReq{
 		Indices: []string{r.index},
@@ -404,9 +369,7 @@ type SearchResult struct {
 	Total      int    // total matching documents (lower bound under high cardinality)
 }
 
-// Search runs query (the compiled bool body) against the index for one user,
-// routed to that user's shard, sorted by added_at desc then card_id for a total
-// keyset order. searchAfter resumes after a previous page's last sort values.
+// Search sorts by added_at desc, then card_id, for a total keyset order.
 func (r *Repo) Search(ctx context.Context, userID string, query map[string]any, searchAfter []any, limit int) (SearchResult, error) {
 	body := map[string]any{
 		"size":  limit,
@@ -458,9 +421,7 @@ func (r *Repo) Search(ctx context.Context, userID string, query map[string]any, 
 // isNotFound reports whether err is an OpenSearch 404.
 func isNotFound(err error) bool { return statusCode(err) == http.StatusNotFound }
 
-// statusCode extracts the HTTP status from an opensearch error. The client
-// returns either a StructError (structured error body) or a StringError (opaque
-// body); both expose a numeric Status. Returns 0 when err is neither.
+// statusCode returns 0 for anything but an opensearch StructError or StringError.
 func statusCode(err error) int {
 	var se *opensearch.StructError
 	if errors.As(err, &se) {

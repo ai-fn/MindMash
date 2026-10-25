@@ -15,14 +15,10 @@ import (
 	"github.com/mindmesh/mindmesh/internal/platform/validate"
 )
 
-// IndexTopics are the Kafka topics the indexer consumes. The relay publishes
-// each outbox row to a topic named after its aggregate_type; review_log carries
-// Scheduler's answers, which change a card's state/due/reps.
+// IndexTopics include review_log because answers change a card's state, due and reps.
 var IndexTopics = []string{"card", "note", "deck", "review_log"}
 
-// enricher is the subset of Collection's internal client the indexer needs:
-// resolving changed ids back into denormalized search documents, and (for
-// backfill) enumerating a tenant's card ids.
+// enricher is the subset of Collection's internal client the indexer needs.
 type enricher interface {
 	GetSearchDocs(ctx context.Context, in *collectionv1.GetSearchDocsRequest, opts ...grpc.CallOption) (*collectionv1.GetSearchDocsResponse, error)
 	ListCardIDs(ctx context.Context, in *collectionv1.ListCardIDsRequest, opts ...grpc.CallOption) (*collectionv1.ListCardIDsResponse, error)
@@ -42,9 +38,8 @@ type ServiceTokens interface {
 	Sign(audience string) (string, error)
 }
 
-// Indexer applies Collection change events to the OpenSearch card index. It is
-// at-least-once and idempotent: upserts use external_gte versioning and deletes
-// tolerate missing docs, so redelivered or out-of-order events are safe.
+// Indexer is at-least-once: external_gte upserts and missing-doc-tolerant deletes make redelivered
+// or reordered events safe.
 type Indexer struct {
 	repo     *Repo
 	coll     enricher
@@ -58,9 +53,7 @@ func NewIndexer(repo *Repo, coll enricher, tokens ServiceTokens, log *zap.Logger
 	return &Indexer{repo: repo, coll: coll, tokens: tokens, log: log, pageSize: docsPageSize}
 }
 
-// eventPayload is the common envelope every card/note/deck outbox payload shares
-// (see collection.cardPayload et al.). The indexer needs only the identity and
-// tenant fields; the rest is re-fetched fresh via GetSearchDocs.
+// eventPayload keeps only ids; the document is re-fetched fresh via GetSearchDocs.
 type eventPayload struct {
 	ID        string `json:"id"`
 	UserID    string `json:"user_id"`
@@ -68,11 +61,7 @@ type eventPayload struct {
 	CardID    string `json:"card_id"` // set on review.recorded, whose id is the review log
 }
 
-// Handle processes one Kafka message. It is the handler passed to
-// events.Consumer.Subscribe: returning nil commits the offset; returning an
-// error leaves the message uncommitted for redelivery. A delete or an
-// enrichment that resolves to no documents (the entity was removed before the
-// indexer caught up) is a successful no-op.
+// Handle treats an enrichment that finds nothing as success: the entity was deleted meanwhile.
 func (ix *Indexer) Handle(ctx context.Context, msg events.Message) error {
 	eventType := msg.Headers["event_type"]
 	if eventType == "" {
@@ -158,10 +147,8 @@ func (ix *Indexer) indexDocs(ctx context.Context, req *collectionv1.GetSearchDoc
 	}
 }
 
-// Backfill re-indexes every card of one tenant by paging through the tenant's
-// card ids (ListCardIDs) and re-enriching them via GetSearchDocs, so pre-existing
-// documents pick up the per-language buckets that only the forward path fills for
-// new/edited cards. It is idempotent (upserts use external_gte) and safe to re-run.
+// Backfill re-indexes all of a tenant's cards, filling fields the forward path only sets on new
+// edits; safe to re-run.
 func (ix *Indexer) Backfill(ctx context.Context, userID string) (int, error) {
 	if !validate.IsUUID(userID) {
 		return 0, fmt.Errorf("indexer: backfill: %q is not a canonical uuid", userID)
@@ -223,9 +210,7 @@ func protoToDocument(d *collectionv1.SearchDoc) Document {
 		FieldsText:  d.GetFieldsText(),
 		Version:     d.GetVersion(),
 	}
-	// Route each language bucket to its analyzer-specific field. Languages outside
-	// the indexed set (en/ru/zh) are ignored here — their text is still searchable
-	// via the agnostic fields_text.
+	// Other languages are skipped; their text stays searchable via fields_text.
 	lang := d.GetLangText()
 	doc.FieldsTextEn = lang["en"]
 	doc.FieldsTextRu = lang["ru"]

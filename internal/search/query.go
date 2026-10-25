@@ -8,9 +8,7 @@ import (
 	"github.com/mindmesh/mindmesh/pkg/searchdsl"
 )
 
-// Tenant is the trusted owner scope a query is hard-filtered to. It always comes
-// from the gateway-injected JWT context, never from client input. Profiles share
-// the user's data (ADR 0002), so the scope is the user alone.
+// Tenant comes from the verified JWT, never client input; profiles share the user's data (ADR 0002).
 type Tenant struct {
 	UserID string
 }
@@ -22,17 +20,12 @@ type Opts struct {
 	Now time.Time
 }
 
-// BuildQuery compiles a parsed DSL node into an OpenSearch query body's "query"
-// object. The result is a bool whose filter clauses are, in order, the tenant
-// term (user_id) followed by the compiled DSL clause. Using
-// filter context means no scoring and cacheable results, which suits browsing.
+// BuildQuery uses filter context only (no scoring, cacheable), tenant term first.
 func BuildQuery(node searchdsl.Node, t Tenant, opts Opts) map[string]any {
 	if opts.Now.IsZero() {
 		opts.Now = time.Now()
 	}
-	// The tenant term is always present and always first. A nil node means an
-	// unconstrained listing (empty query string), so we add no DSL clause and the
-	// bool matches every document the tenant owns.
+	// A nil node is an empty query: list everything the tenant owns.
 	filter := []any{term("user_id", t.UserID)}
 	if node != nil {
 		filter = append(filter, compile(node, opts))
@@ -73,16 +66,11 @@ func boolClause(occur string, children []searchdsl.Node, opts Opts) map[string]a
 	return map[string]any{"bool": map[string]any{occur: clauses}}
 }
 
-// textFields are the full-text fields a bare/phrase term matches against: the
-// language-agnostic fields_text (standard analyzer) plus the per-language fields,
-// each of which analyzes the query with its own analyzer (english/russian stemming,
-// cjk bigram). A doc matches if any field matches, so a stemmed or CJK query hits
-// text the standard analyzer alone would miss.
+// textFields include the per-language fields so stemmed and CJK queries hit what the standard
+// analyzer misses.
 var textFields = []any{"fields_text", "fields_text_en", "fields_text_ru", "fields_text_zh"}
 
-// termClause maps a Term leaf to a clause based on its field. A bare term (no
-// field) is full-text across the language fields; a trailing-* term is a prefix
-// query (so * and ? in user input stay literal); a phrase uses a phrase multi_match.
+// termClause makes a trailing-* term a prefix query, so * and ? in user input stay literal.
 func termClause(tm searchdsl.Term, opts Opts) map[string]any {
 	switch tm.Field {
 	case "":

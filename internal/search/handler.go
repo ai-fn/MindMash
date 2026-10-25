@@ -19,9 +19,7 @@ const (
 	maxLimit     = 200
 )
 
-// Handler implements the SearchService gRPC server. It parses the DSL, compiles
-// it to an OpenSearch query hard-filtered to the caller's tenant, and returns a
-// keyset page of card summaries.
+// Handler implements the SearchService gRPC server.
 type Handler struct {
 	searchv1.UnimplementedSearchServiceServer
 	repo *Repo
