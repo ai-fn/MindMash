@@ -48,7 +48,6 @@ func TestPresignValidation(t *testing.T) {
 		{"bad checksum", "image/png", "zzzz", 10},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := svc.Presign(context.Background(), tn, "f", tc.mime, tc.sha, tc.bytes)
 			require.Error(t, err)

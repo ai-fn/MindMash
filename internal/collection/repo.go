@@ -84,7 +84,7 @@ func (r *PostgresRepository) withDB(db dbtx) *PostgresRepository {
 // WithTx runs fn inside a database transaction. The Repository passed to fn uses
 // the transaction connection; the outer repository is unchanged.
 func (r *PostgresRepository) WithTx(ctx context.Context, fn func(Repository) error) error {
-	return platformdb.WithTx(ctx, r.pool, func(tx pgx.Tx) error {
+	return platformdb.WithTx(ctx, r.pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		return fn(r.withDB(tx))
 	})
 }

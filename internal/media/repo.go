@@ -92,7 +92,7 @@ func (r *Repo) RefreshPending(ctx context.Context, m *Media) error {
 // media.uploaded — all atomically. Returns NotFound when there is no pending row.
 func (r *Repo) MarkReady(ctx context.Context, userID, id string, outboxEntry func(*Media) events.OutboxEntry) (*Media, error) {
 	var out *Media
-	err := platformdb.WithTx(ctx, r.pool, func(tx pgx.Tx) error {
+	err := platformdb.WithTx(ctx, r.pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		next, err := usn.Next(ctx, tx, userID)
 		if err != nil {
 			return err
@@ -165,7 +165,7 @@ func (r *Repo) InsertVariant(ctx context.Context, v Variant) error {
 // Delete removes the caller's media row and its variants; their blobs belong to that row alone.
 func (r *Repo) Delete(ctx context.Context, userID, id string) (DeleteResult, error) {
 	var res DeleteResult
-	err := platformdb.WithTx(ctx, r.pool, func(tx pgx.Tx) error {
+	err := platformdb.WithTx(ctx, r.pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		var s3Key string
 		err := tx.QueryRow(ctx,
 			`SELECT s3_key FROM media WHERE user_id = $1 AND id = $2`, userID, id).Scan(&s3Key)

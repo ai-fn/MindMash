@@ -42,7 +42,7 @@ func setup(ctx context.Context, a *app.App) error {
 	}
 
 	// Object store (S3/MinIO). The API ensures the bucket exists; the worker only needs it reachable.
-	blobCfg, err := blob.LoadConfig()
+	blobCfg, err := blob.LoadConfig(a.Base.Dev())
 	if err != nil {
 		return err
 	}

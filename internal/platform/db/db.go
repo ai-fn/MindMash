@@ -40,6 +40,10 @@ func LoadConfig() (Config, error) {
 		return Config{}, fmt.Errorf("db: %w", err)
 	}
 
+	if maxConns < 1 || minConns < 0 || minConns > maxConns {
+		return Config{}, fmt.Errorf("db: need 0 <= DB_MIN_CONNS (%d) <= DB_MAX_CONNS (%d) and DB_MAX_CONNS >= 1", minConns, maxConns)
+	}
+
 	maxConnLifetime, err := config.Duration("DB_MAX_CONN_LIFETIME", 30*time.Minute)
 	if err != nil {
 		return Config{}, fmt.Errorf("db: %w", err)
@@ -85,21 +89,24 @@ func New(ctx context.Context, cfg Config) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
-// WithTx runs fn inside a database transaction.
-func WithTx(ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) error) error {
-	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
+// WithTx runs fn in a transaction, committing only if it returns nil.
+func WithTx(ctx context.Context, pool *pgxpool.Pool, opts pgx.TxOptions, fn func(pgx.Tx) error) error {
+	tx, err := pool.BeginTx(ctx, opts)
 	if err != nil {
 		return fmt.Errorf("db: begin tx: %w", err)
 	}
+	// Also runs on a panic, so the connection goes back to the pool; a no-op after Commit.
+	defer func() {
+		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		_ = tx.Rollback(rctx)
+	}()
 
-	if fnErr := fn(tx); fnErr != nil {
-		_ = tx.Rollback(ctx)
-		return fnErr
+	if err := fn(tx); err != nil {
+		return err
 	}
-
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("db: commit tx: %w", err)
 	}
-
 	return nil
 }

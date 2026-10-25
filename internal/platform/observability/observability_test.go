@@ -47,7 +47,6 @@ func TestLoadConfig_InvalidSamplingRate(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("OTEL_SAMPLING_RATE", tc.value)
 			_, err := LoadConfig()

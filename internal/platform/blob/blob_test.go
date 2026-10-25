@@ -29,7 +29,7 @@ func TestLoadConfig_Defaults(t *testing.T) {
 		"S3_DEFAULT_BUCKET",
 	)
 
-	cfg, err := LoadConfig()
+	cfg, err := LoadConfig(true)
 	require.NoError(t, err)
 
 	assert.Equal(t, "http://localhost:9000", cfg.Endpoint)
@@ -55,10 +55,9 @@ func TestLoadConfig_UsePathStyleParsed(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("S3_USE_PATH_STYLE", tc.value)
-			cfg, err := LoadConfig()
+			cfg, err := LoadConfig(true)
 			if tc.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), "S3_USE_PATH_STYLE")
@@ -86,7 +85,6 @@ func TestIsNotFound(t *testing.T) {
 		{"nil", nil, false},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.want, isNotFound(tc.err))
 		})
@@ -101,7 +99,7 @@ func TestLoadConfig_EnvOverride(t *testing.T) {
 	t.Setenv("S3_USE_PATH_STYLE", "false")
 	t.Setenv("S3_DEFAULT_BUCKET", "my-bucket")
 
-	cfg, err := LoadConfig()
+	cfg, err := LoadConfig(true)
 	require.NoError(t, err)
 
 	assert.Equal(t, "http://minio.internal:9000", cfg.Endpoint)
@@ -144,4 +142,30 @@ func TestPresignPut_SignedHeadersAllowedByBucketCORS(t *testing.T) {
 			t.Errorf("signed header %q is not in the bucket's CORS AllowedHeaders", h)
 		}
 	}
+}
+
+func TestLoadConfig_CredentialsByEnv(t *testing.T) {
+	for _, k := range []string{"S3_ENDPOINT", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"} {
+		t.Setenv(k, "")
+		os.Unsetenv(k)
+	}
+
+	dev, err := LoadConfig(true)
+	require.NoError(t, err)
+	assert.Equal(t, "minioadmin", dev.AccessKeyID)
+	assert.Equal(t, "http://localhost:9000", dev.Endpoint)
+
+	// Outside dev nothing points at MinIO: no keys means the default AWS chain (IRSA).
+	prod, err := LoadConfig(false)
+	require.NoError(t, err)
+	assert.Empty(t, prod.AccessKeyID)
+	assert.Empty(t, prod.SecretAccessKey)
+	assert.Empty(t, prod.Endpoint)
+	assert.False(t, prod.UsePathStyle, "AWS gets virtual-hosted URLs")
+	assert.True(t, dev.UsePathStyle, "MinIO needs path-style")
+
+	t.Setenv("S3_ACCESS_KEY_ID", "only-the-id")
+	_, err = LoadConfig(false)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "S3_SECRET_ACCESS_KEY")
 }

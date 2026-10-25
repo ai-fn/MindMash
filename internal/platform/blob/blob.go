@@ -22,32 +22,41 @@ import (
 	"github.com/mindmesh/mindmesh/internal/platform/config"
 )
 
-// Config holds S3/MinIO connection configuration.
+// Config holds S3/MinIO connection configuration. The endpoint and key defaults point at
+// the dev MinIO and apply only in dev.
 type Config struct {
-	Endpoint        string // S3_ENDPOINT, default "http://localhost:9000"
+	Endpoint        string // S3_ENDPOINT; empty means the AWS endpoint for Region
 	Region          string // S3_REGION, default "us-east-1"
-	AccessKeyID     string // S3_ACCESS_KEY_ID, default "minioadmin"
-	SecretAccessKey string // S3_SECRET_ACCESS_KEY, default "minioadmin"
-	UsePathStyle    bool   // S3_USE_PATH_STYLE, default true
+	AccessKeyID     string // S3_ACCESS_KEY_ID; empty means the default AWS credential chain (IRSA)
+	SecretAccessKey string // S3_SECRET_ACCESS_KEY, set together with S3_ACCESS_KEY_ID
+	UsePathStyle    bool   // S3_USE_PATH_STYLE, default true when Endpoint is set
 	DefaultBucket   string // S3_DEFAULT_BUCKET, default "mindmesh"
 }
 
 // LoadConfig reads blob configuration from environment variables.
-// It returns an error when S3_USE_PATH_STYLE is set but cannot be parsed as bool.
-func LoadConfig() (Config, error) {
-	usePathStyle, err := config.Bool("S3_USE_PATH_STYLE", true)
+func LoadConfig(dev bool) (Config, error) {
+	endpoint, key, secret := "", "", ""
+	if dev {
+		endpoint, key, secret = "http://localhost:9000", "minioadmin", "minioadmin"
+	}
+	endpoint = config.Str("S3_ENDPOINT", endpoint)
+	// S3-compatible stores like MinIO need path-style; AWS itself is deprecating it.
+	usePathStyle, err := config.Bool("S3_USE_PATH_STYLE", endpoint != "")
 	if err != nil {
 		return Config{}, fmt.Errorf("blob: %w", err)
 	}
-
-	return Config{
-		Endpoint:        config.Str("S3_ENDPOINT", "http://localhost:9000"),
+	cfg := Config{
+		Endpoint:        endpoint,
 		Region:          config.Str("S3_REGION", "us-east-1"),
-		AccessKeyID:     config.Str("S3_ACCESS_KEY_ID", "minioadmin"),
-		SecretAccessKey: config.Str("S3_SECRET_ACCESS_KEY", "minioadmin"),
+		AccessKeyID:     config.Str("S3_ACCESS_KEY_ID", key),
+		SecretAccessKey: config.Str("S3_SECRET_ACCESS_KEY", secret),
 		UsePathStyle:    usePathStyle,
 		DefaultBucket:   config.Str("S3_DEFAULT_BUCKET", "mindmesh"),
-	}, nil
+	}
+	if (cfg.AccessKeyID == "") != (cfg.SecretAccessKey == "") {
+		return Config{}, fmt.Errorf("blob: set both S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY, or neither for the default AWS credential chain")
+	}
+	return cfg, nil
 }
 
 // Client wraps an AWS S3 client, providing upload, download, delete and presign
@@ -56,20 +65,18 @@ type Client struct {
 	s3 *s3.Client
 }
 
-// NewClient creates a Client configured with static credentials and a custom
-// endpoint so that it can target a MinIO instance as well as real AWS S3.
+// NewClient creates a Client for AWS S3 or, given an endpoint, an S3-compatible store such as MinIO.
 func NewClient(ctx context.Context, cfg Config) (*Client, error) {
-	awsCfg, err := awsconfig.LoadDefaultConfig(ctx,
-		awsconfig.WithRegion(cfg.Region),
-		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
-			cfg.AccessKeyID,
-			cfg.SecretAccessKey,
-			"",
-		)),
-		// WithBaseEndpoint redirects all requests to the custom endpoint.
-		// This is the recommended approach for MinIO and other S3-compatible stores.
-		awsconfig.WithBaseEndpoint(cfg.Endpoint),
-	)
+	opts := []func(*awsconfig.LoadOptions) error{awsconfig.WithRegion(cfg.Region)}
+	if cfg.AccessKeyID != "" {
+		opts = append(opts, awsconfig.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider(cfg.AccessKeyID, cfg.SecretAccessKey, "")))
+	}
+	if cfg.Endpoint != "" {
+		// For MinIO and other S3-compatible stores.
+		opts = append(opts, awsconfig.WithBaseEndpoint(cfg.Endpoint))
+	}
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("blob: load aws config: %w", err)
 	}

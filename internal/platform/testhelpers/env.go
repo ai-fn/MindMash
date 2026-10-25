@@ -10,7 +10,6 @@ import (
 func UnsetAll(t *testing.T, keys ...string) {
 	t.Helper()
 	for _, k := range keys {
-		k := k
 		prev, existed := os.LookupEnv(k)
 		if err := os.Unsetenv(k); err != nil {
 			t.Fatalf("setup: unset %s: %v", k, err)

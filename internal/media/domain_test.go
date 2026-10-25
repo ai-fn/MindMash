@@ -42,7 +42,6 @@ func TestValidateUpload(t *testing.T) {
 		{"short checksum", "image/png", "abcd", 10, "", "", true},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := ValidateUpload(tc.mime, tc.sha, tc.bytes)
 			if tc.wantErr {

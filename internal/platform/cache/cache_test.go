@@ -16,7 +16,6 @@ func TestLoadConfig_Defaults(t *testing.T) {
 		"REDIS_ADDR", "REDIS_PASSWORD", "REDIS_DB",
 		"REDIS_DIAL_TIMEOUT", "REDIS_READ_TIMEOUT", "REDIS_WRITE_TIMEOUT",
 	} {
-		k := k
 		prev, existed := os.LookupEnv(k)
 		if err := os.Unsetenv(k); err != nil {
 			t.Fatalf("setup: unset %s: %v", k, err)

@@ -14,7 +14,6 @@ import (
 func TestLoadConfig_Defaults(t *testing.T) {
 	// Wipe any inherited env values so defaults apply, restoring them on cleanup.
 	for _, k := range []string{"DB_MAX_CONNS", "DB_MIN_CONNS", "DB_MAX_CONN_LIFETIME", "DB_MAX_CONN_IDLE_TIME"} {
-		k := k
 		prev, existed := os.LookupEnv(k)
 		if err := os.Unsetenv(k); err != nil {
 			t.Fatalf("setup: unset %s: %v", k, err)
@@ -130,4 +129,19 @@ func TestToPgx5URL(t *testing.T) {
 			assert.Equal(t, tc.want, toPgx5URL(tc.input))
 		})
 	}
+}
+
+func TestLoadConfig_ConnBounds(t *testing.T) {
+	t.Setenv("DB_DSN", "postgres://user:pass@localhost:5432/testdb")
+	for _, tc := range []struct{ max, min string }{{"0", "0"}, {"4", "5"}, {"-1", "0"}} {
+		t.Setenv("DB_MAX_CONNS", tc.max)
+		t.Setenv("DB_MIN_CONNS", tc.min)
+		_, err := LoadConfig()
+		require.Error(t, err, "max=%s min=%s", tc.max, tc.min)
+		assert.Contains(t, err.Error(), "DB_M")
+	}
+	t.Setenv("DB_MAX_CONNS", "2")
+	t.Setenv("DB_MIN_CONNS", "2")
+	_, err := LoadConfig()
+	require.NoError(t, err)
 }

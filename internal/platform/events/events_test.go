@@ -134,7 +134,6 @@ func TestLoadConfig_InvalidEnvVars(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv(tc.envKey, tc.envVal)
 			_, err := LoadConfig()

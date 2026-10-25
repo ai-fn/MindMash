@@ -30,7 +30,6 @@ func TestScaledSize(t *testing.T) {
 		{"exactly at edge", 256, 256, 256, 256, 256},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			gw, gh := scaledSize(tc.w, tc.h, tc.edge)
 			assert.Equal(t, tc.wantW, gw)

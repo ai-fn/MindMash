@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
-	"image/gif"
+	_ "image/gif" // register GIF decoder
 	"image/jpeg"
 	"image/png"
 	"io"
@@ -172,6 +172,3 @@ func hasAlpha(format string) bool {
 		return false
 	}
 }
-
-// Ensure gif is linked so its decoder registers with image.Decode.
-var _ = gif.Decode

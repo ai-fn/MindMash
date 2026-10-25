@@ -79,7 +79,7 @@ func TestWithTx_Integration(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("commit on success", func(t *testing.T) {
-		err := WithTx(ctx, pool, func(tx pgx.Tx) error {
+		err := WithTx(ctx, pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
 			_, err := tx.Exec(ctx, `INSERT INTO tx_test (val) VALUES ($1)`, "hello")
 			return err
 		})
@@ -93,7 +93,7 @@ func TestWithTx_Integration(t *testing.T) {
 
 	t.Run("rollback on fn error", func(t *testing.T) {
 		fnErr := fmt.Errorf("intentional error")
-		err := WithTx(ctx, pool, func(tx pgx.Tx) error {
+		err := WithTx(ctx, pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
 			_, err := tx.Exec(ctx, `INSERT INTO tx_test (val) VALUES ($1)`, "rollback-me")
 			if err != nil {
 				return err
@@ -106,6 +106,31 @@ func TestWithTx_Integration(t *testing.T) {
 		err = pool.QueryRow(ctx, `SELECT COUNT(*) FROM tx_test WHERE val = $1`, "rollback-me").Scan(&count)
 		require.NoError(t, err)
 		assert.Equal(t, 0, count)
+	})
+
+	t.Run("rollback and release on panic", func(t *testing.T) {
+		require.Panics(t, func() {
+			_ = WithTx(ctx, pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
+				if _, err := tx.Exec(ctx, `INSERT INTO tx_test (val) VALUES ($1)`, "panic-me"); err != nil {
+					return err
+				}
+				panic("boom")
+			})
+		})
+		assert.Zero(t, pool.Stat().AcquiredConns(), "the panicking tx kept its connection")
+
+		var count int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT COUNT(*) FROM tx_test WHERE val = $1`, "panic-me").Scan(&count))
+		assert.Equal(t, 0, count)
+	})
+
+	t.Run("honours tx options", func(t *testing.T) {
+		err := WithTx(ctx, pool, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
+			_, err := tx.Exec(ctx, `INSERT INTO tx_test (val) VALUES ($1)`, "read-only")
+			return err
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "read-only")
 	})
 }
 
