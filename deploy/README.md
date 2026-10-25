@@ -189,6 +189,36 @@ accepted only for the methods in `collection.InternalServicePolicy`. Tokens aren
 request and have no replay store, so keep gRPC on a trusted network (or mTLS). Every other service
 verifies user JWTs via JWKS only; just Identity mounts the user signing key.
 
+### Media API and worker
+
+One `media` image runs in two Deployments, chosen by `MODE`:
+
+- **`media` (`MODE=api`):** gRPC, REST, the outbox relay and the pending-upload GC.
+- **`media-worker` (`MODE=worker`):** consumes `media` events and renders thumbnails. It has no
+  gRPC, Ingress or migrations, only probes and `/metrics`.
+- **Dev** runs a single `MODE=all` pod and disables `mediaWorker`.
+
+A decode at the pixel cap peaks near 800 MB, and each worker pod decodes one upload at a time.
+Its 1.5Gi memory limit therefore covers one decode, plus the raw upload and the runtime. Raise
+it if a pod ever decodes more at once. Replicas beyond the topic's partition count sit idle, so
+prod caps the HPA at 12.
+
+The bucket needs one-off hardening on AWS. Run this with admin credentials, not the service's:
+
+```bash
+deploy/scripts/s3-media-bucket.sh mindmesh-prod-media https://api.mindmesh.dev
+```
+
+It sets:
+
+- **Object ownership:** `BucketOwnerEnforced`, so ACLs are off.
+- **Public access:** all four Block Public Access flags.
+- **Website hosting:** removed.
+- **CORS:** the browser's direct PUT, allowing `content-type` and `x-amz-checksum-sha256` from
+  the app origin.
+
+MinIO in dev has none of these APIs and allows CORS by default.
+
 ### Kafka topics and dead letters
 
 Services create missing topics at startup (`KAFKA_CREATE_TOPICS`, `KAFKA_TOPIC_PARTITIONS`,

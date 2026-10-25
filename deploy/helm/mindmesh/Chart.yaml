@@ -53,6 +53,12 @@ dependencies:
     repository: "file://../mindmesh-service"
     alias: media
     condition: media.enabled
+  # The media image in MODE=worker: image decoding, scaled and sized apart from the API.
+  - name: mindmesh-service
+    version: "0.1.0"
+    repository: "file://../mindmesh-service"
+    alias: mediaWorker
+    condition: mediaWorker.enabled
   # The frontend SPA reuses the same generic chart in HTTP-only mode (no gRPC
   # port, no migrations, nginx health path) — see the `web` block in values.yaml.
   - name: mindmesh-service

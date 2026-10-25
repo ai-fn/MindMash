@@ -67,7 +67,7 @@ spec:
         {{- end }}
       {{- end }}
       containers:
-        - name: {{ .Chart.Name }}
+        - name: {{ include "mindmesh-service.fullname" . }}
           image: {{ include "mindmesh-service.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:

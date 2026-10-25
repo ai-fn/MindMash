@@ -23,5 +23,8 @@ dependencies:
 - name: mindmesh-service
   repository: file://../mindmesh-service
   version: 0.1.0
-digest: sha256:cd52f69d50a669f0cfee23eb692aea4beec7b81423a714e3a857e0c790db9bcf
-generated: "2026-07-17T18:48:16.703658849+03:00"
+- name: mindmesh-service
+  repository: file://../mindmesh-service
+  version: 0.1.0
+digest: sha256:3ae27df772d71750529091d6dc17cb2eeb360f6f4570c8663dc78103e04f349e
+generated: "2026-10-25T16:20:41.546761205Z"

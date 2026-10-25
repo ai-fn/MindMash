@@ -106,6 +106,8 @@ analytics:
 
 media:
   image: { registry: mindmesh, tag: dev }
+  env:
+    MODE: all              # one pod runs the API and the worker; no separate worker in dev
   replicaCount: 1
   autoscaling: { enabled: false }
   pdb: { enabled: false }
@@ -115,6 +117,9 @@ media:
   resources:
     requests: { cpu: 50m, memory: 64Mi }
     limits: { cpu: 500m, memory: 256Mi }
+
+mediaWorker:
+  enabled: false
 
 # Frontend SPA. The in-cluster image exists for parity, but day-to-day the app is
 # served via the Vite dev server (Tilt local_resource, HMR). No ingress controller

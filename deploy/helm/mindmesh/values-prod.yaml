@@ -112,13 +112,13 @@ analytics:
 
 media:
   # Managed object store (virtual-hosted style) instead of in-cluster MinIO.
-  env:
+  env: &mediaS3Env
     S3_ENDPOINT: "https://s3.eu-west-1.amazonaws.com"
     S3_REGION: eu-west-1
     S3_USE_PATH_STYLE: "false"
     S3_DEFAULT_BUCKET: mindmesh-prod-media
   secret: { create: false }
-  externalSecrets:
+  externalSecrets: &mediaExternalSecrets
     enabled: true
     secretStoreRef: { name: aws-secretsmanager, kind: ClusterSecretStore }
     remoteRefs:
@@ -131,6 +131,12 @@ media:
     tls:
       - secretName: mindmesh-tls
         hosts: [api.mindmesh.dev]
+
+mediaWorker:
+  autoscaling: { maxReplicas: 12 }   # one consumer per media topic partition
+  env: *mediaS3Env
+  secret: { create: false }
+  externalSecrets: *mediaExternalSecrets
 
 # Frontend SPA. No secret/migrations; host + catch-all `/` path inherited from
 # values.yaml (prod keeps api.mindmesh.dev), so this only adds TLS. Image tag is

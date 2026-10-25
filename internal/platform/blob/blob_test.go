@@ -1,9 +1,15 @@
 package blob
 
 import (
+	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
+	"os"
+	"regexp"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
@@ -104,4 +110,38 @@ func TestLoadConfig_EnvOverride(t *testing.T) {
 	assert.Equal(t, "mysecret", cfg.SecretAccessKey)
 	assert.Equal(t, false, cfg.UsePathStyle)
 	assert.Equal(t, "my-bucket", cfg.DefaultBucket)
+}
+
+// Browsers send every signed header on the direct PUT, so the bucket's CORS rule must allow each one.
+func TestPresignPut_SignedHeadersAllowedByBucketCORS(t *testing.T) {
+	script, err := os.ReadFile("../../../deploy/scripts/s3-media-bucket.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`"AllowedHeaders": \[([^\]]*)\]`).FindSubmatch(script)
+	if m == nil {
+		t.Fatal("no AllowedHeaders in the bucket CORS rule")
+	}
+	allowed := map[string]bool{}
+	for _, h := range strings.Split(string(m[1]), ",") {
+		allowed[strings.ToLower(strings.Trim(strings.TrimSpace(h), `"`))] = true
+	}
+
+	c, err := NewClient(context.Background(), Config{Endpoint: "http://localhost:9000", Region: "us-east-1",
+		AccessKeyID: "a", SecretAccessKey: "b", UsePathStyle: true, DefaultBucket: "m"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte("x"))
+	p, err := c.PresignPut(context.Background(), "m", "k", time.Minute,
+		PutConstraints{ContentType: "image/png", ContentLength: 1, ChecksumSHA256: sum[:]})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for h := range p.Headers {
+		// The browser sets Content-Length itself; it is never preflighted.
+		if lh := strings.ToLower(h); lh != "content-length" && !allowed[lh] {
+			t.Errorf("signed header %q is not in the bucket's CORS AllowedHeaders", h)
+		}
+	}
 }

@@ -276,6 +276,7 @@ media:
   env:
     SERVICE_NAME: media
     OTEL_SERVICE_NAME: media
+    MODE: api
     RUN_MIGRATIONS: "false"
     JWKS_URL: "http://identity:8080/.well-known/jwks.json"
     S3_ENDPOINT: "http://minio:9000"
@@ -284,7 +285,7 @@ media:
     S3_DEFAULT_BUCKET: mindmesh
   secret:
     create: true
-    data:
+    data: &mediaSecretData
       DB_DSN: "postgres://mindmesh:mindmesh@postgres:5432/mindmesh?sslmode=disable"
       S3_ACCESS_KEY_ID: minioadmin
       S3_SECRET_ACCESS_KEY: minioadmin
@@ -298,6 +299,32 @@ media:
       - host: api.mindmesh.dev
         paths:
           - { path: /v1/media, pathType: Prefix }
+
+# --- media worker ---------------------------------------------------------
+# Decodes uploads into thumbnails: no gRPC, ingress or migrations; probes and /metrics only.
+mediaWorker:
+  fullnameOverride: media-worker
+  image:
+    repository: media
+  ports:
+    grpc: 0
+  env:
+    SERVICE_NAME: media-worker
+    OTEL_SERVICE_NAME: media-worker
+    MODE: worker
+    RUN_MIGRATIONS: "false"
+    S3_ENDPOINT: "http://minio:9000"
+    S3_REGION: us-east-1
+    S3_USE_PATH_STYLE: "true"
+    S3_DEFAULT_BUCKET: mindmesh
+  secret:
+    create: true
+    data: *mediaSecretData
+  # One decode at a time (one consumer per pod) peaks near 800 MB at the pixel cap, plus the
+  # raw upload and runtime. The HPA scales on CPU; Kafka-lag scaling (keda) is the follow-up.
+  resources:
+    requests: { cpu: 500m, memory: 768Mi }
+    limits: { cpu: "1", memory: 1536Mi }
 
 # --- web (frontend SPA) ---------------------------------------------------
 # The React SPA served as static files by nginx. Reuses the generic chart in

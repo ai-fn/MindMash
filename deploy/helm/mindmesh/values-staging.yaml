@@ -155,13 +155,13 @@ analytics:
 media:
   autoscaling: { maxReplicas: 8 }
   # Managed object store (virtual-hosted style) instead of in-cluster MinIO.
-  env:
+  env: &mediaS3Env
     S3_ENDPOINT: "https://s3.eu-west-1.amazonaws.com"
     S3_REGION: eu-west-1
     S3_USE_PATH_STYLE: "false"
     S3_DEFAULT_BUCKET: mindmesh-staging-media
   secret: { create: false }
-  externalSecrets:
+  externalSecrets: &mediaExternalSecrets
     enabled: true
     secretStoreRef: { name: aws-secretsmanager, kind: ClusterSecretStore }
     remoteRefs:
@@ -178,6 +178,12 @@ media:
     tls:
       - secretName: mindmesh-staging-tls
         hosts: [staging.mindmesh.dev]
+
+mediaWorker:
+  autoscaling: { maxReplicas: 8 }
+  env: *mediaS3Env
+  secret: { create: false }
+  externalSecrets: *mediaExternalSecrets
 
 # Frontend SPA — served on the same host as the API (catch-all `/`, longer /v1/*
 # prefixes win). No secret / no migrations; just image tag + host + TLS.
