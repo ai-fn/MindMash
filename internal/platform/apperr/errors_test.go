@@ -1,4 +1,4 @@
-package errors_test
+package apperr_test
 
 import (
 	stderrors "errors"
@@ -6,7 +6,7 @@ import (
 
 	"google.golang.org/grpc/codes"
 
-	apperrors "github.com/mindmesh/mindmesh/internal/platform/errors"
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 )
 
 func TestAppErrorConstructors(t *testing.T) {
@@ -14,58 +14,58 @@ func TestAppErrorConstructors(t *testing.T) {
 
 	cases := []struct {
 		name         string
-		err          *apperrors.AppError
+		err          *apperr.AppError
 		wantGRPC     codes.Code
 		wantMsgInErr bool
 	}{
 		{
 			name:     "NotFound",
-			err:      apperrors.NotFound("user not found", sentinel),
+			err:      apperr.NotFound("user not found", sentinel),
 			wantGRPC: codes.NotFound,
 		},
 		{
 			name:     "AlreadyExists",
-			err:      apperrors.AlreadyExists("email taken", sentinel),
+			err:      apperr.AlreadyExists("email taken", sentinel),
 			wantGRPC: codes.AlreadyExists,
 		},
 		{
 			name:     "InvalidArgument",
-			err:      apperrors.InvalidArgument("bad input", sentinel),
+			err:      apperr.InvalidArgument("bad input", sentinel),
 			wantGRPC: codes.InvalidArgument,
 		},
 		{
 			name:     "FailedPrecondition",
-			err:      apperrors.FailedPrecondition("note type in use", sentinel),
+			err:      apperr.FailedPrecondition("note type in use", sentinel),
 			wantGRPC: codes.FailedPrecondition,
 		},
 		{
 			name:     "Aborted",
-			err:      apperrors.Aborted("stale write", sentinel),
+			err:      apperr.Aborted("stale write", sentinel),
 			wantGRPC: codes.Aborted,
 		},
 		{
 			name:     "Unauthenticated",
-			err:      apperrors.Unauthenticated("missing token", sentinel),
+			err:      apperr.Unauthenticated("missing token", sentinel),
 			wantGRPC: codes.Unauthenticated,
 		},
 		{
 			name:     "PermissionDenied",
-			err:      apperrors.PermissionDenied("forbidden", sentinel),
+			err:      apperr.PermissionDenied("forbidden", sentinel),
 			wantGRPC: codes.PermissionDenied,
 		},
 		{
 			name:     "Internal",
-			err:      apperrors.Internal("db failure", sentinel),
+			err:      apperr.Internal("db failure", sentinel),
 			wantGRPC: codes.Internal,
 		},
 		{
 			name:     "Unavailable",
-			err:      apperrors.Unavailable("service down", sentinel),
+			err:      apperr.Unavailable("service down", sentinel),
 			wantGRPC: codes.Unavailable,
 		},
 		{
 			name:     "ResourceExhausted",
-			err:      apperrors.ResourceExhausted("slow down", sentinel),
+			err:      apperr.ResourceExhausted("slow down", sentinel),
 			wantGRPC: codes.ResourceExhausted,
 		},
 	}
@@ -96,10 +96,10 @@ func TestErrorsAsWrapping(t *testing.T) {
 	sentinel := stderrors.New("db: connection refused")
 	wrapped := stderrors.New("service layer: " + sentinel.Error())
 	// Simulate a higher layer wrapping an AppError.
-	ae := apperrors.Internal("operation failed", wrapped)
+	ae := apperr.Internal("operation failed", wrapped)
 	outer := stderrors.Join(stderrors.New("handler:"), ae)
 
-	var target *apperrors.AppError
+	var target *apperr.AppError
 	if !stderrors.As(outer, &target) {
 		t.Fatal("errors.As should find *AppError through the join wrapper")
 	}
@@ -110,7 +110,7 @@ func TestErrorsAsWrapping(t *testing.T) {
 
 func TestAppErrorWithCause(t *testing.T) {
 	cause := stderrors.New("db timeout")
-	err := apperrors.NotFound("user not found", cause)
+	err := apperr.NotFound("user not found", cause)
 	want := "user not found: db timeout"
 	if got := err.Error(); got != want {
 		t.Errorf("Error() = %q, want %q", got, want)

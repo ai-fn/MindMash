@@ -20,8 +20,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 	"github.com/mindmesh/mindmesh/internal/platform/auth"
-	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
 	"github.com/mindmesh/mindmesh/internal/platform/i18n"
 	"github.com/mindmesh/mindmesh/internal/platform/ids"
 )
@@ -213,7 +213,7 @@ func (s *Service) Register(ctx context.Context, email, password, locale string) 
 
 // Login authenticates a user by email/password and issues a token set.
 func (s *Service) Login(ctx context.Context, email, password string) (accessToken, refreshToken string, expiresIn int64, userID, profileID string, err error) {
-	invalid := platformerrors.Unauthenticated("invalid credentials").WithMsgID(i18n.MsgInvalidCredentials)
+	invalid := apperr.Unauthenticated("invalid credentials").WithMsgID(i18n.MsgInvalidCredentials)
 
 	email, normErr := normalizeEmail(email)
 	if normErr != nil || len(password) > maxPasswordBytes {
@@ -224,7 +224,7 @@ func (s *Service) Login(ctx context.Context, email, password string) (accessToke
 	}
 
 	user, lookupErr := s.repo.GetUserByEmail(ctx, email)
-	if lookupErr != nil && !platformerrors.IsNotFound(lookupErr) {
+	if lookupErr != nil && !apperr.IsNotFound(lookupErr) {
 		return "", "", 0, "", "", fmt.Errorf("identity: login lookup user: %w", lookupErr)
 	}
 
@@ -270,10 +270,10 @@ const oauthStateTTL = 10 * time.Minute
 // so the callback can only be completed by a flow this service started.
 func (s *Service) OAuthStart(ctx context.Context, provider, redirectURI string) (authURL, state string, err error) {
 	if s.oauthStates == nil || len(s.oauthRedirects) == 0 {
-		return "", "", platformerrors.FailedPrecondition("oauth is not configured")
+		return "", "", apperr.FailedPrecondition("oauth is not configured")
 	}
 	if !slices.Contains(s.oauthRedirects, redirectURI) {
-		return "", "", platformerrors.InvalidArgument("redirect_uri is not allowed")
+		return "", "", apperr.InvalidArgument("redirect_uri is not allowed")
 	}
 	state, err = generateVerificationToken()
 	if err != nil {
@@ -297,28 +297,28 @@ func (s *Service) OAuthStart(ctx context.Context, provider, redirectURI string) 
 // OAuthExchange completes a flow started by OAuthStart and either creates a new account or links/finds an existing one.
 func (s *Service) OAuthExchange(ctx context.Context, provider, code, state, redirectURI string) (accessToken, refreshToken string, expiresIn int64, userID, profileID string, isNew bool, err error) {
 	if s.oauthStates == nil {
-		return "", "", 0, "", "", false, platformerrors.FailedPrecondition("oauth is not configured")
+		return "", "", 0, "", "", false, apperr.FailedPrecondition("oauth is not configured")
 	}
 	if state == "" || code == "" {
-		return "", "", 0, "", "", false, platformerrors.InvalidArgument("code and state are required")
+		return "", "", 0, "", "", false, apperr.InvalidArgument("code and state are required")
 	}
 	st, found, err := s.oauthStates.Take(ctx, state)
 	if err != nil {
 		return "", "", 0, "", "", false, err
 	}
 	if !found || st.Provider != provider || (redirectURI != "" && redirectURI != st.RedirectURI) {
-		return "", "", 0, "", "", false, platformerrors.Unauthenticated("invalid or expired oauth state")
+		return "", "", 0, "", "", false, apperr.Unauthenticated("invalid or expired oauth state")
 	}
 	info, err := s.exchanger.Exchange(ctx, provider, code, st.OAuthFlow)
 	if err != nil {
-		var appErr *platformerrors.AppError
+		var appErr *apperr.AppError
 		if errors.As(err, &appErr) {
 			return "", "", 0, "", "", false, err // already client-safe; wrapping would expose the cause in the status message
 		}
 		return "", "", 0, "", "", false, fmt.Errorf("identity: oauth exchange: %w", err)
 	}
 	if info.Subject == "" {
-		return "", "", 0, "", "", false, platformerrors.Unauthenticated("oauth provider returned no subject")
+		return "", "", 0, "", "", false, apperr.Unauthenticated("oauth provider returned no subject")
 	}
 	info.Email = strings.TrimSpace(info.Email)
 
@@ -344,23 +344,23 @@ func (s *Service) OAuthExchange(ctx context.Context, provider, code, state, redi
 		return access, refresh, expiresIn, user.ID, profile.ID, false, nil
 	}
 
-	if !platformerrors.IsNotFound(lookupErr) {
+	if !apperr.IsNotFound(lookupErr) {
 		return "", "", 0, "", "", false, fmt.Errorf("identity: oauth exchange lookup identity: %w", lookupErr)
 	}
 	// An empty email would match any other account stored without one.
 	if info.Email == "" {
-		return "", "", 0, "", "", false, platformerrors.FailedPrecondition("oauth provider returned no email")
+		return "", "", 0, "", "", false, apperr.FailedPrecondition("oauth provider returned no email")
 	}
 	// Linking or creating from an unproven address would let its holder squat or take over the account.
 	if !info.EmailVerified {
-		return "", "", 0, "", "", false, platformerrors.FailedPrecondition("oauth email is not verified").
+		return "", "", 0, "", "", false, apperr.FailedPrecondition("oauth email is not verified").
 			WithMsgID(i18n.MsgOAuthEmailUnverified)
 	}
 
 	// New OAuth identity: try to link by email first.
 	now := time.Now()
 	existingUser, emailErr := s.repo.GetUserByEmail(ctx, info.Email)
-	if emailErr != nil && !platformerrors.IsNotFound(emailErr) {
+	if emailErr != nil && !apperr.IsNotFound(emailErr) {
 		return "", "", 0, "", "", false, fmt.Errorf("identity: oauth exchange lookup email: %w", emailErr)
 	}
 	if emailErr == nil {
@@ -469,10 +469,10 @@ func (s *Service) OAuthExchange(ctx context.Context, provider, code, state, redi
 func (s *Service) Refresh(ctx context.Context, refreshToken string) (accessToken, newRefreshToken string, expiresIn int64, err error) {
 	claims, err := s.signer.Verify(refreshToken)
 	if err != nil {
-		return "", "", 0, platformerrors.Unauthenticated("invalid token")
+		return "", "", 0, apperr.Unauthenticated("invalid token")
 	}
 	if claims.Kind != "refresh" {
-		return "", "", 0, platformerrors.Unauthenticated("invalid token")
+		return "", "", 0, apperr.Unauthenticated("invalid token")
 	}
 	jti := claims.ID
 
@@ -491,21 +491,21 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (accessToken
 	txErr := s.repo.WithTx(ctx, func(txRepo Repository) error {
 		// Locked before the token row, matching reset and claim, so their revoke cannot miss this rotation.
 		if _, err := txRepo.GetUserForShare(ctx, claims.Subject); err != nil {
-			if platformerrors.IsNotFound(err) {
-				return platformerrors.Unauthenticated("invalid token")
+			if apperr.IsNotFound(err) {
+				return apperr.Unauthenticated("invalid token")
 			}
 			return fmt.Errorf("identity: refresh lock user: %w", err)
 		}
 		rt, err := txRepo.GetRefreshTokenForUpdate(ctx, jti)
 		if err != nil {
 			if status.Code(err) == codes.NotFound {
-				return platformerrors.Unauthenticated("invalid token")
+				return apperr.Unauthenticated("invalid token")
 			}
 			return fmt.Errorf("identity: refresh get token: %w", err)
 		}
 
 		if rt.UserID != claims.Subject {
-			return platformerrors.Unauthenticated("invalid token")
+			return apperr.Unauthenticated("invalid token")
 		}
 
 		// A token rotated moments ago is a concurrent refresh (two tabs), not theft: it mints a sibling.
@@ -517,7 +517,7 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (accessToken
 		}
 
 		if time.Now().After(rt.ExpiresAt) {
-			return platformerrors.Unauthenticated("token expired")
+			return apperr.Unauthenticated("token expired")
 		}
 
 		rotatedFamilyID = rt.FamilyID
@@ -553,7 +553,7 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (accessToken
 
 	if errors.Is(txErr, errTokenReuse) {
 		s.revokeFamilyBestEffort(ctx, claims.Subject, reuseFamilyID)
-		return "", "", 0, platformerrors.Unauthenticated("token reuse detected")
+		return "", "", 0, apperr.Unauthenticated("token reuse detected")
 	}
 	if txErr != nil {
 		return "", "", 0, txErr
@@ -667,7 +667,7 @@ func (s *Service) CreateProfile(ctx context.Context, userID, name string) (*Prof
 			return err
 		}
 		if len(existing) >= MaxProfilesPerUser {
-			return platformerrors.ResourceExhausted(fmt.Sprintf("at most %d profiles per account", MaxProfilesPerUser))
+			return apperr.ResourceExhausted(fmt.Sprintf("at most %d profiles per account", MaxProfilesPerUser))
 		}
 		return tx.CreateProfile(ctx, p)
 	})
@@ -689,7 +689,7 @@ func (s *Service) ActivateProfile(ctx context.Context, userID, profileID string)
 		return "", 0, err // NotFound propagates
 	}
 	if profile.UserID != userID {
-		return "", 0, platformerrors.PermissionDenied("profile does not belong to this user")
+		return "", 0, apperr.PermissionDenied("profile does not belong to this user")
 	}
 
 	user, err := s.repo.GetUserByID(ctx, userID)
@@ -734,8 +734,8 @@ func consumeToken(ctx context.Context, repo Repository, token, purpose string) (
 		userID, err = repo.ConsumeEmailVerification(ctx, hash, purpose)
 	}
 	if err != nil {
-		if platformerrors.IsNotFound(err) {
-			return "", platformerrors.InvalidArgument("invalid or expired token").WithMsgID(i18n.MsgInvalidOrExpiredToken)
+		if apperr.IsNotFound(err) {
+			return "", apperr.InvalidArgument("invalid or expired token").WithMsgID(i18n.MsgInvalidOrExpiredToken)
 		}
 		return "", fmt.Errorf("identity: consume email token: %w", err)
 	}
@@ -755,7 +755,7 @@ func (s *Service) RequestPasswordReset(ctx context.Context, emailAddr string) er
 	s.background(ctx, "password reset email", func(ctx context.Context) error {
 		user, err := s.repo.GetUserByEmail(ctx, emailAddr)
 		if err != nil {
-			if platformerrors.IsNotFound(err) {
+			if apperr.IsNotFound(err) {
 				return nil
 			}
 			return fmt.Errorf("lookup user: %w", err)
@@ -855,7 +855,7 @@ func (s *Service) issueTokens(ctx context.Context, user *User, profile *Profile)
 			return err
 		}
 		if !samePassword(cur.PasswordHash, user.PasswordHash) {
-			return platformerrors.Unauthenticated("invalid credentials").WithMsgID(i18n.MsgInvalidCredentials)
+			return apperr.Unauthenticated("invalid credentials").WithMsgID(i18n.MsgInvalidCredentials)
 		}
 		return txRepo.CreateRefreshToken(ctx, rt)
 	})
@@ -890,12 +890,12 @@ func (s *Service) pickDefaultProfile(ctx context.Context, userID string) (*Profi
 	if len(profiles) > 0 {
 		return &profiles[0], nil
 	}
-	return nil, platformerrors.Internal("user has no profiles")
+	return nil, apperr.Internal("user has no profiles")
 }
 
 func requireActive(u *User) error {
 	if u.Status != statusActive {
-		return platformerrors.PermissionDenied("account is not active")
+		return apperr.PermissionDenied("account is not active")
 	}
 	return nil
 }
@@ -993,7 +993,7 @@ func (s *Service) allow(ctx context.Context, scope, key string, limit int, windo
 		return nil
 	}
 	if !ok {
-		return platformerrors.ResourceExhausted("too many attempts").WithMsgID(i18n.MsgTooManyAttempts)
+		return apperr.ResourceExhausted("too many attempts").WithMsgID(i18n.MsgTooManyAttempts)
 	}
 	return nil
 }
@@ -1015,13 +1015,13 @@ func (s *Service) WarmUp() error {
 
 func (s *Service) acquireHashSlot(ctx context.Context) (release func(), err error) {
 	if err := ctx.Err(); err != nil {
-		return nil, platformerrors.ResourceExhausted("server busy", err)
+		return nil, apperr.ResourceExhausted("server busy", err)
 	}
 	select {
 	case s.hashSlots <- struct{}{}:
 		return func() { <-s.hashSlots }, nil
 	case <-ctx.Done():
-		return nil, platformerrors.ResourceExhausted("server busy", ctx.Err())
+		return nil, apperr.ResourceExhausted("server busy", ctx.Err())
 	}
 }
 

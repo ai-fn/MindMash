@@ -1,4 +1,4 @@
-package sync
+package syncer
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	collectionv1 "github.com/mindmesh/mindmesh/api/collection/v1"
-	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 	"github.com/mindmesh/mindmesh/internal/platform/validate"
 )
 
@@ -66,11 +66,11 @@ func (s *Service) Apply(ctx context.Context, userID string, mutations []Mutation
 // validateMutations rejects only what can't be keyed by op_id; other bad ops fail alone so they can't wedge a queue.
 func validateMutations(ms []Mutation) error {
 	if len(ms) > maxMutationsPerApply {
-		return platformerrors.InvalidArgument(fmt.Sprintf("at most %d mutations per request", maxMutationsPerApply))
+		return apperr.InvalidArgument(fmt.Sprintf("at most %d mutations per request", maxMutationsPerApply))
 	}
 	for i, m := range ms {
 		if m.OpID == "" || validate.Text("op_id", m.OpID, maxOpIDLen) != nil {
-			return platformerrors.InvalidArgument(fmt.Sprintf("mutations[%d]: op_id must be 1-%d bytes of UTF-8 without NUL", i, maxOpIDLen))
+			return apperr.InvalidArgument(fmt.Sprintf("mutations[%d]: op_id must be 1-%d bytes of UTF-8 without NUL", i, maxOpIDLen))
 		}
 	}
 	return nil
@@ -569,10 +569,10 @@ func (s *Service) failureReason(ctx context.Context, m Mutation, err error) stri
 	// Collection judged the user's own mutation (sync forwards their JWT), so its client errors
 	// are about the request and their messages, already sanitized there, pass through.
 	var gs interface{ GRPCStatus() *status.Status }
-	if errors.As(err, &gs) && !platformerrors.ServerFault(gs.GRPCStatus().Code()) {
+	if errors.As(err, &gs) && !apperr.ServerFault(gs.GRPCStatus().Code()) {
 		return gs.GRPCStatus().Message()
 	}
-	pub, logCause := platformerrors.Public(err)
+	pub, logCause := apperr.Public(err)
 	if logCause {
 		s.log.Error("sync: apply mutation failed", zap.String("op_id", m.OpID), zap.Int("type", int(m.Type)),
 			zap.Error(err), zap.String("trace_id", trace.SpanContextFromContext(ctx).TraceID().String()))

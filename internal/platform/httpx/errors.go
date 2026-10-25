@@ -8,7 +8,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
-	apperrors "github.com/mindmesh/mindmesh/internal/platform/errors"
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 	"github.com/mindmesh/mindmesh/internal/platform/log"
 )
 
@@ -19,7 +19,7 @@ func GatewayErrors(next runtime.ErrorHandlerFunc) runtime.ServeMuxOption {
 		next = runtime.DefaultHTTPErrorHandler
 	}
 	return runtime.WithErrorHandler(func(ctx context.Context, mux *runtime.ServeMux, m runtime.Marshaler, w http.ResponseWriter, r *http.Request, err error) {
-		pub, logCause := apperrors.Public(err)
+		pub, logCause := apperr.Public(err)
 		if logCause {
 			path := r.URL.Path
 			if len(path) > maxLoggedPath {

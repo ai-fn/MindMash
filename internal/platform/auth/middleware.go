@@ -9,7 +9,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 )
 
 // IdentityContext holds the authenticated caller's identity.
@@ -40,7 +40,7 @@ func IdentityFromContext(ctx context.Context) (IdentityContext, bool) {
 func RequireIdentity(ctx context.Context) (IdentityContext, error) {
 	id, ok := IdentityFromContext(ctx)
 	if !ok {
-		return IdentityContext{}, platformerrors.Unauthenticated("missing identity context")
+		return IdentityContext{}, apperr.Unauthenticated("missing identity context")
 	}
 	return id, nil
 }

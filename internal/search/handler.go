@@ -7,8 +7,8 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	searchv1 "github.com/mindmesh/mindmesh/api/search/v1"
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 	"github.com/mindmesh/mindmesh/internal/platform/auth"
-	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
 	"github.com/mindmesh/mindmesh/internal/platform/validate"
 	"github.com/mindmesh/mindmesh/pkg/searchdsl"
 )
@@ -37,7 +37,7 @@ func NewHandler(repo *Repo) *Handler {
 func (h *Handler) Search(ctx context.Context, req *searchv1.SearchRequest) (*searchv1.SearchResponse, error) {
 	id, ok := auth.IdentityFromContext(ctx)
 	if !ok {
-		return nil, platformerrors.Unauthenticated("missing identity context")
+		return nil, apperr.Unauthenticated("missing identity context")
 	}
 
 	if err := validate.Text("q", req.GetQ(), validate.MaxQueryBytes); err != nil {
@@ -48,14 +48,14 @@ func (h *Handler) Search(ctx context.Context, req *searchv1.SearchRequest) (*sea
 	if q := strings.TrimSpace(req.GetQ()); q != "" {
 		parsed, err := searchdsl.Parse(q)
 		if err != nil {
-			return nil, platformerrors.InvalidArgument("invalid query: " + err.Error())
+			return nil, apperr.InvalidArgument("invalid query: " + err.Error())
 		}
 		node = parsed
 	}
 
 	searchAfter, err := decodeCursor(req.GetCursor())
 	if err != nil {
-		return nil, platformerrors.InvalidArgument("invalid cursor")
+		return nil, apperr.InvalidArgument("invalid cursor")
 	}
 
 	tenant := Tenant{UserID: id.UserID}
@@ -65,7 +65,7 @@ func (h *Handler) Search(ctx context.Context, req *searchv1.SearchRequest) (*sea
 	if err != nil {
 		// The index being down is a degraded-but-recoverable condition; surface it
 		// as Unavailable (503) rather than a generic Internal error.
-		return nil, platformerrors.Unavailable("search backend unavailable", err)
+		return nil, apperr.Unavailable("search backend unavailable", err)
 	}
 
 	resp := &searchv1.SearchResponse{

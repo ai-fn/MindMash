@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 )
 
 func hexSum(b byte) string {
@@ -47,7 +47,7 @@ func TestValidateUpload(t *testing.T) {
 			got, err := ValidateUpload(tc.mime, tc.sha, tc.bytes)
 			if tc.wantErr {
 				require.Error(t, err)
-				assert.True(t, platformerrors.IsInvalidArgument(err), "want InvalidArgument, got %v", err)
+				assert.True(t, apperr.IsInvalidArgument(err), "want InvalidArgument, got %v", err)
 				return
 			}
 			require.NoError(t, err)

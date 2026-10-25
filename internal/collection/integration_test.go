@@ -16,8 +16,8 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 	"go.uber.org/zap"
 
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 	platformdb "github.com/mindmesh/mindmesh/internal/platform/db"
-	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
 )
 
 type integrationComponents struct {
@@ -266,7 +266,7 @@ func TestRenderCard_NotFound(t *testing.T) {
 	c := setupIntegration(t)
 	ctx := context.Background()
 	_, _, _, err := c.svc.RenderCard(ctx, testUserID, "00000000-0000-0000-0000-0000000000ff")
-	if !platformerrors.IsNotFound(err) {
+	if !apperr.IsNotFound(err) {
 		t.Fatalf("missing card: got %v, want NotFound", err)
 	}
 
@@ -282,7 +282,7 @@ func TestRenderCard_NotFound(t *testing.T) {
 		t.Fatalf("ListCardsByNote: %v, %d cards", err, len(cards))
 	}
 	const otherUser = "00000000-0000-0000-0000-0000000000aa"
-	if _, _, _, err := c.svc.RenderCard(ctx, otherUser, cards[0].ID); !platformerrors.IsNotFound(err) {
+	if _, _, _, err := c.svc.RenderCard(ctx, otherUser, cards[0].ID); !apperr.IsNotFound(err) {
 		t.Fatalf("other user's card: got %v, want NotFound", err)
 	}
 }
@@ -388,7 +388,7 @@ func TestOptimisticConcurrency_StaleUSN(t *testing.T) {
 	if err == nil {
 		t.Fatal("want Aborted for stale USN, got nil")
 	}
-	if !platformerrors.IsAborted(err) {
+	if !apperr.IsAborted(err) {
 		t.Fatalf("want Aborted, got %T: %v", err, err)
 	}
 }
@@ -408,7 +408,7 @@ func TestDeleteNoteType_WithNotes_FailedPrecondition(t *testing.T) {
 	if err == nil {
 		t.Fatal("want error, got nil")
 	}
-	if !platformerrors.IsFailedPrecondition(err) {
+	if !apperr.IsFailedPrecondition(err) {
 		t.Fatalf("want FailedPrecondition, got %T: %v", err, err)
 	}
 }
@@ -432,7 +432,7 @@ func TestDeleteNote_CascadesCardsAndTombstones(t *testing.T) {
 	}
 
 	_, err := c.repo.GetCard(ctx, testUserID, cardID)
-	if !platformerrors.IsNotFound(err) {
+	if !apperr.IsNotFound(err) {
 		t.Fatalf("want card NotFound, got %v", err)
 	}
 
@@ -686,7 +686,7 @@ func TestUpdateDeck_RejectsCycles(t *testing.T) {
 	for name, parentID := range map[string]string{"self": root.ID, "child": child.ID, "grandchild": grandchild.ID} {
 		t.Run(name, func(t *testing.T) {
 			_, err := c.svc.UpdateDeck(ctx, testUserID, root.ID, 0, root.Name, parentID, "")
-			if !platformerrors.IsInvalidArgument(err) {
+			if !apperr.IsInvalidArgument(err) {
 				t.Fatalf("got %v, want InvalidArgument", err)
 			}
 		})
@@ -731,7 +731,7 @@ func TestUpdateDeck_ConcurrentSwapNoCycle(t *testing.T) {
 			switch {
 			case err == nil:
 				ok++
-			case !platformerrors.IsInvalidArgument(err):
+			case !apperr.IsInvalidArgument(err):
 				t.Fatalf("iter %d: unexpected error %v", i, err)
 			}
 		}
@@ -836,7 +836,7 @@ func TestDeleteDeck_ReparentsChildrenToGrandparent(t *testing.T) {
 	if err := c.svc.DeleteDeck(ctx, testUserID, mid.ID, 0); err != nil {
 		t.Fatalf("DeleteDeck: %v", err)
 	}
-	if _, err := c.svc.GetDeck(ctx, testUserID, mid.ID); !platformerrors.IsNotFound(err) {
+	if _, err := c.svc.GetDeck(ctx, testUserID, mid.ID); !apperr.IsNotFound(err) {
 		t.Fatalf("deleted deck: got %v, want NotFound", err)
 	}
 
@@ -911,7 +911,7 @@ func TestDeleteDeck_WithCardsFailsAndKeepsChildren(t *testing.T) {
 		t.Fatalf("CreateNote: %v", err)
 	}
 
-	if err := c.svc.DeleteDeck(ctx, testUserID, deck.ID, 0); !platformerrors.IsFailedPrecondition(err) {
+	if err := c.svc.DeleteDeck(ctx, testUserID, deck.ID, 0); !apperr.IsFailedPrecondition(err) {
 		t.Fatalf("got %v, want FailedPrecondition", err)
 	}
 	got, err := c.svc.GetDeck(ctx, testUserID, child.ID)
@@ -1027,7 +1027,7 @@ func TestRepoDeleteDeck_WithSubdecksFailedPrecondition(t *testing.T) {
 		t.Fatalf("CreateDeck child: %v", err)
 	}
 	err := c.repo.DeleteDeck(ctx, testUserID, root.ID)
-	if !platformerrors.IsFailedPrecondition(err) || !strings.Contains(err.Error(), "subdecks") {
+	if !apperr.IsFailedPrecondition(err) || !strings.Contains(err.Error(), "subdecks") {
 		t.Fatalf("got %v, want FailedPrecondition about subdecks", err)
 	}
 }
@@ -1047,9 +1047,9 @@ func TestCreateNote_DeckValidation(t *testing.T) {
 		fields map[string]string
 		want   func(error) bool
 	}{
-		{"missing deck_id", "", fields, platformerrors.IsInvalidArgument},
-		{"unknown deck", "00000000-0000-0000-0000-0000000000dd", fields, platformerrors.IsNotFound},
-		{"no cards generated", deck.ID, map[string]string{"Front": "", "Back": "a"}, platformerrors.IsInvalidArgument},
+		{"missing deck_id", "", fields, apperr.IsInvalidArgument},
+		{"unknown deck", "00000000-0000-0000-0000-0000000000dd", fields, apperr.IsNotFound},
+		{"no cards generated", deck.ID, map[string]string{"Front": "", "Back": "a"}, apperr.IsInvalidArgument},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1080,7 +1080,7 @@ func TestUpdateNote_RejectsRemovingAllCards(t *testing.T) {
 	}
 
 	_, err = c.svc.UpdateNote(ctx, testUserID, note.ID, note.USN, map[string]string{"Front": "", "Back": "a"}, nil, 0)
-	if !platformerrors.IsInvalidArgument(err) {
+	if !apperr.IsInvalidArgument(err) {
 		t.Fatalf("got %v, want InvalidArgument", err)
 	}
 	cards, err := c.repo.ListCardsByNote(ctx, testUserID, note.ID)
@@ -1162,7 +1162,7 @@ func TestDeleteCards_LastCardDeletesNote(t *testing.T) {
 	if _, err := c.svc.DeleteCards(ctx, testUserID, []string{cards[1].ID}); err != nil {
 		t.Fatalf("DeleteCards last: %v", err)
 	}
-	if _, err := c.svc.GetNote(ctx, testUserID, note.ID); !platformerrors.IsNotFound(err) {
+	if _, err := c.svc.GetNote(ctx, testUserID, note.ID); !apperr.IsNotFound(err) {
 		t.Fatalf("note after last card deleted: got %v, want NotFound", err)
 	}
 	var tombstones int

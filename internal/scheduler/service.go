@@ -10,7 +10,7 @@ import (
 	"google.golang.org/grpc"
 
 	collectionv1 "github.com/mindmesh/mindmesh/api/collection/v1"
-	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 	"github.com/mindmesh/mindmesh/internal/platform/events"
 	"github.com/mindmesh/mindmesh/internal/platform/ids"
 	"github.com/mindmesh/mindmesh/internal/platform/validate"
@@ -220,7 +220,7 @@ func (s *Service) Answer(ctx context.Context, userID, profileID, cardID, clientR
 		return nil, fsrs.IntervalPreview{}, err
 	}
 	if grade < Again || grade > Easy {
-		return nil, fsrs.IntervalPreview{}, platformerrors.InvalidArgument("grade must be 1-4")
+		return nil, fsrs.IntervalPreview{}, apperr.InvalidArgument("grade must be 1-4")
 	}
 	timeMs = min(max(timeMs, 0), maxAnswerTimeMs)
 	var updated *Card
@@ -246,7 +246,7 @@ func (s *Service) Answer(ctx context.Context, userID, profileID, cardID, clientR
 			}
 			if found {
 				if reviewedCard != cardID {
-					return platformerrors.InvalidArgument("client_review_id was already used for another card")
+					return apperr.InvalidArgument("client_review_id was already used for another card")
 				}
 				preview = engine.Preview(toFSRSInput(c), now)
 				updated = c
@@ -258,7 +258,7 @@ func (s *Service) Answer(ctx context.Context, userID, profileID, cardID, clientR
 			c.Queue = 0
 		}
 		if c.Queue < 0 {
-			return platformerrors.FailedPrecondition("card is suspended or buried")
+			return apperr.FailedPrecondition("card is suspended or buried")
 		}
 
 		prevState := c.State
@@ -371,7 +371,7 @@ func (s *Service) Reschedule(ctx context.Context, userID, cardID string, action 
 		return nil, err
 	}
 	if action < ActionSuspend || action > ActionReset {
-		return nil, platformerrors.InvalidArgument("unknown reschedule action")
+		return nil, apperr.InvalidArgument("unknown reschedule action")
 	}
 	var updated *Card
 

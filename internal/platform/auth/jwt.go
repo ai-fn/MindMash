@@ -13,7 +13,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"github.com/mindmesh/mindmesh/internal/platform/errors"
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 	"github.com/mindmesh/mindmesh/internal/platform/ids"
 )
 
@@ -178,7 +178,7 @@ func (s *Signer) SignRefreshWithID(userID, profileID, jti string) (string, error
 	return tokenStr, nil
 }
 
-// Verify parses and validates a JWT. Returns errors.Unauthenticated on any failure.
+// Verify parses and validates a JWT. Returns apperr.Unauthenticated on any failure.
 func (s *Signer) Verify(tokenString string) (*Claims, error) {
 	claims := &Claims{}
 	_, err := jwt.ParseWithClaims(tokenString, claims, func(t *jwt.Token) (any, error) {
@@ -188,7 +188,7 @@ func (s *Signer) Verify(tokenString string) (*Claims, error) {
 		return s.pub, nil
 	}, userTokenOptions(s.cfg.Issuer)...)
 	if err != nil {
-		return nil, errors.Unauthenticated("invalid token", err)
+		return nil, apperr.Unauthenticated("invalid token", err)
 	}
 	return claims, nil
 }

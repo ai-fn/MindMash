@@ -11,8 +11,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 	platformdb "github.com/mindmesh/mindmesh/internal/platform/db"
-	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
 	"github.com/mindmesh/mindmesh/internal/platform/events"
 	"github.com/mindmesh/mindmesh/internal/platform/usn"
 )
@@ -65,7 +65,7 @@ func (r *PostgresRepository) WithTx(ctx context.Context, fn func(Repository) err
 
 func mapNoRows(err error, msg string) error {
 	if errors.Is(err, pgx.ErrNoRows) {
-		return platformerrors.NotFound(msg)
+		return apperr.NotFound(msg)
 	}
 	return err
 }
@@ -139,7 +139,7 @@ func (r *PostgresRepository) UpdateCardSchedule(ctx context.Context, c *Card) er
 		return fmt.Errorf("scheduler: update card schedule: %w", err)
 	}
 	if ct.RowsAffected() == 0 {
-		return platformerrors.NotFound("card not found")
+		return apperr.NotFound("card not found")
 	}
 	return nil
 }
@@ -324,7 +324,7 @@ func (r *PostgresRepository) InsertReviewLog(ctx context.Context, rl *ReviewLog)
 		// Prefix match: Citus suffixes shard ids to index names.
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" && strings.HasPrefix(pgErr.ConstraintName, "rl_client_review") {
-			return platformerrors.InvalidArgument("client_review_id was already used for another card")
+			return apperr.InvalidArgument("client_review_id was already used for another card")
 		}
 		return fmt.Errorf("scheduler: insert review log: %w", err)
 	}

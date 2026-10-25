@@ -7,7 +7,7 @@ import (
 
 	"go.uber.org/zap"
 
-	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 	"github.com/mindmesh/mindmesh/internal/platform/events"
 	"github.com/mindmesh/mindmesh/internal/platform/ids"
 	"github.com/mindmesh/mindmesh/internal/platform/validate"
@@ -89,7 +89,7 @@ func (s *Service) UpdateNoteType(ctx context.Context, userID, id string, expecte
 			return err
 		}
 		if expectedUSN != 0 && existing.USN != expectedUSN {
-			return platformerrors.Aborted("stale expected_usn; refetch and retry")
+			return apperr.Aborted("stale expected_usn; refetch and retry")
 		}
 
 		existing.Name = name
@@ -124,7 +124,7 @@ func (s *Service) DeleteNoteType(ctx context.Context, userID, id string, expecte
 				return err
 			}
 			if existing.USN != expectedUSN {
-				return platformerrors.Aborted("stale expected_usn; refetch and retry")
+				return apperr.Aborted("stale expected_usn; refetch and retry")
 			}
 		}
 		usn, err := tx.NextUSN(ctx, userID)
@@ -153,7 +153,7 @@ func (s *Service) DeleteNoteType(ctx context.Context, userID, id string, expecte
 
 // errNoCards keeps every note with at least one card, so later edits can inherit its deck.
 func errNoCards() error {
-	return platformerrors.InvalidArgument("note must generate at least one card; fill a field its templates use")
+	return apperr.InvalidArgument("note must generate at least one card; fill a field its templates use")
 }
 
 func (s *Service) CreateNote(ctx context.Context, userID, profileID, noteTypeID, deckID string, fields map[string]string, tags []string, flags int32) (*Note, error) {
@@ -267,7 +267,7 @@ func (s *Service) UpdateNote(ctx context.Context, userID, id string, expectedUSN
 			return err
 		}
 		if expectedUSN != 0 && existing.USN != expectedUSN {
-			return platformerrors.Aborted("stale expected_usn; refetch and retry")
+			return apperr.Aborted("stale expected_usn; refetch and retry")
 		}
 
 		now := time.Now().UTC()
@@ -285,7 +285,7 @@ func (s *Service) UpdateNote(ctx context.Context, userID, id string, expectedUSN
 			return err
 		}
 		if len(existingCards) == 0 {
-			return platformerrors.Internal("note has no cards")
+			return apperr.Internal("note has no cards")
 		}
 
 		// New cards join the deck of the note's first card.
@@ -367,7 +367,7 @@ func (s *Service) DeleteNote(ctx context.Context, userID, id string, expectedUSN
 			return err
 		}
 		if expectedUSN != 0 && existing.USN != expectedUSN {
-			return platformerrors.Aborted("stale expected_usn; refetch and retry")
+			return apperr.Aborted("stale expected_usn; refetch and retry")
 		}
 
 		cards, err := tx.DeleteCardsByNote(ctx, userID, id)
@@ -412,7 +412,7 @@ func (s *Service) RenderCard(ctx context.Context, userID, cardID string) (card *
 	}
 	back, err = template.Render(tmpl.Back, src.Fields, template.Opts{ClozeOrd: clozeOrd, FrontSide: front, Back: true})
 	if err != nil {
-		return nil, "", "", platformerrors.Internal("render back", err)
+		return nil, "", "", apperr.Internal("render back", err)
 	}
 	return src.Card, front, back, nil
 }
@@ -446,13 +446,13 @@ func renderFront(src *CardRenderSource) (front string, tmpl CardTemplate, clozeO
 		tmplIdx = src.Card.TemplateOrd
 	}
 	if tmplIdx >= len(src.Templates) {
-		return "", CardTemplate{}, 0, platformerrors.Internal("template ordinal out of range")
+		return "", CardTemplate{}, 0, apperr.Internal("template ordinal out of range")
 	}
 	tmpl = src.Templates[tmplIdx]
 
 	front, err = template.Render(tmpl.Front, src.Fields, template.Opts{ClozeOrd: clozeOrd})
 	if err != nil {
-		return "", CardTemplate{}, 0, platformerrors.Internal("render front", err)
+		return "", CardTemplate{}, 0, apperr.Internal("render front", err)
 	}
 	return front, tmpl, clozeOrd, nil
 }
@@ -837,7 +837,7 @@ func (s *Service) UpdateDeck(ctx context.Context, userID, id string, expectedUSN
 			return err
 		}
 		if expectedUSN != 0 && existing.USN != expectedUSN {
-			return platformerrors.Aborted("stale expected_usn; refetch and retry")
+			return apperr.Aborted("stale expected_usn; refetch and retry")
 		}
 		now := time.Now().UTC()
 
@@ -854,7 +854,7 @@ func (s *Service) UpdateDeck(ctx context.Context, userID, id string, expectedUSN
 				return err
 			}
 			if parent.Path == existing.Path || strings.HasPrefix(parent.Path, existing.Path+".") {
-				return platformerrors.InvalidArgument("cannot move a deck under itself or its descendant")
+				return apperr.InvalidArgument("cannot move a deck under itself or its descendant")
 			}
 			newParentPath = parent.Path
 		}
@@ -928,7 +928,7 @@ func (s *Service) DeleteDeck(ctx context.Context, userID, id string, expectedUSN
 			return err
 		}
 		if expectedUSN != 0 && existing.USN != expectedUSN {
-			return platformerrors.Aborted("stale expected_usn; refetch and retry")
+			return apperr.Aborted("stale expected_usn; refetch and retry")
 		}
 
 		subtree, err := tx.ListSubtreeDecks(ctx, userID, existing.Path)
@@ -1036,7 +1036,7 @@ func (s *Service) UpdateDeckConfig(ctx context.Context, userID, id string, expec
 			return err
 		}
 		if expectedUSN != 0 && existing.USN != expectedUSN {
-			return platformerrors.Aborted("stale expected_usn; refetch and retry")
+			return apperr.Aborted("stale expected_usn; refetch and retry")
 		}
 
 		existing.Name = req.Name
@@ -1080,7 +1080,7 @@ func (s *Service) DeleteDeckConfig(ctx context.Context, userID, id string, expec
 				return err
 			}
 			if existing.USN != expectedUSN {
-				return platformerrors.Aborted("stale expected_usn; refetch and retry")
+				return apperr.Aborted("stale expected_usn; refetch and retry")
 			}
 		}
 

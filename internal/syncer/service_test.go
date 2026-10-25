@@ -1,4 +1,4 @@
-package sync
+package syncer
 
 import (
 	"context"
@@ -1183,7 +1183,7 @@ func TestApply_FilteredDeckDelete_HappyPath_WiredToDeleteFilteredDeck(t *testing
 	}
 }
 
-// Subscribe/Notify are Redis-backed (see internal/sync's package doc on why
+// Subscribe/Notify are Redis-backed (see internal/syncer's package doc on why
 // an in-process map doesn't work across replicas) and so need a real Redis;
 // they're exercised in integration_test.go instead of here.
 

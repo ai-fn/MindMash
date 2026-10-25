@@ -1,4 +1,4 @@
-package errors_test
+package apperr_test
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	apperrors "github.com/mindmesh/mindmesh/internal/platform/errors"
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 )
 
 func TestPublic(t *testing.T) {
@@ -27,10 +27,10 @@ func TestPublic(t *testing.T) {
 		logCause bool
 	}{
 		{"plain error", fmt.Errorf("repo: %w", secret), codes.Internal, "internal error", true},
-		{"wrapped app error keeps only its message", fmt.Errorf("svc: %w", apperrors.NotFound("card not found", secret)), codes.NotFound, "card not found", false},
-		{"app error wins over a wrapped pg error", apperrors.NotFound("card not found", pg("22P02")), codes.NotFound, "card not found", false},
-		{"app internal is logged, its message hidden", apperrors.Internal("render: " + secret.Error()), codes.Internal, "internal error", true},
-		{"app unavailable", apperrors.Unavailable("redis down", secret), codes.Unavailable, "service unavailable", true},
+		{"wrapped app error keeps only its message", fmt.Errorf("svc: %w", apperr.NotFound("card not found", secret)), codes.NotFound, "card not found", false},
+		{"app error wins over a wrapped pg error", apperr.NotFound("card not found", pg("22P02")), codes.NotFound, "card not found", false},
+		{"app internal is logged, its message hidden", apperr.Internal("render: " + secret.Error()), codes.Internal, "internal error", true},
+		{"app unavailable", apperr.Unavailable("redis down", secret), codes.Unavailable, "service unavailable", true},
 		// Unvalidated input reached SQL: answer 400, but log it as a missing check.
 		{"bad text representation", pg("22P02"), codes.InvalidArgument, "invalid argument", true},
 		{"other data exception", pg("22003"), codes.InvalidArgument, "invalid argument", true},
@@ -54,7 +54,7 @@ func TestPublic(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			pub, logCause := apperrors.Public(tc.err)
+			pub, logCause := apperr.Public(tc.err)
 			st := status.Convert(pub)
 			if st.Code() != tc.code || st.Message() != tc.msg || logCause != tc.logCause {
 				t.Fatalf("got %v %q logCause=%v, want %v %q logCause=%v", st.Code(), st.Message(), logCause, tc.code, tc.msg, tc.logCause)
@@ -64,11 +64,11 @@ func TestPublic(t *testing.T) {
 			}
 		})
 	}
-	if pub, logCause := apperrors.Public(nil); pub != nil || logCause {
+	if pub, logCause := apperr.Public(nil); pub != nil || logCause {
 		t.Fatalf("nil: got %v logCause=%v", pub, logCause)
 	}
-	var ae *apperrors.AppError
-	if pub, _ := apperrors.Public(fmt.Errorf("x: %w", apperrors.Unauthenticated("bad login").WithMsgID("m"))); !errors.As(pub, &ae) || ae.MsgID != "m" {
+	var ae *apperr.AppError
+	if pub, _ := apperr.Public(fmt.Errorf("x: %w", apperr.Unauthenticated("bad login").WithMsgID("m"))); !errors.As(pub, &ae) || ae.MsgID != "m" {
 		t.Fatalf("an app error must come back unwrapped so edges can still localize it, got %#v", pub)
 	}
 }

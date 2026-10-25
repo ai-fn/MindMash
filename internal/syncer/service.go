@@ -1,4 +1,4 @@
-package sync
+package syncer
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
-	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 )
 
 // defaultPageSize bounds how many rows of *each* entity type are returned per
@@ -50,7 +50,7 @@ func NewService(repo Repository, coll CollectionClient, rdb *redis.Client, log *
 func (s *Service) GetChanges(ctx context.Context, userID string, sinceUSN int64, pageToken string) (ChangeSet, int64, string, error) {
 	cursors, pinned, err := decodePageToken(pageToken)
 	if err != nil {
-		return ChangeSet{}, 0, "", platformerrors.InvalidArgument("invalid page_token", err)
+		return ChangeSet{}, 0, "", apperr.InvalidArgument("invalid page_token", err)
 	}
 	// Read the ceiling before any rows: usn is allocated under a per-user row lock held to commit,
 	// so everything <= latest is already visible and nothing newer can sneak under it.

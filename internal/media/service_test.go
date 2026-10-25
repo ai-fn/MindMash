@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 	"github.com/mindmesh/mindmesh/internal/platform/blob"
-	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
 )
 
 // fakeBlob is a no-op blobStore for exercising the pre-persistence validation
@@ -52,7 +52,7 @@ func TestPresignValidation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := svc.Presign(context.Background(), tn, "f", tc.mime, tc.sha, tc.bytes)
 			require.Error(t, err)
-			assert.True(t, platformerrors.IsInvalidArgument(err), "want InvalidArgument, got %v", err)
+			assert.True(t, apperr.IsInvalidArgument(err), "want InvalidArgument, got %v", err)
 		})
 	}
 }
@@ -73,7 +73,7 @@ func TestMediaIDValidation(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			err := tc.call()
-			assert.True(t, platformerrors.IsInvalidArgument(err), "want InvalidArgument, got %v", err)
+			assert.True(t, apperr.IsInvalidArgument(err), "want InvalidArgument, got %v", err)
 		})
 	}
 }

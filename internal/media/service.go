@@ -8,8 +8,8 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 	"github.com/mindmesh/mindmesh/internal/platform/blob"
-	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
 	"github.com/mindmesh/mindmesh/internal/platform/ids"
 	"github.com/mindmesh/mindmesh/internal/platform/validate"
 )
@@ -86,7 +86,7 @@ func (s *Service) Presign(ctx context.Context, t Tenant, filename, mime, sha256H
 			err = s.repo.InsertPending(ctx, m)
 		}
 		// A concurrent Presign, Confirm or GC moved the row between the read and the write: re-read once.
-		if attempt == 0 && (platformerrors.IsNotFound(err) || platformerrors.IsAlreadyExists(err)) {
+		if attempt == 0 && (apperr.IsNotFound(err) || apperr.IsAlreadyExists(err)) {
 			continue
 		}
 		if err != nil {
@@ -99,7 +99,7 @@ func (s *Service) Presign(ctx context.Context, t Tenant, filename, mime, sha256H
 		ContentType: m.Mime, ContentLength: m.Bytes, ChecksumSHA256: m.Checksum,
 	})
 	if err != nil {
-		return PresignResult{}, platformerrors.Unavailable("object store unavailable", err)
+		return PresignResult{}, apperr.Unavailable("object store unavailable", err)
 	}
 	return PresignResult{MediaID: m.ID, UploadURL: put.URL, UploadHeaders: put.Headers}, nil
 }
@@ -120,17 +120,17 @@ func (s *Service) Confirm(ctx context.Context, t Tenant, mediaID string) (*Media
 
 	info, found, err := s.blob.Stat(ctx, s.bucket, m.S3Key)
 	if err != nil {
-		return nil, platformerrors.Unavailable("object store unavailable", err)
+		return nil, apperr.Unavailable("object store unavailable", err)
 	}
 	switch {
 	case !found:
-		return nil, platformerrors.FailedPrecondition("upload not found; PUT the bytes before confirming")
+		return nil, apperr.FailedPrecondition("upload not found; PUT the bytes before confirming")
 	case info.Size != m.Bytes:
-		return nil, platformerrors.FailedPrecondition("uploaded size does not match the declared size")
+		return nil, apperr.FailedPrecondition("uploaded size does not match the declared size")
 	case !bytes.Equal(info.ChecksumSHA256, m.Checksum):
-		return nil, platformerrors.FailedPrecondition("uploaded bytes do not match the declared sha256")
+		return nil, apperr.FailedPrecondition("uploaded bytes do not match the declared sha256")
 	case info.ContentType != m.Mime:
-		return nil, platformerrors.FailedPrecondition("uploaded content type does not match the declared mime")
+		return nil, apperr.FailedPrecondition("uploaded content type does not match the declared mime")
 	}
 
 	return s.repo.MarkReady(ctx, t.UserID, mediaID, mediaUploadedEntry)
@@ -147,11 +147,11 @@ func (s *Service) ResolveDownloadURL(ctx context.Context, t Tenant, mediaID stri
 		return "", err
 	}
 	if m.Status != StatusReady {
-		return "", platformerrors.NotFound("media not available")
+		return "", apperr.NotFound("media not available")
 	}
 	url, err := s.blob.PresignGet(ctx, s.bucket, m.S3Key, downloadTTL)
 	if err != nil {
-		return "", platformerrors.Unavailable("object store unavailable", err)
+		return "", apperr.Unavailable("object store unavailable", err)
 	}
 	return url, nil
 }

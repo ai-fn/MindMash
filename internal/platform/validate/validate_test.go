@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 	"github.com/mindmesh/mindmesh/internal/platform/validate"
 )
 
@@ -73,7 +73,7 @@ func TestChecks(t *testing.T) {
 				}
 				return
 			}
-			if !platformerrors.IsInvalidArgument(tt.err) {
+			if !apperr.IsInvalidArgument(tt.err) {
 				t.Fatalf("want InvalidArgument, got %v", tt.err)
 			}
 		})

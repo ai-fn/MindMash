@@ -18,7 +18,7 @@ import (
 	"github.com/go-jose/go-jose/v4/jwt"
 	"golang.org/x/oauth2"
 
-	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 )
 
 // fakeIdP is a minimal OIDC provider whose token endpoint enforces PKCE and issues ID tokens with a chosen nonce.
@@ -137,7 +137,7 @@ func TestOIDCExchanger_PKCEAndNonce(t *testing.T) {
 	})
 	t.Run("ID token for another flow's nonce is rejected", func(t *testing.T) {
 		idp.setNonce("someone-elses")
-		if _, err := ex.Exchange(ctx, "idp", "code", flow); !platformerrors.IsUnauthenticated(err) {
+		if _, err := ex.Exchange(ctx, "idp", "code", flow); !apperr.IsUnauthenticated(err) {
 			t.Fatalf("nonce mismatch: got %v, want Unauthenticated", err)
 		}
 	})
@@ -152,16 +152,16 @@ func TestOIDCExchanger_PKCEAndNonce(t *testing.T) {
 		stolen := flow
 		stolen.Verifier = oauth2.GenerateVerifier()
 		_, err := ex.Exchange(ctx, "idp", "code", stolen)
-		if !platformerrors.IsUnauthenticated(err) {
+		if !apperr.IsUnauthenticated(err) {
 			t.Fatalf("wrong verifier: got %v, want Unauthenticated (not a 5xx)", err)
 		}
-		var ae *platformerrors.AppError
+		var ae *apperr.AppError
 		if errors.As(err, &ae) && strings.Contains(ae.Message, "invalid_grant") {
 			t.Fatalf("provider response leaked into the client-visible message: %q", ae.Message)
 		}
 	})
 	t.Run("unknown provider", func(t *testing.T) {
-		if _, err := ex.AuthURL(ctx, "nope", flow, "s"); !platformerrors.IsInvalidArgument(err) {
+		if _, err := ex.AuthURL(ctx, "nope", flow, "s"); !apperr.IsInvalidArgument(err) {
 			t.Fatalf("got %v, want InvalidArgument", err)
 		}
 	})

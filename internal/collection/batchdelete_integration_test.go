@@ -12,7 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 
-	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 )
 
 type stmtCounter struct{ n atomic.Int64 }
@@ -170,7 +170,7 @@ func TestDeleteCards_StatementsIndependentOfNoteCount(t *testing.T) {
 		t.Fatalf("statements: 1 note = %d, 4 notes = %d; want equal", one, many)
 	}
 	for _, id := range gone {
-		if _, err := c.svc.GetNote(ctx, testUserID, id); !platformerrors.IsNotFound(err) {
+		if _, err := c.svc.GetNote(ctx, testUserID, id); !apperr.IsNotFound(err) {
 			t.Fatalf("orphan note %s: got %v, want NotFound", id, err)
 		}
 	}
@@ -261,7 +261,7 @@ func TestBatchDeletes_Citus(t *testing.T) {
 	if _, err := c.svc.DeleteCards(ctx, testUserID, cardIDs(cards)); err != nil {
 		t.Fatalf("DeleteCards: %v", err)
 	}
-	if _, err := c.svc.GetNote(ctx, testUserID, orphan.ID); !platformerrors.IsNotFound(err) {
+	if _, err := c.svc.GetNote(ctx, testUserID, orphan.ID); !apperr.IsNotFound(err) {
 		t.Fatalf("orphan note: got %v, want NotFound", err)
 	}
 

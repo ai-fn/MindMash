@@ -6,7 +6,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 	"github.com/mindmesh/mindmesh/internal/platform/i18n"
 )
 
@@ -21,24 +21,24 @@ const (
 func normalizeEmail(s string) (string, error) {
 	s = strings.TrimSpace(s)
 	if s == "" || len(s) > maxEmailLen {
-		return "", platformerrors.InvalidArgument("invalid email")
+		return "", apperr.InvalidArgument("invalid email")
 	}
 	addr, err := mail.ParseAddress(s)
 	if err != nil || addr.Address != s {
-		return "", platformerrors.InvalidArgument("invalid email")
+		return "", apperr.InvalidArgument("invalid email")
 	}
 	if _, domain, _ := strings.Cut(s, "@"); !strings.Contains(domain, ".") {
-		return "", platformerrors.InvalidArgument("invalid email")
+		return "", apperr.InvalidArgument("invalid email")
 	}
 	return s, nil
 }
 
 func validatePassword(p string) error {
 	if len(p) > maxPasswordBytes || !utf8.ValidString(p) {
-		return platformerrors.InvalidArgument("password is too long")
+		return apperr.InvalidArgument("password is too long")
 	}
 	if utf8.RuneCountInString(p) < minPasswordRunes {
-		return platformerrors.InvalidArgument("password must be at least 8 characters")
+		return apperr.InvalidArgument("password must be at least 8 characters")
 	}
 	return nil
 }
@@ -55,10 +55,10 @@ func normalizeLocale(s string) string {
 func normalizeProfileName(s string) (string, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
-		return "", platformerrors.InvalidArgument("profile name is required")
+		return "", apperr.InvalidArgument("profile name is required")
 	}
 	if utf8.RuneCountInString(s) > maxProfileNameLen || strings.ContainsFunc(s, unicode.IsControl) {
-		return "", platformerrors.InvalidArgument("invalid profile name")
+		return "", apperr.InvalidArgument("invalid profile name")
 	}
 	return s, nil
 }

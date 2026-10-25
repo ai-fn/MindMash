@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode"
 
-	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 	"github.com/mindmesh/mindmesh/internal/platform/validate"
 )
 
@@ -77,7 +77,7 @@ func validateNoteContent(fields map[string]string, tags []string) error {
 		total += len(k) + len(v)
 	}
 	if total > maxNoteBytes {
-		return platformerrors.InvalidArgument(fmt.Sprintf("fields must be at most %d bytes in total", maxNoteBytes))
+		return apperr.InvalidArgument(fmt.Sprintf("fields must be at most %d bytes in total", maxNoteBytes))
 	}
 	if err := validate.Count("tags", len(tags), maxTags); err != nil {
 		return err
@@ -96,7 +96,7 @@ func validateTag(field, tag string) error {
 		return err
 	}
 	if strings.ContainsFunc(tag, unicode.IsSpace) {
-		return platformerrors.InvalidArgument(field + " must not contain spaces")
+		return apperr.InvalidArgument(field + " must not contain spaces")
 	}
 	return nil
 }
@@ -137,7 +137,7 @@ func validateSelector(sel SearchDocSelector) error {
 // validateFlags keeps flags within the SMALLINT column.
 func validateFlags(flags int32) error {
 	if flags < 0 || flags > math.MaxInt16 {
-		return platformerrors.InvalidArgument(fmt.Sprintf("flags must be 0-%d", math.MaxInt16))
+		return apperr.InvalidArgument(fmt.Sprintf("flags must be 0-%d", math.MaxInt16))
 	}
 	return nil
 }

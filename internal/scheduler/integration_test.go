@@ -16,8 +16,8 @@ import (
 	"google.golang.org/grpc"
 
 	collectionv1 "github.com/mindmesh/mindmesh/api/collection/v1"
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 	platformdb "github.com/mindmesh/mindmesh/internal/platform/db"
-	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
 	"github.com/mindmesh/mindmesh/internal/platform/ids"
 )
 
@@ -466,7 +466,7 @@ func TestAnswer_RejectsSuspendedCard(t *testing.T) {
 	_, cardID := singleCard(t, c, cardFixture{state: StateNew, queue: QueueSuspended})
 
 	_, _, err := c.svc.Answer(context.Background(), testUserID, testProfileID, cardID, "", Good, 100)
-	if !platformerrors.IsFailedPrecondition(err) {
+	if !apperr.IsFailedPrecondition(err) {
 		t.Fatalf("want FailedPrecondition, got %v", err)
 	}
 	if n := reviewLogCount(t, c, cardID); n != 0 {
@@ -483,7 +483,7 @@ func TestAnswer_RejectsCardBuriedToday(t *testing.T) {
 	}
 
 	_, _, err := c.svc.Answer(ctx, testUserID, testProfileID, cardID, "", Good, 100)
-	if !platformerrors.IsFailedPrecondition(err) {
+	if !apperr.IsFailedPrecondition(err) {
 		t.Fatalf("want FailedPrecondition, got %v", err)
 	}
 }
@@ -540,7 +540,7 @@ func TestAnswer_ClientReviewIDIsIdempotent(t *testing.T) {
 	}
 
 	_, other := singleCard(t, c, cardFixture{state: StateNew})
-	if _, _, err := c.svc.Answer(ctx, testUserID, testProfileID, other, key, Good, 100); !platformerrors.IsInvalidArgument(err) {
+	if _, _, err := c.svc.Answer(ctx, testUserID, testProfileID, other, key, Good, 100); !apperr.IsInvalidArgument(err) {
 		t.Fatalf("want InvalidArgument for a key reused on another card, got %v", err)
 	}
 }

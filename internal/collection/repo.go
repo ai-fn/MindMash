@@ -12,8 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 	platformdb "github.com/mindmesh/mindmesh/internal/platform/db"
-	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
 	"github.com/mindmesh/mindmesh/internal/platform/events"
 	"github.com/mindmesh/mindmesh/internal/platform/usn"
 )
@@ -112,7 +112,7 @@ func isForeignKeyViolation(err error) bool {
 // mapNoRows maps pgx.ErrNoRows to a platform NotFound error; other errors pass through.
 func mapNoRows(err error, msg string) error {
 	if errors.Is(err, pgx.ErrNoRows) {
-		return platformerrors.NotFound(msg)
+		return apperr.NotFound(msg)
 	}
 	return err
 }
@@ -197,7 +197,7 @@ func (r *PostgresRepository) CreateNoteType(ctx context.Context, nt *NoteType) e
 		nt.ID, nt.UserID, nt.ProfileID, nt.Name, fields, templates, nt.CSS, nt.USN, nt.Mtime)
 	if err != nil {
 		if isUniqueViolation(err) {
-			return platformerrors.AlreadyExists("note type already exists")
+			return apperr.AlreadyExists("note type already exists")
 		}
 		return fmt.Errorf("collection: create note type: %w", err)
 	}
@@ -254,7 +254,7 @@ func (r *PostgresRepository) UpdateNoteType(ctx context.Context, nt *NoteType) e
 		return fmt.Errorf("collection: update note type: %w", err)
 	}
 	if ct.RowsAffected() == 0 {
-		return platformerrors.NotFound("note type not found")
+		return apperr.NotFound("note type not found")
 	}
 	return nil
 }
@@ -263,12 +263,12 @@ func (r *PostgresRepository) DeleteNoteType(ctx context.Context, userID, id stri
 	ct, err := r.db.Exec(ctx, `DELETE FROM note_types WHERE user_id = $1 AND id = $2`, userID, id)
 	if err != nil {
 		if isForeignKeyViolation(err) {
-			return platformerrors.FailedPrecondition("note type is still in use by existing notes")
+			return apperr.FailedPrecondition("note type is still in use by existing notes")
 		}
 		return fmt.Errorf("collection: delete note type: %w", err)
 	}
 	if ct.RowsAffected() == 0 {
-		return platformerrors.NotFound("note type not found")
+		return apperr.NotFound("note type not found")
 	}
 	return nil
 }
@@ -300,10 +300,10 @@ func (r *PostgresRepository) CreateNote(ctx context.Context, n *Note) error {
 		n.ID, n.UserID, n.ProfileID, n.NoteTypeID, fields, normSlice(n.Tags), int16(n.Flags), n.USN, n.Mtime)
 	if err != nil {
 		if isUniqueViolation(err) {
-			return platformerrors.AlreadyExists("note already exists")
+			return apperr.AlreadyExists("note already exists")
 		}
 		if isForeignKeyViolation(err) {
-			return platformerrors.FailedPrecondition("note type does not exist")
+			return apperr.FailedPrecondition("note type does not exist")
 		}
 		return fmt.Errorf("collection: create note: %w", err)
 	}
@@ -332,7 +332,7 @@ func (r *PostgresRepository) UpdateNote(ctx context.Context, n *Note) error {
 		return fmt.Errorf("collection: update note: %w", err)
 	}
 	if ct.RowsAffected() == 0 {
-		return platformerrors.NotFound("note not found")
+		return apperr.NotFound("note not found")
 	}
 	return nil
 }
@@ -341,12 +341,12 @@ func (r *PostgresRepository) DeleteNote(ctx context.Context, userID, id string) 
 	ct, err := r.db.Exec(ctx, `DELETE FROM notes WHERE user_id = $1 AND id = $2`, userID, id)
 	if err != nil {
 		if isForeignKeyViolation(err) {
-			return platformerrors.FailedPrecondition("note still has cards; delete its cards first")
+			return apperr.FailedPrecondition("note still has cards; delete its cards first")
 		}
 		return fmt.Errorf("collection: delete note: %w", err)
 	}
 	if ct.RowsAffected() == 0 {
-		return platformerrors.NotFound("note not found")
+		return apperr.NotFound("note not found")
 	}
 	return nil
 }
@@ -401,10 +401,10 @@ func (r *PostgresRepository) CreateCard(ctx context.Context, c *Card) error {
 		c.Due, c.Stability, c.Difficulty, c.Reps, c.Lapses, c.LastReview, c.USN, c.Mtime)
 	if err != nil {
 		if isUniqueViolation(err) {
-			return platformerrors.AlreadyExists("card already exists")
+			return apperr.AlreadyExists("card already exists")
 		}
 		if isForeignKeyViolation(err) {
-			return platformerrors.FailedPrecondition("card references a missing note or deck")
+			return apperr.FailedPrecondition("card references a missing note or deck")
 		}
 		return fmt.Errorf("collection: create card: %w", err)
 	}
@@ -426,7 +426,7 @@ func (r *PostgresRepository) GetCardRenderSource(ctx context.Context, userID, id
 		return nil, err
 	}
 	if len(srcs) == 0 {
-		return nil, platformerrors.NotFound("card not found")
+		return nil, apperr.NotFound("card not found")
 	}
 	return &srcs[0], nil
 }
@@ -637,10 +637,10 @@ func (r *PostgresRepository) CreateDeck(ctx context.Context, d *Deck) error {
 		d.ID, d.UserID, d.ProfileID, d.ParentID, d.Name, d.Path, d.ConfigID, d.USN, d.Mtime)
 	if err != nil {
 		if isUniqueViolation(err) {
-			return platformerrors.AlreadyExists("deck already exists")
+			return apperr.AlreadyExists("deck already exists")
 		}
 		if isForeignKeyViolation(err) {
-			return platformerrors.FailedPrecondition("deck parent or config does not exist")
+			return apperr.FailedPrecondition("deck parent or config does not exist")
 		}
 		return fmt.Errorf("collection: create deck: %w", err)
 	}
@@ -687,12 +687,12 @@ func (r *PostgresRepository) UpdateDeck(ctx context.Context, d *Deck) error {
 		d.UserID, d.ID, d.ParentID, d.Name, d.Path, d.ConfigID, d.USN, d.Mtime)
 	if err != nil {
 		if isForeignKeyViolation(err) {
-			return platformerrors.FailedPrecondition("deck parent or config does not exist")
+			return apperr.FailedPrecondition("deck parent or config does not exist")
 		}
 		return fmt.Errorf("collection: update deck: %w", err)
 	}
 	if ct.RowsAffected() == 0 {
-		return platformerrors.NotFound("deck not found")
+		return apperr.NotFound("deck not found")
 	}
 	return nil
 }
@@ -703,14 +703,14 @@ func (r *PostgresRepository) DeleteDeck(ctx context.Context, userID, id string) 
 		if isForeignKeyViolation(err) {
 			var pgErr *pgconn.PgError
 			if errors.As(err, &pgErr) && pgErr.ConstraintName == "decks_user_id_parent_id_fkey" {
-				return platformerrors.FailedPrecondition("deck still has subdecks")
+				return apperr.FailedPrecondition("deck still has subdecks")
 			}
-			return platformerrors.FailedPrecondition("deck still holds cards; move or delete them first")
+			return apperr.FailedPrecondition("deck still holds cards; move or delete them first")
 		}
 		return fmt.Errorf("collection: delete deck: %w", err)
 	}
 	if ct.RowsAffected() == 0 {
-		return platformerrors.NotFound("deck not found")
+		return apperr.NotFound("deck not found")
 	}
 	return nil
 }
@@ -781,7 +781,7 @@ func (r *PostgresRepository) CreateDeckConfig(ctx context.Context, dc *DeckConfi
 		normSlice(dc.FSRSWeights), normSlice(dc.LearningSteps), int16(dc.RolloverHour), dc.Timezone, dc.USN, dc.Mtime)
 	if err != nil {
 		if isUniqueViolation(err) {
-			return platformerrors.AlreadyExists("deck config already exists")
+			return apperr.AlreadyExists("deck config already exists")
 		}
 		return fmt.Errorf("collection: create deck config: %w", err)
 	}
@@ -832,7 +832,7 @@ func (r *PostgresRepository) UpdateDeckConfig(ctx context.Context, dc *DeckConfi
 		return fmt.Errorf("collection: update deck config: %w", err)
 	}
 	if ct.RowsAffected() == 0 {
-		return platformerrors.NotFound("deck config not found")
+		return apperr.NotFound("deck config not found")
 	}
 	return nil
 }
@@ -843,7 +843,7 @@ func (r *PostgresRepository) DeleteDeckConfig(ctx context.Context, userID, id st
 		return fmt.Errorf("collection: delete deck config: %w", err)
 	}
 	if ct.RowsAffected() == 0 {
-		return platformerrors.NotFound("deck config not found")
+		return apperr.NotFound("deck config not found")
 	}
 	return nil
 }
@@ -865,7 +865,7 @@ func (r *PostgresRepository) CreateFilteredDeck(ctx context.Context, fd *Filtere
 		fd.ID, fd.UserID, fd.ProfileID, fd.Name, fd.Query, fd.USN, fd.Mtime)
 	if err != nil {
 		if isUniqueViolation(err) {
-			return platformerrors.AlreadyExists("filtered deck already exists")
+			return apperr.AlreadyExists("filtered deck already exists")
 		}
 		return fmt.Errorf("collection: create filtered deck: %w", err)
 	}
@@ -911,7 +911,7 @@ func (r *PostgresRepository) DeleteFilteredDeck(ctx context.Context, userID, id 
 		return fmt.Errorf("collection: delete filtered deck: %w", err)
 	}
 	if ct.RowsAffected() == 0 {
-		return platformerrors.NotFound("filtered deck not found")
+		return apperr.NotFound("filtered deck not found")
 	}
 	return nil
 }
@@ -974,7 +974,7 @@ func (r *PostgresRepository) MoveCards(ctx context.Context, userID string, cardI
 		userID, cardIDs, deckID, usn)
 	if err != nil {
 		if isForeignKeyViolation(err) {
-			return nil, platformerrors.FailedPrecondition("target deck does not exist")
+			return nil, apperr.FailedPrecondition("target deck does not exist")
 		}
 		return nil, fmt.Errorf("collection: move cards: %w", err)
 	}

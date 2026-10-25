@@ -10,7 +10,7 @@ import (
 	"runtime/debug"
 	"time"
 
-	apperrors "github.com/mindmesh/mindmesh/internal/platform/errors"
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 	"github.com/mindmesh/mindmesh/internal/platform/log"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel/trace"
@@ -144,7 +144,7 @@ func recoverPanic(method string, err *error) {
 
 // sanitize keeps causes server-side: clients get a fixed message for server faults.
 func sanitize(ctx context.Context, method string, err error) error {
-	pub, logCause := apperrors.Public(err)
+	pub, logCause := apperr.Public(err)
 	if logCause {
 		log.L().Error("grpcx: internal error", zap.String("method", method), zap.Error(err),
 			zap.String("trace_id", trace.SpanContextFromContext(ctx).TraceID().String()))

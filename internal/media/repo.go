@@ -11,8 +11,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 	platformdb "github.com/mindmesh/mindmesh/internal/platform/db"
-	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
 	"github.com/mindmesh/mindmesh/internal/platform/events"
 	"github.com/mindmesh/mindmesh/internal/platform/usn"
 )
@@ -66,7 +66,7 @@ func (r *Repo) InsertPending(ctx context.Context, m *Media) error {
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == uniqueViolation {
-			return platformerrors.AlreadyExists("media already exists for this checksum")
+			return apperr.AlreadyExists("media already exists for this checksum")
 		}
 		return fmt.Errorf("media: insert pending: %w", err)
 	}
@@ -83,7 +83,7 @@ func (r *Repo) RefreshPending(ctx context.Context, m *Media) error {
 		return fmt.Errorf("media: refresh pending: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return platformerrors.NotFound("no pending media to refresh")
+		return apperr.NotFound("no pending media to refresh")
 	}
 	return nil
 }
@@ -105,7 +105,7 @@ func (r *Repo) MarkReady(ctx context.Context, userID, id string, outboxEntry fun
 		m, err := scanMedia(row)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				return platformerrors.NotFound("no pending media to confirm")
+				return apperr.NotFound("no pending media to confirm")
 			}
 			return fmt.Errorf("media: mark ready: %w", err)
 		}
@@ -127,7 +127,7 @@ func (r *Repo) GetByID(ctx context.Context, userID, id string) (*Media, error) {
 	m, err := scanMedia(row)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, platformerrors.NotFound("media not found")
+			return nil, apperr.NotFound("media not found")
 		}
 		return nil, fmt.Errorf("media: get by id: %w", err)
 	}
@@ -171,7 +171,7 @@ func (r *Repo) Delete(ctx context.Context, userID, id string) (DeleteResult, err
 			`SELECT s3_key FROM media WHERE user_id = $1 AND id = $2`, userID, id).Scan(&s3Key)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				return platformerrors.NotFound("media not found")
+				return apperr.NotFound("media not found")
 			}
 			return fmt.Errorf("media: delete lookup: %w", err)
 		}

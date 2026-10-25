@@ -16,7 +16,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	"github.com/mindmesh/mindmesh/internal/platform/errors"
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 )
 
 // ---- helpers ----------------------------------------------------------------
@@ -460,7 +460,7 @@ func TestGRPCAuthInterceptorRejectsRefreshToken(t *testing.T) {
 func TestGRPCAuthInterceptorInvalidTokenViaMock(t *testing.T) {
 	mv := &mockVerifier{
 		fn: func(tokenString string) (*Claims, error) {
-			return nil, errors.Unauthenticated("invalid token", nil)
+			return nil, apperr.Unauthenticated("invalid token", nil)
 		},
 	}
 	interceptor := GRPCAuthInterceptor(mv)

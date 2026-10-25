@@ -6,8 +6,8 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	identityv1 "github.com/mindmesh/mindmesh/api/identity/v1"
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 	"github.com/mindmesh/mindmesh/internal/platform/auth"
-	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
 )
 
 // Handler implements AuthService and ProfileService by delegating to *Service.
@@ -93,7 +93,7 @@ func (h *Handler) Logout(ctx context.Context, req *identityv1.LogoutRequest) (*i
 func (h *Handler) GetMe(ctx context.Context, _ *identityv1.GetMeRequest) (*identityv1.GetMeResponse, error) {
 	id, ok := auth.IdentityFromContext(ctx)
 	if !ok {
-		return nil, platformerrors.Unauthenticated("missing identity context")
+		return nil, apperr.Unauthenticated("missing identity context")
 	}
 
 	user, profiles, err := h.svc.GetMe(ctx, id.UserID)
@@ -141,7 +141,7 @@ func (h *Handler) ResetPassword(ctx context.Context, req *identityv1.ResetPasswo
 func (h *Handler) ListProfiles(ctx context.Context, _ *identityv1.ListProfilesRequest) (*identityv1.ListProfilesResponse, error) {
 	id, ok := auth.IdentityFromContext(ctx)
 	if !ok {
-		return nil, platformerrors.Unauthenticated("missing identity context")
+		return nil, apperr.Unauthenticated("missing identity context")
 	}
 
 	profiles, err := h.svc.ListProfiles(ctx, id.UserID)
@@ -159,7 +159,7 @@ func (h *Handler) ListProfiles(ctx context.Context, _ *identityv1.ListProfilesRe
 func (h *Handler) CreateProfile(ctx context.Context, req *identityv1.CreateProfileRequest) (*identityv1.CreateProfileResponse, error) {
 	id, ok := auth.IdentityFromContext(ctx)
 	if !ok {
-		return nil, platformerrors.Unauthenticated("missing identity context")
+		return nil, apperr.Unauthenticated("missing identity context")
 	}
 
 	profile, err := h.svc.CreateProfile(ctx, id.UserID, req.Name)
@@ -172,7 +172,7 @@ func (h *Handler) CreateProfile(ctx context.Context, req *identityv1.CreateProfi
 func (h *Handler) ActivateProfile(ctx context.Context, req *identityv1.ActivateProfileRequest) (*identityv1.ActivateProfileResponse, error) {
 	id, ok := auth.IdentityFromContext(ctx)
 	if !ok {
-		return nil, platformerrors.Unauthenticated("missing identity context")
+		return nil, apperr.Unauthenticated("missing identity context")
 	}
 
 	accessToken, expiresIn, err := h.svc.ActivateProfile(ctx, id.UserID, req.Id)

@@ -1,7 +1,7 @@
 // Command sync runs the MindMesh Sync service: gRPC + grpc-gateway REST for
 // the USN delta pull (GetChanges), plus an SSE route for the multi-tab
 // realtime notifier. Sync reads Collection's and Scheduler's colocated
-// Postgres tables directly (see internal/sync's package doc) and owns one
+// Postgres tables directly (see internal/syncer's package doc) and owns one
 // small migrated table of its own, sync_applied_ops, for /sync/apply op_id
 // idempotency.
 package main
@@ -31,7 +31,7 @@ import (
 	"github.com/mindmesh/mindmesh/internal/platform/httpx"
 	"github.com/mindmesh/mindmesh/internal/platform/log"
 	"github.com/mindmesh/mindmesh/internal/platform/observability"
-	"github.com/mindmesh/mindmesh/internal/sync"
+	"github.com/mindmesh/mindmesh/internal/syncer"
 )
 
 func main() {
@@ -157,12 +157,12 @@ func run() error {
 		return fmt.Errorf("sync: dial collection: %w", err)
 	}
 	defer func() { _ = collConn.Close() }()
-	collClient := sync.NewGRPCCollectionClient(collConn)
+	collClient := syncer.NewGRPCCollectionClient(collConn)
 
 	// Domain wiring.
-	repo := sync.NewPostgresRepository(pool)
-	svc := sync.NewService(repo, collClient, rdb, logger)
-	handler := sync.NewHandler(svc)
+	repo := syncer.NewPostgresRepository(pool)
+	svc := syncer.NewService(repo, collClient, rdb, logger)
+	handler := syncer.NewHandler(svc)
 
 	grpcSrv := grpcx.New(grpcx.DefaultConfig(base.GRPCAddr), grpcx.Options{
 		UnaryInterceptors: []grpc.UnaryServerInterceptor{
@@ -213,8 +213,8 @@ func run() error {
 	g.Go(func() error { return httpSrv.Start(gctx) })
 	// Ends with gctx and closes every SSE stream, so open streams don't hold up the HTTP drain.
 	g.Go(func() error { return svc.RunNotifyHub(gctx) })
-	g.Go(func() error { return sync.RunNotifier(gctx, consumer, svc, logger) })
-	g.Go(func() error { return sync.RunAppliedOpsPurge(gctx, pool, logger) })
+	g.Go(func() error { return syncer.RunNotifier(gctx, consumer, svc, logger) })
+	g.Go(func() error { return syncer.RunAppliedOpsPurge(gctx, pool, logger) })
 	if err := g.Wait(); err != nil {
 		return fmt.Errorf("sync: server: %w", err)
 	}

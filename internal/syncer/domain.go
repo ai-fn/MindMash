@@ -1,4 +1,4 @@
-// Package sync implements the USN delta-pull (read) and apply (push) paths:
+// Package syncer implements the USN delta-pull (read) and apply (push) paths:
 // it reads the usn/mtime columns Collection (and Scheduler, for cards'
 // scheduling columns) already stamp on every mutation, and assembles them
 // into a per-user change feed so a user's open tabs/devices converge; it also
@@ -10,7 +10,7 @@
 // cluster as Collection and Scheduler (see internal/scheduler/repo.go for the
 // established precedent of one service reading another's colocated tables
 // directly).
-package sync
+package syncer
 
 import (
 	"context"

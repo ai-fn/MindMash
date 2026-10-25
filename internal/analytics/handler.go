@@ -8,8 +8,8 @@ import (
 	"time"
 
 	analyticsv1 "github.com/mindmesh/mindmesh/api/analytics/v1"
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 	"github.com/mindmesh/mindmesh/internal/platform/auth"
-	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
 )
 
 // defaultTargetRetention is reported by GetRetention as the comparison baseline.
@@ -36,7 +36,7 @@ func NewHandler(repo *Repo) *Handler {
 func (h *Handler) tenant(ctx context.Context) (Tenant, error) {
 	id, ok := auth.IdentityFromContext(ctx)
 	if !ok {
-		return Tenant{}, platformerrors.Unauthenticated("missing identity context")
+		return Tenant{}, apperr.Unauthenticated("missing identity context")
 	}
 	return Tenant{UserID: id.UserID}, nil
 }
@@ -143,7 +143,7 @@ func (h *Handler) GetBreakdown(ctx context.Context, req *analyticsv1.GetBreakdow
 	switch by {
 	case "deck", "state", "hour":
 	default:
-		return nil, platformerrors.InvalidArgument(`by must be one of "deck", "state", "hour"`)
+		return nil, apperr.InvalidArgument(`by must be one of "deck", "state", "hour"`)
 	}
 	since, err := h.parseRange(req.GetRange())
 	if err != nil {
@@ -184,7 +184,7 @@ func parseTZ(name string) (*time.Location, error) {
 	}
 	loc, err := time.LoadLocation(name)
 	if err != nil || name == "Local" {
-		return nil, platformerrors.InvalidArgument(`tz must be an IANA time zone name, e.g. "Europe/Berlin"`)
+		return nil, apperr.InvalidArgument(`tz must be an IANA time zone name, e.g. "Europe/Berlin"`)
 	}
 	return loc, nil
 }
@@ -200,11 +200,11 @@ func (h *Handler) parseRange(s string) (time.Time, error) {
 		return time.Unix(0, 0).UTC(), nil
 	}
 	if !strings.HasSuffix(s, "d") {
-		return time.Time{}, platformerrors.InvalidArgument(`range must be "<N>d" or "all"`)
+		return time.Time{}, apperr.InvalidArgument(`range must be "<N>d" or "all"`)
 	}
 	n, err := strconv.Atoi(strings.TrimSuffix(s, "d"))
 	if err != nil || n <= 0 {
-		return time.Time{}, platformerrors.InvalidArgument(`range must be a positive number of days, e.g. "30d"`)
+		return time.Time{}, apperr.InvalidArgument(`range must be a positive number of days, e.g. "30d"`)
 	}
 	return h.now().AddDate(0, 0, -n), nil
 }
@@ -213,7 +213,7 @@ func (h *Handler) parseRange(s string) (time.Time, error) {
 // best-effort mirror, so a backend outage degrades charts rather than erroring
 // hard as an internal fault.
 func unavailable(err error) error {
-	return platformerrors.Unavailable("analytics backend unavailable", err)
+	return apperr.Unavailable("analytics backend unavailable", err)
 }
 
 // computeStreak counts consecutive study days ending at today or yesterday.

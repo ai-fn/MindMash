@@ -34,7 +34,7 @@ api/                  # protobuf contracts (source of truth) + buf config; codeg
 cmd/<service>/        # thin main.go entrypoint per service binary
 internal/
   <service>/          # domain, handlers, repositories per service (NOT importable cross-service)
-  platform/           # SHARED libs: config, log, observability, db, cache, events, auth, httpx, grpcx, blob, ids, errors
+  platform/           # SHARED libs: config, log, observability, db, cache, events, auth, httpx, grpcx, blob, ids, apperr
 pkg/                  # reusable importable libs (fsrs, template, searchdsl)
 migrations/<store>/   # golang-migrate SQL per store
 deploy/               # helm/kustomize + argocd (spec 14)
@@ -51,7 +51,7 @@ docs/                 # architecture + detailed specs
 - **Thin composition:** a service = `internal/platform/*` + its `internal/<svc>` domain. Do not
   reimplement logging/metrics/tracing/db/cache/auth/health per service — use `platform`.
 - **IDs:** ULID/UUIDv7 (time-sortable) via `platform/ids` for all entities.
-- **Errors:** typed app errors via `platform/errors`, mapped to gRPC status / HTTP codes.
+- **Errors:** typed app errors via `platform/apperr`, mapped to gRPC status / HTTP codes.
 - **Tenancy:** every distributed row carries `user_id` (Citus shard key); every query is scoped
   by it. Most rows also carry `profile_id`. Identity mints the `user_id`/`profile_id`.
 - **Auth:** every external call carries a JWT (Ed25519). The gateway validates it via cached

@@ -27,11 +27,11 @@ import (
 
 	identityv1 "github.com/mindmesh/mindmesh/api/identity/v1"
 	"github.com/mindmesh/mindmesh/internal/identity"
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 	"github.com/mindmesh/mindmesh/internal/platform/auth"
 	"github.com/mindmesh/mindmesh/internal/platform/cache"
 	"github.com/mindmesh/mindmesh/internal/platform/config"
 	"github.com/mindmesh/mindmesh/internal/platform/db"
-	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
 	"github.com/mindmesh/mindmesh/internal/platform/grpcx"
 	"github.com/mindmesh/mindmesh/internal/platform/httpx"
 	"github.com/mindmesh/mindmesh/internal/platform/i18n"
@@ -208,7 +208,7 @@ func run() error {
 // request's resolved locale (carried in ctx by i18n.HTTPMiddleware) before delegating to the
 // default handler. Errors without a MsgID pass through unchanged.
 func localizedErrorHandler(ctx context.Context, mux *runtime.ServeMux, m runtime.Marshaler, w http.ResponseWriter, r *http.Request, err error) {
-	var ae *platformerrors.AppError
+	var ae *apperr.AppError
 	if errors.As(err, &ae) && ae.MsgID != "" {
 		localized := ae.Localize(i18n.PrinterFromContext(ctx))
 		err = status.New(ae.Code, localized).Err()

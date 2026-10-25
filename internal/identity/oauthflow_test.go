@@ -10,7 +10,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 
 	. "github.com/mindmesh/mindmesh/internal/identity"
 )
@@ -124,7 +124,7 @@ func TestOAuthExchange_ProviderFailuresAreClientErrors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	exchanger.err = platformerrors.Unauthenticated("oauth code exchange failed", errors.New("oauth2: cannot fetch token: 400\nResponse: {secret}"))
+	exchanger.err = apperr.Unauthenticated("oauth code exchange failed", errors.New("oauth2: cannot fetch token: 400\nResponse: {secret}"))
 
 	_, _, _, _, _, _, err = svc.OAuthExchange(ctx, "google", "c", state, "")
 	if grpcCode(err) != codes.Unauthenticated {

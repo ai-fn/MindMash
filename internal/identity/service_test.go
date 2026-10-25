@@ -14,8 +14,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 	"github.com/mindmesh/mindmesh/internal/platform/auth"
-	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
 
 	. "github.com/mindmesh/mindmesh/internal/identity"
 )
@@ -49,7 +49,7 @@ func (r *fakeRepo) CreateUser(_ context.Context, u *User) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if _, exists := r.usersByEmail[u.Email]; exists {
-		return platformerrors.AlreadyExists("user with this email already exists")
+		return apperr.AlreadyExists("user with this email already exists")
 	}
 	cp := *u
 	r.users[u.ID] = &cp
@@ -62,7 +62,7 @@ func (r *fakeRepo) GetUserByID(_ context.Context, id string) (*User, error) {
 	defer r.mu.Unlock()
 	u, ok := r.users[id]
 	if !ok {
-		return nil, platformerrors.NotFound("user not found")
+		return nil, apperr.NotFound("user not found")
 	}
 	cp := *u
 	return &cp, nil
@@ -81,7 +81,7 @@ func (r *fakeRepo) GetUserByEmail(_ context.Context, email string) (*User, error
 	defer r.mu.Unlock()
 	u, ok := r.usersByEmail[email]
 	if !ok {
-		return nil, platformerrors.NotFound("user not found")
+		return nil, apperr.NotFound("user not found")
 	}
 	cp := *u
 	return &cp, nil
@@ -92,7 +92,7 @@ func (r *fakeRepo) SetEmailVerified(_ context.Context, userID string) error {
 	defer r.mu.Unlock()
 	u, ok := r.users[userID]
 	if !ok {
-		return platformerrors.NotFound("user not found")
+		return apperr.NotFound("user not found")
 	}
 	u.EmailVerified = true
 	r.usersByEmail[u.Email].EmailVerified = true
@@ -104,7 +104,7 @@ func (r *fakeRepo) UpdatePassword(_ context.Context, userID, hash string) error 
 	defer r.mu.Unlock()
 	u, ok := r.users[userID]
 	if !ok {
-		return platformerrors.NotFound("user not found")
+		return apperr.NotFound("user not found")
 	}
 	u.PasswordHash = &hash
 	r.usersByEmail[u.Email].PasswordHash = &hash
@@ -116,7 +116,7 @@ func (r *fakeRepo) CreateOAuthIdentity(_ context.Context, o *OAuthIdentity) erro
 	defer r.mu.Unlock()
 	key := o.Provider + ":" + o.ProviderUID
 	if _, exists := r.oauthIDs[key]; exists {
-		return platformerrors.AlreadyExists("oauth identity already exists")
+		return apperr.AlreadyExists("oauth identity already exists")
 	}
 	cp := *o
 	r.oauthIDs[key] = &cp
@@ -129,7 +129,7 @@ func (r *fakeRepo) GetOAuthIdentity(_ context.Context, provider, uid string) (*O
 	key := provider + ":" + uid
 	o, ok := r.oauthIDs[key]
 	if !ok {
-		return nil, platformerrors.NotFound("oauth identity not found")
+		return nil, apperr.NotFound("oauth identity not found")
 	}
 	cp := *o
 	return &cp, nil
@@ -160,7 +160,7 @@ func (r *fakeRepo) GetProfile(_ context.Context, id string) (*Profile, error) {
 	defer r.mu.Unlock()
 	p, ok := r.profiles[id]
 	if !ok {
-		return nil, platformerrors.NotFound("profile not found")
+		return nil, apperr.NotFound("profile not found")
 	}
 	cp := *p
 	return &cp, nil
@@ -179,7 +179,7 @@ func (r *fakeRepo) GetRefreshTokenForUpdate(_ context.Context, jti string) (*Ref
 	defer r.mu.Unlock()
 	rt, ok := r.refreshTokens[jti]
 	if !ok {
-		return nil, platformerrors.NotFound("refresh token not found")
+		return nil, apperr.NotFound("refresh token not found")
 	}
 	cp := *rt
 	return &cp, nil
@@ -192,7 +192,7 @@ func (r *fakeRepo) RotateRefreshToken(_ context.Context, jti string) error {
 	defer r.mu.Unlock()
 	rt, ok := r.refreshTokens[jti]
 	if !ok {
-		return platformerrors.NotFound("refresh token not found")
+		return apperr.NotFound("refresh token not found")
 	}
 	rt.Revoked = true
 	rt.RotatedAgo = &zero
@@ -224,7 +224,7 @@ func (r *fakeRepo) ClearPassword(_ context.Context, userID string) error {
 	defer r.mu.Unlock()
 	u, ok := r.users[userID]
 	if !ok {
-		return platformerrors.NotFound("user not found")
+		return apperr.NotFound("user not found")
 	}
 	u.PasswordHash = nil
 	return nil
@@ -259,7 +259,7 @@ func (r *fakeRepo) EmailVerificationUser(_ context.Context, tokenHash, purpose s
 	defer r.mu.Unlock()
 	ev, ok := r.verifications[tokenHash]
 	if !ok || ev.Purpose != purpose || ev.ConsumedAt != nil || time.Now().After(ev.ExpiresAt) {
-		return "", platformerrors.NotFound("invalid or expired token")
+		return "", apperr.NotFound("invalid or expired token")
 	}
 	return ev.UserID, nil
 }
@@ -269,7 +269,7 @@ func (r *fakeRepo) ConsumeEmailVerification(_ context.Context, tokenHash, purpos
 	defer r.mu.Unlock()
 	ev, ok := r.verifications[tokenHash]
 	if !ok || ev.Purpose != purpose || ev.ConsumedAt != nil || time.Now().After(ev.ExpiresAt) {
-		return "", platformerrors.NotFound("invalid or expired token")
+		return "", apperr.NotFound("invalid or expired token")
 	}
 	now := time.Now()
 	ev.ConsumedAt = &now
@@ -455,7 +455,7 @@ func grpcCode(err error) codes.Code {
 	if s, ok := status.FromError(err); ok {
 		return s.Code()
 	}
-	var ae *platformerrors.AppError
+	var ae *apperr.AppError
 	if errors.As(err, &ae) {
 		return ae.Code
 	}
@@ -883,10 +883,10 @@ func TestOAuthExchange_RefusesUnverifiedEmails(t *testing.T) {
 			if got := grpcCode(err); got != tc.want {
 				t.Fatalf("want %v, got %v (%v)", tc.want, got, err)
 			}
-			if _, err := repo.GetOAuthIdentity(ctx, "google", "g-attacker"); !platformerrors.IsNotFound(err) {
+			if _, err := repo.GetOAuthIdentity(ctx, "google", "g-attacker"); !apperr.IsNotFound(err) {
 				t.Fatalf("want no identity stored, got %v", err)
 			}
-			if _, err := repo.GetUserByEmail(ctx, "ivy@example.com"); tc.existing == platformerrors.IsNotFound(err) {
+			if _, err := repo.GetUserByEmail(ctx, "ivy@example.com"); tc.existing == apperr.IsNotFound(err) {
 				t.Fatalf("want users unchanged (existing=%v), got %v", tc.existing, err)
 			}
 		})
@@ -911,7 +911,7 @@ func TestOAuthExchange_LookupErrorCreatesNothing(t *testing.T) {
 	if _, _, _, _, _, _, err := oauthLogin(context.Background(), svc, "google", "c"); err == nil || !strings.Contains(err.Error(), "db down") {
 		t.Fatalf("want the lookup error, got %v", err)
 	}
-	if _, err := repo.GetOAuthIdentity(context.Background(), "google", "g-1"); !platformerrors.IsNotFound(err) {
+	if _, err := repo.GetOAuthIdentity(context.Background(), "google", "g-1"); !apperr.IsNotFound(err) {
 		t.Fatalf("want no identity created on a lookup error, got %v", err)
 	}
 }
@@ -926,10 +926,10 @@ func TestOAuthExchange_RejectsMissingClaims(t *testing.T) {
 	exchanger.responses["no-email"] = OAuthUserInfo{Provider: "google", Subject: "g-1", EmailVerified: true}
 	exchanger.responses["no-sub"] = OAuthUserInfo{Provider: "google", Email: "jo@example.com", EmailVerified: true}
 
-	if _, _, _, _, _, _, err := oauthLogin(ctx, svc, "google", "no-email"); !platformerrors.IsFailedPrecondition(err) {
+	if _, _, _, _, _, _, err := oauthLogin(ctx, svc, "google", "no-email"); !apperr.IsFailedPrecondition(err) {
 		t.Fatalf("empty email: want FailedPrecondition, got %v", err)
 	}
-	if _, _, _, _, _, _, err := oauthLogin(ctx, svc, "google", "no-sub"); !platformerrors.IsUnauthenticated(err) {
+	if _, _, _, _, _, _, err := oauthLogin(ctx, svc, "google", "no-sub"); !apperr.IsUnauthenticated(err) {
 		t.Fatalf("empty subject: want Unauthenticated, got %v", err)
 	}
 }

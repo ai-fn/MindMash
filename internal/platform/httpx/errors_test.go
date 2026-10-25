@@ -12,7 +12,7 @@ import (
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 
-	apperrors "github.com/mindmesh/mindmesh/internal/platform/errors"
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 )
 
 func TestGatewayErrors_HidesCausesAndKeepsAppErrors(t *testing.T) {
@@ -33,7 +33,7 @@ func TestGatewayErrors_HidesCausesAndKeepsAppErrors(t *testing.T) {
 		}
 	}
 	fail("/v1/internal", fmt.Errorf("repo: %w", secret))
-	fail("/v1/missing", fmt.Errorf("svc: %w", apperrors.NotFound("deck not found", secret)))
+	fail("/v1/missing", fmt.Errorf("svc: %w", apperr.NotFound("deck not found", secret)))
 
 	rec := httptest.NewRecorder()
 	gw.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/internal", nil))
@@ -51,7 +51,7 @@ func TestGatewayErrors_HidesCausesAndKeepsAppErrors(t *testing.T) {
 	if rec.Code != http.StatusNotFound || !strings.Contains(string(body), "deck not found") || strings.Contains(string(body), "10.0.3.7") {
 		t.Fatalf("not found: got %d %s", rec.Code, body)
 	}
-	var ae *apperrors.AppError
+	var ae *apperr.AppError
 	if !errors.As(gotByNext, &ae) {
 		t.Fatalf("next handler must still get the AppError (for localization), got %T", gotByNext)
 	}

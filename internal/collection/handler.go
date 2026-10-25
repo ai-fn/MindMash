@@ -6,8 +6,8 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	collectionv1 "github.com/mindmesh/mindmesh/api/collection/v1"
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 	"github.com/mindmesh/mindmesh/internal/platform/auth"
-	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
 )
 
 // Handler implements the five public Collection gRPC service interfaces.
@@ -45,7 +45,7 @@ func NewInternalHandler(svc *Service) *InternalHandler {
 func identity(ctx context.Context) (auth.IdentityContext, error) {
 	id, ok := auth.IdentityFromContext(ctx)
 	if !ok {
-		return auth.IdentityContext{}, platformerrors.Unauthenticated("missing identity context")
+		return auth.IdentityContext{}, apperr.Unauthenticated("missing identity context")
 	}
 	return id, nil
 }
@@ -329,9 +329,9 @@ func (h *Handler) BulkCards(ctx context.Context, req *collectionv1.BulkCardsRequ
 	case *collectionv1.BulkCardsRequest_IdsList:
 		cardIDs = s.IdsList.GetIds()
 	case *collectionv1.BulkCardsRequest_Query:
-		return nil, platformerrors.Unimplemented("query-based bulk selection requires the Search service")
+		return nil, apperr.Unimplemented("query-based bulk selection requires the Search service")
 	default:
-		return nil, platformerrors.InvalidArgument("selector is required")
+		return nil, apperr.InvalidArgument("selector is required")
 	}
 
 	args := req.GetArgs()
@@ -351,7 +351,7 @@ func (h *Handler) BulkCards(ctx context.Context, req *collectionv1.BulkCardsRequ
 	case collectionv1.BulkOp_BULK_OP_DELETE:
 		affected, err = h.svc.DeleteCards(ctx, id.UserID, cardIDs)
 	default:
-		return nil, platformerrors.InvalidArgument("unknown bulk op")
+		return nil, apperr.InvalidArgument("unknown bulk op")
 	}
 	if err != nil {
 		return nil, err
@@ -610,7 +610,7 @@ func (h *InternalHandler) ListCardIDs(ctx context.Context, req *collectionv1.Lis
 		return nil, err
 	}
 	if req.GetQuery() != "" {
-		return nil, platformerrors.Unimplemented("query-based card listing requires the Search service")
+		return nil, apperr.Unimplemented("query-based card listing requires the Search service")
 	}
 	cardIDs, next, err := h.svc.ListCardIDs(ctx, id.UserID, pageFromProto(req.GetPageToken(), req.GetPageSize()))
 	if err != nil {

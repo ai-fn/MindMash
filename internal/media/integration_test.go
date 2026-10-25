@@ -25,9 +25,9 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 	"go.uber.org/zap"
 
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 	"github.com/mindmesh/mindmesh/internal/platform/blob"
 	platformdb "github.com/mindmesh/mindmesh/internal/platform/db"
-	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
 	"github.com/mindmesh/mindmesh/internal/platform/events"
 )
 
@@ -218,9 +218,9 @@ func TestDedupeStaysWithinUser(t *testing.T) {
 	assert.False(t, resB.AlreadyExists)
 	assert.NotEmpty(t, resB.UploadURL)
 	_, err = c.svc.Confirm(ctx, tB(), resB.MediaID)
-	assert.True(t, platformerrors.IsFailedPrecondition(err), "confirm without upload: %v", err)
+	assert.True(t, apperr.IsFailedPrecondition(err), "confirm without upload: %v", err)
 	_, err = c.svc.ResolveDownloadURL(ctx, tB(), resB.MediaID)
-	assert.True(t, platformerrors.IsNotFound(err), "resolve before upload: %v", err)
+	assert.True(t, apperr.IsNotFound(err), "resolve before upload: %v", err)
 	bChecks, err := c.svc.ListChecksums(ctx, tB(), 0)
 	require.NoError(t, err)
 	assert.Empty(t, bChecks)
@@ -260,11 +260,11 @@ func TestTenantIsolation(t *testing.T) {
 
 	// User B cannot see, confirm, resolve, or delete user A's media.
 	_, err = c.svc.Confirm(ctx, tB(), res.MediaID)
-	assert.True(t, platformerrors.IsNotFound(err), "confirm: %v", err)
+	assert.True(t, apperr.IsNotFound(err), "confirm: %v", err)
 	_, err = c.svc.ResolveDownloadURL(ctx, tB(), res.MediaID)
-	assert.True(t, platformerrors.IsNotFound(err), "resolve: %v", err)
+	assert.True(t, apperr.IsNotFound(err), "resolve: %v", err)
 	err = c.svc.Delete(ctx, tB(), res.MediaID)
-	assert.True(t, platformerrors.IsNotFound(err), "delete: %v", err)
+	assert.True(t, apperr.IsNotFound(err), "delete: %v", err)
 
 	bChecks, err := c.svc.ListChecksums(ctx, tB(), 0)
 	require.NoError(t, err)
@@ -284,7 +284,7 @@ func TestUploadMustMatchDeclaredBytes(t *testing.T) {
 		assert.GreaterOrEqual(t, putStatus(t, res, swapped), 400, "substituted bytes")
 		assert.GreaterOrEqual(t, putStatus(t, res, data[:len(data)-1]), 400, "truncated bytes")
 		_, err = c.svc.Confirm(ctx, tA(), res.MediaID)
-		assert.True(t, platformerrors.IsFailedPrecondition(err), "confirm: %v", err)
+		assert.True(t, apperr.IsFailedPrecondition(err), "confirm: %v", err)
 	})
 
 	t.Run("confirm rejects an object that bypassed the presigned PUT", func(t *testing.T) {
@@ -295,7 +295,7 @@ func TestUploadMustMatchDeclaredBytes(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, c.blob.Upload(ctx, testBucket, m.S3Key, bytes.NewReader(data), "image/png"))
 		_, err = c.svc.Confirm(ctx, tB(), res.MediaID)
-		assert.True(t, platformerrors.IsFailedPrecondition(err), "unverified bytes: %v", err)
+		assert.True(t, apperr.IsFailedPrecondition(err), "unverified bytes: %v", err)
 	})
 
 	t.Run("confirm rejects another content type", func(t *testing.T) {
@@ -310,7 +310,7 @@ func TestUploadMustMatchDeclaredBytes(t *testing.T) {
 		require.NoError(t, err)
 		put(t, PresignResult{UploadURL: gif.URL, UploadHeaders: gif.Headers}, pngData)
 		_, err = c.svc.Confirm(ctx, tA(), res.MediaID)
-		assert.True(t, platformerrors.IsFailedPrecondition(err), "content type: %v", err)
+		assert.True(t, apperr.IsFailedPrecondition(err), "content type: %v", err)
 	})
 }
 
@@ -354,7 +354,7 @@ func TestPendingGC(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, n)
 	_, err = c.repo.GetByID(ctx, userA, stale.MediaID)
-	assert.True(t, platformerrors.IsNotFound(err), "stale pending row should be gone: %v", err)
+	assert.True(t, apperr.IsNotFound(err), "stale pending row should be gone: %v", err)
 	assert.False(t, objectExists(t, c, staleRow.S3Key), "stale upload should be deleted")
 	_, err = c.repo.GetByID(ctx, userA, fresh.MediaID)
 	assert.NoError(t, err, "fresh pending row must be kept")

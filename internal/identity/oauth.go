@@ -11,7 +11,7 @@ import (
 	gooidc "github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 
-	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 )
 
 // ProviderConfig holds the OIDC client credentials for a single OAuth provider.
@@ -50,11 +50,11 @@ func NewOIDCExchanger(configs map[string]ProviderConfig) *OIDCExchanger {
 func (e *OIDCExchanger) AuthURL(ctx context.Context, provider string, flow OAuthFlow, state string) (string, error) {
 	cfg, ok := e.configs[provider]
 	if !ok {
-		return "", platformerrors.InvalidArgument(fmt.Sprintf("unknown OAuth provider %q", provider))
+		return "", apperr.InvalidArgument(fmt.Sprintf("unknown OAuth provider %q", provider))
 	}
 	_, callCfg, err := e.getOrCreateProvider(ctx, provider, cfg, flow.RedirectURI)
 	if err != nil {
-		return "", platformerrors.Unavailable("oauth provider unavailable", err)
+		return "", apperr.Unavailable("oauth provider unavailable", err)
 	}
 	return callCfg.AuthCodeURL(state, oauth2.S256ChallengeOption(flow.Verifier), oauth2.SetAuthURLParam("nonce", flow.Nonce)), nil
 }
@@ -64,36 +64,36 @@ func (e *OIDCExchanger) AuthURL(ctx context.Context, provider string, flow OAuth
 func (e *OIDCExchanger) Exchange(ctx context.Context, provider, code string, flow OAuthFlow) (OAuthUserInfo, error) {
 	cfg, ok := e.configs[provider]
 	if !ok {
-		return OAuthUserInfo{}, platformerrors.InvalidArgument(fmt.Sprintf("unknown OAuth provider %q", provider))
+		return OAuthUserInfo{}, apperr.InvalidArgument(fmt.Sprintf("unknown OAuth provider %q", provider))
 	}
 
 	oidcProvider, callCfg, err := e.getOrCreateProvider(ctx, provider, cfg, flow.RedirectURI)
 	if err != nil {
-		return OAuthUserInfo{}, platformerrors.Unavailable("oauth provider unavailable", err)
+		return OAuthUserInfo{}, apperr.Unavailable("oauth provider unavailable", err)
 	}
 
 	token, err := callCfg.Exchange(ctx, code, oauth2.VerifierOption(flow.Verifier))
 	if err != nil {
 		var rejected *oauth2.RetrieveError
 		if errors.As(err, &rejected) {
-			return OAuthUserInfo{}, platformerrors.Unauthenticated("oauth code exchange failed", err)
+			return OAuthUserInfo{}, apperr.Unauthenticated("oauth code exchange failed", err)
 		}
-		return OAuthUserInfo{}, platformerrors.Unavailable("oauth provider unavailable", err)
+		return OAuthUserInfo{}, apperr.Unavailable("oauth provider unavailable", err)
 	}
 
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok {
-		return OAuthUserInfo{}, platformerrors.Unauthenticated("oauth response has no id_token")
+		return OAuthUserInfo{}, apperr.Unauthenticated("oauth response has no id_token")
 	}
 
 	verifier := oidcProvider.Verifier(&gooidc.Config{ClientID: cfg.ClientID})
 	idToken, err := verifier.Verify(ctx, rawIDToken)
 	if err != nil {
-		return OAuthUserInfo{}, platformerrors.Unauthenticated("invalid id_token", err)
+		return OAuthUserInfo{}, apperr.Unauthenticated("invalid id_token", err)
 	}
 
 	if flow.Nonce == "" || idToken.Nonce != flow.Nonce {
-		return OAuthUserInfo{}, platformerrors.Unauthenticated("oauth id_token nonce mismatch")
+		return OAuthUserInfo{}, apperr.Unauthenticated("oauth id_token nonce mismatch")
 	}
 
 	var claims struct {
@@ -102,7 +102,7 @@ func (e *OIDCExchanger) Exchange(ctx context.Context, provider, code string, flo
 		EmailVerified claimBool `json:"email_verified"`
 	}
 	if err := idToken.Claims(&claims); err != nil {
-		return OAuthUserInfo{}, platformerrors.Unauthenticated("invalid id_token claims", err)
+		return OAuthUserInfo{}, apperr.Unauthenticated("invalid id_token claims", err)
 	}
 
 	return OAuthUserInfo{

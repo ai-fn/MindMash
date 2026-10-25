@@ -1,4 +1,4 @@
-package errors_test
+package apperr_test
 
 import (
 	"strings"
@@ -6,15 +6,15 @@ import (
 
 	"golang.org/x/text/language"
 
-	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 	"github.com/mindmesh/mindmesh/internal/platform/i18n"
 )
 
-// External test package (errors_test) so it can import platform/i18n, which itself depends on
-// platform/errors — importing it from the in-package test would be an import cycle.
+// External test package (apperr_test) so it can import platform/i18n, which itself depends on
+// platform/apperr — importing it from the in-package test would be an import cycle.
 
 func TestAppErrorLocalize(t *testing.T) {
-	tagged := platformerrors.Unauthenticated("invalid credentials").
+	tagged := apperr.Unauthenticated("invalid credentials").
 		WithMsgID(i18n.MsgInvalidCredentials)
 
 	if got := tagged.Localize(i18n.Printer(language.Russian)); !strings.Contains(got, "Не удалось войти") {
@@ -30,7 +30,7 @@ func TestAppErrorLocalize(t *testing.T) {
 	}
 
 	// An error without a MsgID is never localized, even with a printer.
-	plain := platformerrors.Internal("boom")
+	plain := apperr.Internal("boom")
 	if got := plain.Localize(i18n.Printer(language.Russian)); got != "boom" {
 		t.Errorf("un-tagged localize = %q, want plain message unchanged", got)
 	}

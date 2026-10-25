@@ -7,7 +7,7 @@ import (
 
 	"go.uber.org/zap"
 
-	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 	"github.com/mindmesh/mindmesh/internal/platform/validate"
 )
 
@@ -188,7 +188,7 @@ func TestServiceRejectsInvalidInput(t *testing.T) {
 					t.Fatalf("reached the repository: input was not validated")
 				}
 			}()
-			if err := tt.call(); !platformerrors.IsInvalidArgument(err) {
+			if err := tt.call(); !apperr.IsInvalidArgument(err) {
 				t.Fatalf("want InvalidArgument, got %v", err)
 			}
 		})

@@ -1,4 +1,4 @@
-package errors
+package apperr
 
 import (
 	"context"
@@ -41,7 +41,7 @@ func (e *AppError) Unwrap() error {
 // WithMsgID marks this error as localizable, tagging it with a platform/i18n message key and
 // optional format args. Returns the same error for fluent use:
 //
-//	return errors.Unauthenticated("invalid credentials").WithMsgID(i18n.MsgInvalidCredentials)
+//	return apperr.Unauthenticated("invalid credentials").WithMsgID(i18n.MsgInvalidCredentials)
 func (e *AppError) WithMsgID(id string, args ...any) *AppError {
 	e.MsgID = id
 	e.Args = args

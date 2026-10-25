@@ -1,11 +1,11 @@
-package sync
+package syncer
 
 import (
 	"context"
 	"errors"
 	"fmt"
 	"strings"
-	gosync "sync"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -19,7 +19,7 @@ var errHubDown = errors.New("sync: notify hub is not running")
 
 // notifyHub fans one PSUBSCRIBE per replica out to its SSE streams, instead of a Redis connection per stream.
 type notifyHub struct {
-	mu   gosync.Mutex
+	mu   sync.Mutex
 	up   bool
 	subs map[string]map[chan struct{}]struct{}
 }

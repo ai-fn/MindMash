@@ -19,7 +19,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	"github.com/mindmesh/mindmesh/internal/platform/errors"
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 	"github.com/mindmesh/mindmesh/internal/platform/ids"
 	"github.com/mindmesh/mindmesh/internal/platform/log"
 	"github.com/mindmesh/mindmesh/internal/platform/validate"
@@ -147,11 +147,11 @@ func (v *ServiceVerifier) Verify(tokenString string) (string, error) {
 		jwt.WithLeeway(clockLeeway),
 	)
 	if err != nil {
-		return "", errors.Unauthenticated("invalid service token", err)
+		return "", apperr.Unauthenticated("invalid service token", err)
 	}
 	if claims.Kind != serviceKind || claims.Subject != claims.Issuer || claims.IssuedAt == nil ||
 		claims.ExpiresAt.Sub(claims.IssuedAt.Time) > maxServiceTokenTTL {
-		return "", errors.Unauthenticated("invalid service token")
+		return "", apperr.Unauthenticated("invalid service token")
 	}
 	return claims.Issuer, nil
 }
@@ -198,7 +198,7 @@ func GRPCServiceOrUserAuthInterceptor(users Verifier, services *ServiceVerifier,
 		}
 		r, ok := req.(interface{ GetUserId() string })
 		if !ok || !validate.IsUUID(r.GetUserId()) {
-			return nil, reject(caller, "invalid_user_id", errors.InvalidArgument("user_id must be a canonical UUID"), nil)
+			return nil, reject(caller, "invalid_user_id", apperr.InvalidArgument("user_id must be a canonical UUID"), nil)
 		}
 		ctx = WithIdentity(ctx, IdentityContext{UserID: r.GetUserId(), Roles: []string{"service:" + caller}})
 		return handler(ctx, req)

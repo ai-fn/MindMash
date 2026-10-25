@@ -16,7 +16,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
-	"github.com/mindmesh/mindmesh/internal/platform/errors"
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 )
 
 const (
@@ -111,10 +111,10 @@ func (rv *RemoteVerifier) Verify(tokenString string) (*Claims, error) {
 		return rv.keyFor(kid)
 	}, userTokenOptions(rv.issuer)...)
 	if err != nil {
-		return nil, errors.Unauthenticated("invalid token", err)
+		return nil, apperr.Unauthenticated("invalid token", err)
 	}
 	if claims.Kind != "access" {
-		return nil, errors.Unauthenticated("invalid token kind", nil)
+		return nil, apperr.Unauthenticated("invalid token kind", nil)
 	}
 	return claims, nil
 }

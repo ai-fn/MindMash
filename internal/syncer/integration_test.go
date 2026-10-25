@@ -1,6 +1,6 @@
 //go:build integration
 
-package sync
+package syncer
 
 import (
 	"bufio"

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	platformerrors "github.com/mindmesh/mindmesh/internal/platform/errors"
+	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 )
 
 // Media lifecycle states.
@@ -95,18 +95,18 @@ func ValidateUpload(mime, sha256Hex string, bytes int64) (UploadRequest, error) 
 	mime = strings.ToLower(strings.TrimSpace(mime))
 	rule, ok := allowedMime[mime]
 	if !ok {
-		return UploadRequest{}, platformerrors.InvalidArgument(fmt.Sprintf("unsupported mime type %q", mime))
+		return UploadRequest{}, apperr.InvalidArgument(fmt.Sprintf("unsupported mime type %q", mime))
 	}
 	if bytes <= 0 {
-		return UploadRequest{}, platformerrors.InvalidArgument("bytes must be positive")
+		return UploadRequest{}, apperr.InvalidArgument("bytes must be positive")
 	}
 	if bytes > rule.maxSize {
-		return UploadRequest{}, platformerrors.InvalidArgument(
+		return UploadRequest{}, apperr.InvalidArgument(
 			fmt.Sprintf("%s exceeds the %d-byte limit for %s", mime, rule.maxSize, rule.kind))
 	}
 	sum, err := hex.DecodeString(strings.ToLower(strings.TrimSpace(sha256Hex)))
 	if err != nil || len(sum) != 32 {
-		return UploadRequest{}, platformerrors.InvalidArgument("sha256 must be a 64-character hex SHA-256")
+		return UploadRequest{}, apperr.InvalidArgument("sha256 must be a 64-character hex SHA-256")
 	}
 	return UploadRequest{
 		Mime:     mime,

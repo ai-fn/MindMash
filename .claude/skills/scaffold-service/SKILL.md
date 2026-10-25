@@ -25,7 +25,7 @@ domain. Never reimplement infra (logging/metrics/tracing/db/cache/auth/health) p
 4. **Domain (`internal/<svc>/`).** Split into:
    - `domain.go` — entities + pure business logic (unit-testable, no I/O).
    - `repo.go` — persistence via `platform/db` (pgx); always scope queries by `user_id`.
-   - `handler.go` — gRPC handlers translating proto ⇄ domain; map errors via `platform/errors`.
+   - `handler.go` — gRPC handlers translating proto ⇄ domain; map errors via `platform/apperr`.
    - `service.go` (optional) — orchestration wiring repo + cache + events.
 
 5. **Entrypoint (`cmd/<svc>/main.go`).** Copy the Identity reference: load config → init
