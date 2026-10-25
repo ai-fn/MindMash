@@ -18,9 +18,8 @@ import (
 	collectionv1 "github.com/mindmesh/mindmesh/api/collection/v1"
 )
 
-// fakeRepository is an in-memory Repository for unit-testing Service without
-// a real Postgres connection. It emulates the keyset "WHERE (usn, id) > cursor
-// ORDER BY usn, id LIMIT limit" over fixture slices pre-sorted by (usn, id).
+// fakeRepository emulates the keyset "(usn, id) > cursor ORDER BY usn, id LIMIT n" over slices
+// pre-sorted by (usn, id).
 type fakeRepository struct {
 	latestUSN     int64
 	noteTypes     []NoteType
@@ -32,9 +31,6 @@ type fakeRepository struct {
 	tags          []Tag
 	tombstones    []Tombstone
 
-	// appliedOps/recordedOps back GetAppliedOp/RecordAppliedOp for the Apply
-	// (push) path tests below; nil/empty by default so the existing
-	// delta-pull tests above are unaffected.
 	appliedOps  map[string]*AppliedOp
 	recordedOps []recordedOp
 
@@ -95,15 +91,6 @@ func (f *fakeRepository) ListTombstonesSince(_ context.Context, _ string, after 
 	return sinceLimit(f.tombstones, after, upTo, limit), nil
 }
 
-// GetAppliedOp/RecordAppliedOp are not exercised by Service's existing
-// (delta-pull) unit tests; the zero-value behavior below (no prior op,
-// recording is a no-op) is exactly what those tests need. The apply
-// (push) path tests below set appliedOps/recordedOps directly to exercise
-// idempotency.
-//
-// appliedOps lets a test pre-seed a prior outcome for a given op_id (case
-// 6, idempotent replay); recordedOps captures every RecordAppliedOp call a
-// test makes, so assertions can check whether (and what) got persisted.
 func (f *fakeRepository) GetAppliedOp(_ context.Context, _ string, opID string) (*AppliedOp, error) {
 	if f.appliedOps == nil {
 		return nil, nil
@@ -139,20 +126,9 @@ func newTestService(repo *fakeRepository, pageSize int) *Service {
 }
 
 // ─── Apply (push) path test fixtures ────────────────────────────────────────
-//
-// fakeCollectionClient extends this file's existing fake style
-// (struct-of-canned-fields, as fakeRepository uses) with one
-// function-field per CollectionClient method, e.g. `getNote func(...) (...,
-// error)`. A plain canned-response-per-method field (mirroring
-// fakeRepository's fixed slices exactly) doesn't generalize to cases 7/8,
-// which need the *same* method (UpdateNote) to behave differently across
-// the two mutations in one batch (mutation 1 aborts, mutation 2 succeeds) —
-// a single canned value per method can't express that, but a function field
-// closing over a counter/queue can, while keeping the same "set up the
-// fields you need, leave the rest nil" ergonomics fakeRepository already
-// has. Each fake method also appends to `calls` so tests can assert exactly
-// which RPCs fired (most importantly: zero calls for a replay, and that a
-// conflict-losing path never calls Update/Delete at all).
+
+// fakeCollectionClient uses func fields so one method can answer differently within a batch;
+// calls records which RPCs fired.
 type fakeCollectionClient struct {
 	calls []string // e.g. "GetNote", "UpdateNote", in call order
 
@@ -275,9 +251,6 @@ func (f *fakeCollectionClient) DeleteFilteredDeck(ctx context.Context, req *coll
 	return f.deleteFilteredDeck(ctx, req)
 }
 
-// newApplyTestService builds a Service wired to repo/coll for Apply (push
-// path) tests; unlike newTestService it leaves pageSize at the default since
-// none of the Apply tests exercise GetChanges pagination.
 func newApplyTestService(repo *fakeRepository, coll *fakeCollectionClient) *Service {
 	return NewService(repo, coll, nil, zap.NewNop())
 }
@@ -577,15 +550,6 @@ func TestGetChanges_PaginatesRowsSharingOneUSN(t *testing.T) {
 }
 
 // ─── Apply (push) path ───────────────────────────────────────────────────────
-//
-// These tests assert Global Constraints 5 (independent per-mutation apply,
-// no batch abort), 6 (Update/Delete always pins expected_usn to the freshly
-// re-read server usn, never the client's stale base_usn), 7 (codes.Aborted
-// -> OutcomeFailed, never recorded in sync_applied_ops), 8 (deletes never
-// LWW-merge; stale-base_usn delete against an updated entity is always
-// OutcomeServerWon; deleting an already-deleted entity is idempotent
-// OutcomeApplied) and 9 (a replay never serves a cached payload; it
-// re-fetches live from Collection) from plan.md's Global Constraints.
 
 func mustTime(t *testing.T, s string) time.Time {
 	t.Helper()
@@ -596,8 +560,6 @@ func mustTime(t *testing.T, s string) time.Time {
 	return tm
 }
 
-// Case 1: fast-forward (server.usn == base_usn) -> OutcomeApplied,
-// UpdateNote called with ExpectedUsn = serverUSN.
 func TestApply_NoteUpdate_FastForward_AppliesWithFreshExpectedUsn(t *testing.T) {
 	const serverUSN = int64(10)
 	server := &collectionv1.Note{
@@ -638,8 +600,6 @@ func TestApply_NoteUpdate_FastForward_AppliesWithFreshExpectedUsn(t *testing.T) 
 	}
 }
 
-// Case 2: conflict, client newer wins -> OutcomeMerged, client's payload
-// reaches the UpdateNote call.
 func TestApply_NoteUpdate_ConflictClientNewer_MergesWithClientPayload(t *testing.T) {
 	const baseUSN, serverUSN = int64(5), int64(10)
 	server := &collectionv1.Note{
@@ -684,8 +644,6 @@ func TestApply_NoteUpdate_ConflictClientNewer_MergesWithClientPayload(t *testing
 	}
 }
 
-// Case 3: conflict, server newer wins -> OutcomeServerWon, no UpdateNote
-// call made, returned entity is the server's untouched state.
 func TestApply_NoteUpdate_ConflictServerNewer_ServerWonNoUpdateCall(t *testing.T) {
 	const baseUSN, serverUSN = int64(5), int64(10)
 	server := &collectionv1.Note{
@@ -723,8 +681,6 @@ func TestApply_NoteUpdate_ConflictServerNewer_ServerWonNoUpdateCall(t *testing.T
 	}
 }
 
-// Case 4: delete with stale base_usn (entity updated since) ->
-// OutcomeServerWon, no DeleteNote call.
 func TestApply_NoteDelete_StaleBaseUsn_ServerWonNoDeleteCall(t *testing.T) {
 	const baseUSN, serverUSN = int64(5), int64(10) // entity moved on since base_usn
 	server := &collectionv1.Note{Id: "n1", Usn: serverUSN, Mtime: timestamppb.New(mustTime(t, "2024-01-01T00:00:00Z"))}
@@ -752,8 +708,6 @@ func TestApply_NoteDelete_StaleBaseUsn_ServerWonNoDeleteCall(t *testing.T) {
 	}
 }
 
-// Case 5: delete of an already-deleted entity (Get returns NotFound) ->
-// OutcomeApplied, reason "already deleted".
 func TestApply_NoteDelete_AlreadyDeleted_IdempotentApplied(t *testing.T) {
 	coll := &fakeCollectionClient{
 		getNote: func(_ context.Context, _ *collectionv1.GetNoteRequest) (*collectionv1.GetNoteResponse, error) {
@@ -775,13 +729,7 @@ func TestApply_NoteDelete_AlreadyDeleted_IdempotentApplied(t *testing.T) {
 	}
 }
 
-// Case 6: idempotency — a replayed op_id (fake Repository.GetAppliedOp
-// returns a prior record) -> OutcomeReplayed, zero CollectionClient calls.
-//
-// Per Global Constraint 9, sync_applied_ops never caches an entity payload,
-// so replayResult still does a best-effort live Get to populate the
-// response — that Get is the one CollectionClient call this test expects;
-// no Update/Delete call should ever happen for a replay.
+// The replay's one expected call is the live Get that fills the response.
 func TestApply_ReplayedOpID_NoCollectionWriteCalls(t *testing.T) {
 	prior := &AppliedOp{OpID: "op1", Outcome: OutcomeApplied, NewUSN: 7, AppliedAt: time.Now()}
 	repo := &fakeRepository{appliedOps: map[string]*AppliedOp{"op1": prior}}
@@ -812,9 +760,6 @@ func TestApply_ReplayedOpID_NoCollectionWriteCalls(t *testing.T) {
 	}
 }
 
-// Case 7: codes.Aborted from UpdateNote/DeleteNote (simulated race) ->
-// OutcomeFailed, AND the batch continues — a 2-mutation batch with
-// mutation 1 aborted still applies mutation 2 (Global Constraint 5).
 func TestApply_AbortedRace_FailsButBatchContinues(t *testing.T) {
 	server1 := &collectionv1.Note{Id: "n1", Usn: 5, Mtime: timestamppb.New(mustTime(t, "2024-01-01T00:00:00Z"))}
 	server2 := &collectionv1.Note{Id: "n2", Usn: 5, Mtime: timestamppb.New(mustTime(t, "2024-01-01T00:00:00Z"))}
@@ -853,8 +798,7 @@ func TestApply_AbortedRace_FailsButBatchContinues(t *testing.T) {
 		t.Fatalf("want mutation 2 to still apply despite mutation 1's failure, got %+v", results[1])
 	}
 
-	// Global Constraint 7: an Aborted outcome must never be recorded in
-	// sync_applied_ops (so a retry of op1 re-resolves against fresh state).
+	// An Aborted op must stay unrecorded so its retry re-resolves.
 	for _, r := range repoRecordedOps(svc) {
 		if r.OpID == "op1" {
 			t.Fatalf("want op1 (aborted) never recorded in sync_applied_ops, got %+v", r)
@@ -862,15 +806,10 @@ func TestApply_AbortedRace_FailsButBatchContinues(t *testing.T) {
 	}
 }
 
-// repoRecordedOps is a small test-only accessor so TestApply_AbortedRace_*
-// can inspect what got recorded without widening Service's exported surface.
 func repoRecordedOps(svc *Service) []recordedOp {
 	return svc.repo.(*fakeRepository).recordedOps
 }
 
-// Case 8: partial-batch failure — mutation 1 hard-fails (NotFound on an
-// update, not a delete) -> both results returned, no early return/abort of
-// the loop.
 func TestApply_PartialBatchFailure_BothResultsReturnedNoEarlyAbort(t *testing.T) {
 	server2 := &collectionv1.Note{Id: "n2", Usn: 5, Mtime: timestamppb.New(mustTime(t, "2024-01-01T00:00:00Z"))}
 
@@ -905,10 +844,6 @@ func TestApply_PartialBatchFailure_BothResultsReturnedNoEarlyAbort(t *testing.T)
 		t.Fatalf("want mutation 2 to still apply, got %+v", results[1])
 	}
 }
-
-// Case 9: one happy-path resolver test each for note_type update, deck
-// update, deck_config update, and filtered_deck delete — pinning each
-// resolver's wiring to the right Collection RPC.
 
 func TestApply_NoteTypeUpdate_HappyPath_WiredToUpdateNoteType(t *testing.T) {
 	const serverUSN = int64(3)
@@ -1182,10 +1117,6 @@ func TestApply_FilteredDeckDelete_HappyPath_WiredToDeleteFilteredDeck(t *testing
 		t.Fatalf("want OutcomeApplied, got %+v", results)
 	}
 }
-
-// Subscribe/Notify are Redis-backed (see internal/syncer's package doc on why
-// an in-process map doesn't work across replicas) and so need a real Redis;
-// they're exercised in integration_test.go instead of here.
 
 func TestApply_FailureReasonHidesDownstreamDetail(t *testing.T) {
 	coll := &fakeCollectionClient{

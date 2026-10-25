@@ -1,15 +1,5 @@
-// Package syncer implements the USN delta-pull (read) and apply (push) paths:
-// it reads the usn/mtime columns Collection (and Scheduler, for cards'
-// scheduling columns) already stamp on every mutation, and assembles them
-// into a per-user change feed so a user's open tabs/devices converge; it also
-// accepts client-submitted mutations via /sync/apply, resolves conflicts
-// (fast-forward / last-write-wins / scheduler-always-wins), and forwards them
-// to Collection's existing mutation RPCs. Sync owns one table of its own —
-// sync_applied_ops, used for op_id idempotency on the push path (see
-// migrations/sync/) — and otherwise connects to the same Postgres/Citus
-// cluster as Collection and Scheduler (see internal/scheduler/repo.go for the
-// established precedent of one service reading another's colocated tables
-// directly).
+// Package syncer serves the USN delta pull straight from Collection's and Scheduler's colocated
+// tables, and the push path that resolves conflicts and forwards mutations to Collection.
 package syncer
 
 import (
@@ -29,9 +19,7 @@ const (
 	EntityTag          = "tag"
 )
 
-// ─── Read-only domain projections ───────────────────────────────────────────
-// These mirror internal/collection's domain entities field-for-field; Sync
-// never writes them, so only the fields a client needs to converge are kept.
+// ─── Read-only projections of Collection's entities ─────────────────────────
 
 // Field mirrors collection.Field — a single field descriptor within a NoteType.
 type Field struct {
@@ -132,9 +120,8 @@ type Tombstone struct {
 	DeletedAt time.Time
 }
 
-// Cursor is the keyset position of the last row returned for one entity type.
-// An empty ID means "after every row with this USN" (the first-page position).
-// Rows written by one transaction share a USN, so the USN alone can't resume mid-group.
+// Cursor is a (usn, id) keyset position: one transaction's rows share a usn, so usn alone can't
+// resume mid-group. An empty ID means after every row with this usn.
 type Cursor struct {
 	USN  int64  `json:"u"`
 	Type string `json:"t,omitempty"` // tombstones only: their key is (type, id)
@@ -154,18 +141,12 @@ type ChangeSet struct {
 	FilteredDecks []FilteredDeck
 	Tags          []Tag
 	Deleted       []Tombstone
-	// NextCursors is non-nil when at least one entity type had more rows than
-	// the page limit; callers encode it into the response's next_page_token.
-	NextCursors Cursors
+	NextCursors   Cursors // nil on the last page
 }
 
-// Repository defines the storage operations Sync needs: read-only delta-pull
-// projections, plus push-path idempotency bookkeeping for /sync/apply. Every
-// method is tenant-scoped by userID, matching the convention in
-// internal/collection and internal/scheduler.
+// Repository is Sync's tenant-scoped storage: delta-pull reads plus op_id idempotency bookkeeping.
 type Repository interface {
-	// LatestUSN returns the user's current monotonic usn counter (0 if the
-	// user has never written anything yet).
+	// LatestUSN is 0 for a user who has never written.
 	LatestUSN(ctx context.Context, userID string) (int64, error)
 
 	ListNoteTypesSince(ctx context.Context, userID string, after Cursor, upTo int64, limit int) ([]NoteType, error)
@@ -177,29 +158,16 @@ type Repository interface {
 	ListTagsSince(ctx context.Context, userID string, after Cursor, upTo int64, limit int) ([]Tag, error)
 	ListTombstonesSince(ctx context.Context, userID string, after Cursor, upTo int64, limit int) ([]Tombstone, error)
 
-	// GetAppliedOp returns the previously recorded outcome for (userID, opID),
-	// or (nil, nil) if this op_id has never been applied — the push-path
-	// idempotency check. A non-nil result means the mutation was already
-	// processed and must not be re-applied to Collection.
+	// GetAppliedOp returns (nil, nil) for an op_id never applied.
 	GetAppliedOp(ctx context.Context, userID, opID string) (*AppliedOp, error)
-	// RecordAppliedOp persists the outcome of applying op_id so a future
-	// replay short-circuits via GetAppliedOp. Per Global Constraint 7, a
-	// codes.Aborted outcome from Collection must never reach this method.
+	// RecordAppliedOp must never see an Aborted outcome, or a retry would replay a race instead of resolving it.
 	RecordAppliedOp(ctx context.Context, userID, opID string, outcome ApplyOutcome, newUSN int64) error
 }
 
-// ─── Apply (push) path domain types ─────────────────────────────────────────
-// These are plain Go mirrors of api/sync/v1/sync.proto's Apply RPC messages
-// (Mutation/ApplyRequest/ApplyResult/ApplyResponse) — not generated, but kept
-// field-for-field in sync with the proto so handler.go's translation layer
-// (a later task) is a straight copy.
+// ─── Apply (push) path: hand-kept mirrors of sync.proto's Apply messages ────
 
-// MutationType identifies which Collection entity/operation a Mutation
-// targets. Mirrors sync.v1.MutationType 1:1, offset by one so the zero value
-// (no MUTATION_TYPE_UNSPECIFIED equivalent here) is invalid rather than
-// silently meaning "note type update". No card variant exists — Collection
-// exposes no UpdateCard RPC, so "scheduler always wins" is enforced by this
-// omission (see plan Global Constraint 4).
+// MutationType mirrors sync.v1.MutationType; zero is invalid. There is no card variant, which is
+// how "scheduler always wins" is enforced.
 type MutationType int
 
 const (
@@ -218,31 +186,19 @@ const (
 type ApplyOutcome int16
 
 const (
-	// OutcomeApplied means the mutation was written to Collection as-is
-	// (fast-forward: base_usn matched the entity's current usn), or a delete
-	// against an already-deleted entity (idempotent no-op success).
+	// OutcomeApplied: fast-forwarded, or a delete of an already-deleted entity.
 	OutcomeApplied ApplyOutcome = iota + 1
-	// OutcomeMerged means a conflicting update was resolved client-wins via
-	// last-write-wins and applied.
+	// OutcomeMerged: conflicting update won by the client via LWW.
 	OutcomeMerged
-	// OutcomeServerWon means a conflicting mutation was resolved server-wins
-	// (LWW lost, or a delete raced against a concurrent update) and the
-	// client's mutation was discarded.
+	// OutcomeServerWon: LWW lost, or a delete raced an update; the mutation was discarded.
 	OutcomeServerWon
-	// OutcomeReplayed means this op_id was already applied previously; the
-	// response reflects the recorded outcome, and no write was issued.
+	// OutcomeReplayed: op_id already applied; no write was issued.
 	OutcomeReplayed
-	// OutcomeFailed means the mutation could not be applied (e.g. Collection
-	// returned codes.Aborted because a third write raced in between Sync's
-	// read and write). Per Global Constraint 7, a Failed outcome is never
-	// recorded in sync_applied_ops, so a retry of the same op_id re-resolves
-	// against fresh state.
+	// OutcomeFailed: not applied, e.g. a write raced between Sync's read and write.
 	OutcomeFailed
 )
 
-// NoteTypePayload carries the fields of a NOTE_TYPE_UPDATE mutation. Mirrors
-// collection.v1.UpdateNoteTypeRequest's body (minus id/expected_usn, which
-// live on Mutation itself).
+// NoteTypePayload carries the fields of a NOTE_TYPE_UPDATE mutation.
 type NoteTypePayload struct {
 	Name          string
 	Fields        []Field
@@ -276,9 +232,7 @@ type DeckConfigPayload struct {
 	MaxIntervalDays  int32
 }
 
-// Mutation is a single client-submitted change in an ApplyRequest. Exactly
-// one payload field is set, matching Type; *_DELETE and
-// FILTERED_DECK_DELETE mutations carry no payload.
+// Mutation is one client change; exactly one payload matches Type, and deletes carry none.
 type Mutation struct {
 	OpID        string // client-generated; replays are no-ops
 	Type        MutationType
@@ -292,10 +246,7 @@ type Mutation struct {
 	DeckConfig *DeckConfigPayload // DECK_CONFIG_UPDATE only
 }
 
-// ApplyResult is the per-mutation outcome returned in an ApplyResponse. At
-// most one entity field is set, reflecting the post-apply (or post-replay)
-// state of the entity the mutation targeted; it is nil for deletes and for
-// OutcomeFailed.
+// ApplyResult carries at most one entity, its post-apply state; none for deletes and failures.
 type ApplyResult struct {
 	OpID    string
 	Outcome ApplyOutcome
@@ -309,9 +260,7 @@ type ApplyResult struct {
 	FilteredDeck *FilteredDeck
 }
 
-// AppliedOp is the row shape sync_applied_ops stores for op_id idempotency.
-// Per plan Global Constraint 9, only the outcome/usn are cached — never the
-// entity payload; a replay re-fetches the entity live from Collection.
+// AppliedOp is a sync_applied_ops row: outcome and usn only, so a replay re-fetches the entity live.
 type AppliedOp struct {
 	OpID      string
 	Outcome   ApplyOutcome

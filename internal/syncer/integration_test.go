@@ -44,14 +44,7 @@ type integrationComponents struct {
 	svc  *Service
 }
 
-// withTestIdentity is a server-side unary interceptor standing in for
-// Collection's production auth interceptor: in production, a JWT is
-// validated and auth.WithIdentity is populated by the gateway/middleware
-// before the handler runs (see internal/platform/auth/middleware.go). For
-// this in-process bufconn harness there is no real JWT — the simplest
-// correct equivalent is to inject a fixed IdentityContext directly into the
-// context, exactly as the interceptor would have, so Collection's handlers
-// see the same id.UserID/id.ProfileID a real authenticated call would carry.
+// withTestIdentity stands in for Collection's JWT interceptor with a fixed identity.
 func withTestIdentity(userID, profileID string) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		ctx = auth.WithIdentity(ctx, auth.IdentityContext{UserID: userID, ProfileID: profileID})
@@ -59,12 +52,8 @@ func withTestIdentity(userID, profileID string) grpc.UnaryServerInterceptor {
 	}
 }
 
-// setupCollectionBufconn stands up a real internal/collection.Handler (the
-// same gRPC server Collection runs in production) over an in-process
-// bufconn listener, wired to the same Postgres pool the test already uses
-// for Collection's tables, and returns a CollectionClient dialed against it
-// via the real sync.NewGRPCCollectionClient — so Apply exercises Collection's
-// actual optimistic-concurrency/outbox/USN code, not a fake.
+// setupCollectionBufconn serves a real collection.Handler over bufconn, so Apply runs Collection's
+// actual concurrency, outbox and USN code.
 func setupCollectionBufconn(t *testing.T, pool *pgxpool.Pool) CollectionClient {
 	t.Helper()
 
@@ -100,10 +89,7 @@ func setupIntegration(t *testing.T) integrationComponents {
 	t.Helper()
 	ctx := context.Background()
 
-	// The postgres image restarts its server process after initdb; without an
-	// explicit occurrence count the default wait strategy can report ready
-	// after the first (pre-restart) boot, so the first connection attempt
-	// hits a server that's about to restart ("connection reset by peer").
+	// Postgres restarts after initdb; wait for the second "ready" or the first connect gets reset.
 	pgCtr, err := postgres.Run(ctx, "postgres:18-alpine",
 		postgres.WithDatabase("sync_test"),
 		postgres.WithUsername("test"),
@@ -129,9 +115,6 @@ func setupIntegration(t *testing.T) integrationComponents {
 	if err != nil {
 		t.Fatalf("pg connection string: %v", err)
 	}
-	// Sync reads Collection's schema directly for the pull path, and owns one
-	// table of its own (sync_applied_ops, migrations/sync) for push-path
-	// op_id idempotency — both sets of migrations must be applied here.
 	if err := platformdb.Migrate(ctx, dsn, "../../migrations", "platform", "collection", "sync"); err != nil {
 		t.Fatalf("run migrations: %v", err)
 	}
@@ -175,10 +158,7 @@ func startNotifyHub(t *testing.T, svc *Service) {
 	}
 }
 
-// ─── Fixtures ────────────────────────────────────────────────────────────────
-// Sync shares Collection's tables and writes none of them in production, so
-// fixtures are inserted with raw SQL mirroring the migrations/collection
-// schema, exactly as internal/scheduler's integration tests do.
+// ─── Fixtures (raw SQL: Sync never writes Collection's tables) ──────────────
 
 func bumpUSN(t *testing.T, c integrationComponents) int64 {
 	t.Helper()
@@ -219,11 +199,7 @@ func insertNote(t *testing.T, c integrationComponents, noteTypeID string, usn in
 	return id
 }
 
-// insertDeck inserts a minimal root deck fixture. Apply-path tests need a
-// real deck because Collection's UpdateNote regenerates the note's cards on
-// every update (see internal/collection/service.go's GenerateCardDiff call),
-// and cards.deck_id is NOT NULL — so any note fixture exercised through
-// Apply must already have at least one card pointing at a real deck.
+// insertDeck exists because UpdateNote regenerates cards, which need a real deck_id.
 func insertDeck(t *testing.T, c integrationComponents, usn int64) string {
 	t.Helper()
 	id := ids.NewUUID()
@@ -237,9 +213,7 @@ func insertDeck(t *testing.T, c integrationComponents, usn int64) string {
 	return id
 }
 
-// insertCard inserts a single card for noteID/deckID at template ordinal 0,
-// matching the one card Collection's own cardgen produces for the "Basic"
-// note type fixture insertNoteType creates (one card template).
+// insertCard inserts the one ordinal-0 card cardgen produces for the "Basic" fixture.
 func insertCard(t *testing.T, c integrationComponents, noteID, deckID string, usn int64) string {
 	t.Helper()
 	id := ids.NewUUID()
@@ -383,12 +357,7 @@ func TestSubscribeNotify_DeliversToMatchingUserOnly(t *testing.T) {
 	}
 }
 
-// TestSubscribeNotify_WorksAcrossReplicas is the regression test for the bug
-// where Subscribe/Notify was an in-process map: it didn't work once Sync ran
-// as more than one replica, because a Notify on replica B's Service never
-// reached an SSE client subscribed on replica A's Service. Two independent
-// Service instances sharing one Redis (as every replica does in production)
-// stand in for "replica A" and "replica B" here.
+// Two Services on one Redis stand in for two replicas.
 func TestSubscribeNotify_WorksAcrossReplicas(t *testing.T) {
 	c := setupIntegration(t)
 	ctx := context.Background()
@@ -547,10 +516,6 @@ func TestNotifyHub_NudgesSubscribersAfterReconnect(t *testing.T) {
 }
 
 // ─── Apply (push path) through a real Collection ────────────────────────────
-// These tests dial a real internal/collection.Handler over bufconn (see
-// setupCollectionBufconn) instead of faking CollectionClient, so they
-// exercise Collection's actual optimistic-concurrency/outbox/USN code the
-// way service_test.go's fakes structurally cannot.
 
 func TestApply_Integration_FastForward(t *testing.T) {
 	c := setupIntegration(t)
@@ -609,11 +574,7 @@ func TestApply_Integration_FastForward(t *testing.T) {
 	}
 }
 
-// TestApply_Integration_TwoClientsConvergeViaLWW: client A and B both read the
-// note at usn2/base_usn=usn2. A applies first (fast-forward, bumping the
-// note's usn past base_usn). B's apply now races against a higher server usn,
-// so it resolves via last-write-wins on mtime — and afterward a GetChanges
-// pull converges both clients to whichever side's mtime won.
+// A fast-forwards, so B's same base_usn conflicts and resolves by mtime; a pull then converges both.
 func TestApply_Integration_TwoClientsConvergeViaLWW(t *testing.T) {
 	c := setupIntegration(t)
 	ctx := context.Background()
@@ -647,9 +608,7 @@ func TestApply_Integration_TwoClientsConvergeViaLWW(t *testing.T) {
 		t.Fatalf("want client A OutcomeApplied, got %v (reason=%q)", resA[0].Outcome, resA[0].Reason)
 	}
 
-	// Client B started from the same base_usn but its client_mtime is later
-	// than the server's current mtime (set by A's write, which just happened),
-	// so LWW resolves client-wins: B's mutation is merged in.
+	// B's client_mtime is later than A's write, so LWW merges B.
 	resB, _, err := c.svc.Apply(ctx, testUserID, []Mutation{{
 		OpID:        "op-clientB",
 		Type:        MutationNoteUpdate,
@@ -697,9 +656,6 @@ func TestApply_Integration_TwoClientsConvergeViaLWW(t *testing.T) {
 	}
 }
 
-// TestApply_Integration_OpIDReplayIsIdempotent: calling Apply twice with the
-// identical Mutation (same op_id) must not double-bump usn on the second
-// call, and must report OutcomeReplayed.
 func TestApply_Integration_OpIDReplayIsIdempotent(t *testing.T) {
 	c := setupIntegration(t)
 	ctx := context.Background()
@@ -756,10 +712,6 @@ func TestApply_Integration_OpIDReplayIsIdempotent(t *testing.T) {
 	}
 }
 
-// TestApply_Integration_DeleteProducesTombstone: deleting a note through
-// Apply must write a tombstone Collection's own delete path produces, and a
-// GetChanges pull from before that usn must surface it — tying the push and
-// pull paths together end to end.
 func TestApply_Integration_DeleteProducesTombstone(t *testing.T) {
 	c := setupIntegration(t)
 	ctx := context.Background()

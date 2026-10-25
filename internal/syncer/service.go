@@ -15,21 +15,14 @@ import (
 	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 )
 
-// defaultPageSize bounds how many rows of *each* entity type are returned per
-// GetChanges call. Kept small relative to a typical collection so a single
-// page comfortably fits in one gRPC/HTTP response.
+// defaultPageSize is per entity type, so a page still fits one response.
 const defaultPageSize = 500
 
 // maxConcurrentReads caps pool connections one GetChanges call holds at once.
 const maxConcurrentReads = 4
 
-// Service is the Sync domain service: read-only USN delta assembly plus a
-// Redis-backed pub/sub used by the SSE notifier to nudge open tabs. Redis
-// (not an in-process map) is required because Sync runs as a multi-replica
-// Deployment (see docs/detailed/14-kubernetes-deployment.md): a Kafka event
-// consumed by one replica must still reach SSE clients connected to any
-// other replica, which only a shared broker — not process-local memory — can
-// guarantee.
+// Service assembles the delta feed and fans nudges out over Redis, so an event consumed by one
+// replica reaches SSE clients on every replica.
 type Service struct {
 	repo     Repository
 	coll     CollectionClient
@@ -44,9 +37,7 @@ func NewService(repo Repository, coll CollectionClient, rdb *redis.Client, log *
 	return &Service{repo: repo, coll: coll, rdb: rdb, hub: newNotifyHub(), log: log, pageSize: defaultPageSize}
 }
 
-// GetChanges returns one page of the delta feed for userID: every entity with
-// usn > sinceUSN (on the first page) or beyond the per-type cursor encoded in
-// pageToken (on subsequent pages), plus the user's latest known usn.
+// GetChanges returns one page of entities past sinceUSN (or pageToken's cursors) and the latest usn.
 func (s *Service) GetChanges(ctx context.Context, userID string, sinceUSN int64, pageToken string) (ChangeSet, int64, string, error) {
 	cursors, pinned, err := decodePageToken(pageToken)
 	if err != nil {
@@ -75,10 +66,7 @@ func (s *Service) GetChanges(ctx context.Context, userID string, sinceUSN int64,
 
 	fetchLimit := s.pageSize + 1 // fetch one extra to detect "more rows exist"
 
-	// The 8 reads below are independent — different tables, same userID — so
-	// run them concurrently rather than paying their latency 8 times over on
-	// a path the client calls on every page load, focus regain, post-write,
-	// and heartbeat.
+	// Independent reads, run concurrently: clients pull on every load, focus, write and heartbeat.
 	var (
 		noteTypes     []NoteType
 		notes         []Note
@@ -191,8 +179,7 @@ func (s *Service) GetChanges(ctx context.Context, userID string, sinceUSN int64,
 
 	nextToken := ""
 	if hasMore {
-		// Carry forward any cursor not touched this page (entity type already
-		// exhausted in an earlier page) so it isn't re-scanned.
+		// Carry forward types exhausted on an earlier page so they aren't re-scanned.
 		for k, v := range cursors {
 			if _, ok := next[k]; !ok {
 				next[k] = v
@@ -217,8 +204,7 @@ func (fd FilteredDeck) cursor() Cursor { return Cursor{USN: fd.USN, ID: fd.ID} }
 func (t Tag) cursor() Cursor           { return Cursor{USN: t.USN, ID: t.ID} }
 func (t Tombstone) cursor() Cursor     { return Cursor{USN: t.USN, Type: t.Type, ID: t.ID} }
 
-// truncate trims items to at most pageSize entries and reports whether more
-// rows existed beyond that (i.e. items originally numbered pageSize+1).
+// truncate trims items to pageSize and reports whether there were more.
 func truncate[T any](items []T, pageSize int) ([]T, bool) {
 	if len(items) > pageSize {
 		return items[:pageSize], true
@@ -301,25 +287,15 @@ func decodePageToken(token string) (Cursors, int64, error) {
 }
 
 // ─── Realtime notifier pub/sub ──────────────────────────────────────────────
-// Fan-out from "this user's data changed somewhere" (signalled by Notify,
-// driven by a Kafka consumer over Collection/Scheduler's outbox-relayed
-// topics) to open SSE connections for that user, via Redis Pub/Sub rather
-// than an in-process map: Sync runs as a multi-replica Deployment, and a
-// Kafka event consumed by one replica must still reach an SSE client that
-// happens to be connected to a different replica. The payload carries no
-// usn: the client re-pulls GetChanges to learn what's new, so a coalesced or
-// slightly stale nudge is harmless.
+// Nudges carry no usn: the client re-pulls, so a coalesced or stale nudge is harmless.
 
-// Subscribe registers an SSE connection for userID. The channel receives a
-// (coalesced) value per Notify(userID) on any replica and is closed on
-// unsubscribe or hub shutdown; unsubscribe is safe to call more than once.
+// Subscribe's channel gets coalesced nudges from any replica and closes on unsubscribe (idempotent)
+// or hub shutdown.
 func (s *Service) Subscribe(userID string) (<-chan struct{}, func(), error) {
 	return s.hub.subscribe(userID)
 }
 
-// Notify publishes a nudge for userID to every replica's subscribers via
-// Redis. A publish with no subscribers (e.g. the user has no open tabs right
-// now) is a normal no-op, not an error.
+// Notify publishes a nudge for userID to every replica; no subscribers is not an error.
 func (s *Service) Notify(ctx context.Context, userID string) error {
 	if err := s.rdb.Publish(ctx, notifyChannel(userID), "1").Err(); err != nil {
 		return fmt.Errorf("sync: notify %s: %w", userID, err)

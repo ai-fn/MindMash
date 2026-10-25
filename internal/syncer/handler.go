@@ -367,10 +367,7 @@ func (h *Handler) Apply(ctx context.Context, req *syncv1.ApplyRequest) (*syncv1.
 
 // ─── SSE notifier route ───────────────────────────────────────────────────────
 
-// StreamHandler returns a plain http.HandlerFunc for GET /v1/sync/stream. It
-// is registered directly on the httpx mux (not through grpc-gateway — see
-// sync.proto's SyncService doc comment for why) and relies on
-// auth.HTTPAuthMiddleware having already injected the caller's identity.
+// StreamHandler serves GET /v1/sync/stream outside grpc-gateway, behind auth.HTTPAuthMiddleware.
 func (h *Handler) StreamHandler(log *zap.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, ok := auth.IdentityFromContext(r.Context())
@@ -379,9 +376,7 @@ func (h *Handler) StreamHandler(log *zap.Logger) http.HandlerFunc {
 			return
 		}
 
-		// Subscribe before committing the response status: if the replica's notify
-		// subscription is down, the client should see a clean error rather than a
-		// 200 stream that silently never nudges.
+		// Subscribe before writing the status, so a dead notify subscription is an error, not a silent 200.
 		nudges, unsubscribe, err := h.svc.Subscribe(id.UserID)
 		if err != nil {
 			log.Warn("sync: sse subscribe failed", zap.Error(err))

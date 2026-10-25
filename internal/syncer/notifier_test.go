@@ -6,14 +6,8 @@ import (
 	"testing"
 )
 
-// TestNotifyTopics_MatchesKnownAggregateTypes pins notifyTopics to the exact
-// AggregateType strings currently emitted by Collection's and Scheduler's
-// outbox events (internal/collection/events.go, internal/scheduler/events.go).
-// internal/<service> packages can't be imported cross-service, so this list
-// can't be checked at compile time — this test is the deliberate, visible
-// substitute: if either service adds, removes, or renames an aggregate type,
-// update this test's expected list AND notifyTopics together, or the SSE
-// notifier will silently stop nudging clients for that entity type.
+// Collection's and Scheduler's aggregate types can't be imported here; if either changes, update
+// this list and notifyTopics together, or SSE silently stops nudging for that type.
 func TestNotifyTopics_MatchesKnownAggregateTypes(t *testing.T) {
 	want := []string{
 		// internal/collection/events.go

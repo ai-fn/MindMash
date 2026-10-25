@@ -21,12 +21,8 @@ const (
 	maxOpIDLen           = 128
 )
 
-// Apply resolves and forwards a batch of client-submitted mutations to
-// Collection, per /sync/apply's conflict-resolution contract (fast-forward /
-// last-write-wins / scheduler-always-wins). Each mutation is applied
-// independently — see plan Global Constraint 5 — so one mutation's failure
-// never aborts or rolls back its siblings in the same batch; this is a plain
-// loop, not a single transaction.
+// Apply resolves each mutation (fast-forward / LWW / server-wins) and forwards it to Collection.
+// Mutations are independent: one failing never aborts or rolls back its siblings.
 func (s *Service) Apply(ctx context.Context, userID string, mutations []Mutation) ([]ApplyResult, int64, error) {
 	if err := validateMutations(mutations); err != nil {
 		return nil, 0, err
@@ -91,12 +87,8 @@ func hasPayload(m Mutation) bool {
 	}
 }
 
-// dispatchMutation routes m to the resolver matching its type, returning the
-// ApplyResult plus whether to record it even when OutcomeFailed. Per Global
-// Constraint 7, a transient codes.Aborted race is never recorded (so a retry
-// re-resolves against fresh state); a hard failure (entity not found on an
-// update, or any non-NotFound/Aborted transport error) is recorded so a
-// replay doesn't keep re-attempting a doomed write.
+// dispatchMutation also reports whether to record a failed result: an Aborted race isn't, so a retry
+// re-resolves; a hard failure is, so a replay doesn't retry a doomed write.
 func (s *Service) dispatchMutation(ctx context.Context, userID string, m Mutation) (ApplyResult, bool) {
 	// Updates replace the entity wholesale, so a missing payload would blank it; unknown types stay unrecorded.
 	known := m.Type >= MutationNoteTypeUpdate && m.Type <= MutationFilteredDeckDelete
@@ -483,33 +475,8 @@ func (s *Service) applyDeckConfigDelete(ctx context.Context, m Mutation) (ApplyR
 	return ApplyResult{OpID: m.OpID, Outcome: OutcomeApplied}, true
 }
 
-// ─── FilteredDeck ────────────────────────────────────────────────────────────
-//
-// This resolver provides NO conflict/staleness detection, by construction —
-// not by a fixable bug, and not at parity with the other 8 resolvers in this
-// file. Two structural facts force that:
-//
-//  1. Collection's Handler.DeleteFilteredDeck (internal/collection/handler.go)
-//     calls Service.DeleteFilteredDeck(ctx, userID, id) — it never reads
-//     req.GetExpectedUsn() at all. Service.DeleteFilteredDeck itself
-//     (internal/collection/service.go) takes no expected-usn parameter and
-//     does no USN comparison anywhere in its body; it unconditionally mints a
-//     new USN, deletes the row, and writes the tombstone. So the ExpectedUsn
-//     we pass below (m.BaseUSN, the client's stale value) is accepted by the
-//     wire format but is inert — Collection silently ignores it server-side.
-//  2. There is no GetFilteredDeck RPC, so even if Collection did honor
-//     expected_usn, this resolver has no way to read a fresh server-side USN
-//     before deciding fast-forward vs LWW vs server-won, the way the other
-//     resolvers do. FilteredDecks are also immutable (no Update RPC — edit is
-//     delete + recreate, per spec 02's FilteredDeckService), so there is
-//     nothing for a delete to race against in practice. Adding a Get RPC to
-//     Collection to fix this would violate Global Constraint 1 and is out of
-//     scope.
-//
-// Net effect: this call always succeeds idempotently (NotFound is treated as
-// already-deleted success per Global Constraint 8) regardless of whether the
-// client's view of the FilteredDeck was stale. codes.Aborted is still handled
-// below for forward-compatibility, but Collection never returns it today.
+// applyFilteredDeckDelete has no staleness check: Collection ignores expected_usn here and has no
+// Get RPC, but filtered decks are immutable, so a delete has nothing to race. NotFound is success.
 func (s *Service) applyFilteredDeckDelete(ctx context.Context, _ string, m Mutation) (ApplyResult, bool) {
 	_, err := s.coll.DeleteFilteredDeck(ctx, &collectionv1.DeleteFilteredDeckRequest{Id: m.EntityID, ExpectedUsn: m.BaseUSN})
 	if err != nil {
@@ -528,13 +495,8 @@ func (s *Service) applyFilteredDeckDelete(ctx context.Context, _ string, m Mutat
 
 // ─── Replay ──────────────────────────────────────────────────────────────────
 
-// replayResult handles a Mutation whose op_id was already applied in a prior
-// call: per Global Constraint 9, sync_applied_ops stores only outcome/new_usn
-// (never a cached entity payload), so this does a best-effort live re-fetch
-// of the entity to populate the response. A refresh failure (or an entity
-// type with no live state to show, e.g. FilteredDeck deletes) degrades to
-// bare metadata — still OutcomeReplayed — rather than failing the whole
-// batch, since the client already knows this op_id succeeded previously.
+// replayResult re-fetches the entity live, since sync_applied_ops caches no payload; a failed
+// refresh degrades to bare metadata rather than failing an op that already succeeded.
 func (s *Service) replayResult(ctx context.Context, m Mutation, prior AppliedOp) ApplyResult {
 	res := ApplyResult{OpID: m.OpID, Outcome: OutcomeReplayed, NewUSN: prior.NewUSN}
 
@@ -555,10 +517,7 @@ func (s *Service) replayResult(ctx context.Context, m Mutation, prior AppliedOp)
 		if resp, err := s.coll.GetDeckConfig(ctx, &collectionv1.GetDeckConfigRequest{Id: m.EntityID}); err == nil {
 			res.DeckConfig = protoToDeckConfig(resp.GetDeckConfig())
 		}
-	// Deletes (NoteType/Note/Deck/DeckConfig/FilteredDeck) and
-	// FilteredDeck's update-less lifecycle have no live entity to refresh —
-	// the prior outcome's bare metadata is the whole response.
-	default:
+	default: // deletes: nothing live to refresh
 	}
 
 	return res

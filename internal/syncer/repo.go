@@ -13,8 +13,7 @@ import (
 	"github.com/mindmesh/mindmesh/internal/platform/usn"
 )
 
-// Column lists kept next to the scans that consume them so the order stays in
-// sync with internal/collection/repo.go, which owns these tables' schema.
+// Column lists sit next to the scans that consume them; Collection owns the schema.
 const (
 	noteTypeColumns     = "id, name, fields, card_templates, css, usn, mtime"
 	noteColumns         = "id, note_type_id, fields, tags, flags, usn, mtime"
@@ -25,18 +24,14 @@ const (
 	tagColumns          = "id, name, usn, mtime"
 )
 
-// dbtx is the subset of *pgxpool.Pool that Sync needs. Most methods here are
-// reads against Collection/Scheduler's colocated tables; Exec backs the
-// sync_applied_ops writes Sync issues for its own push-path idempotency
-// bookkeeping (see GetAppliedOp/RecordAppliedOp below).
+// dbtx is the subset of *pgxpool.Pool that Sync needs.
 type dbtx interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
 }
 
-// PostgresRepository implements Repository over the shared Collection
-// Postgres pool (same DB, same tables; owns none of them — read-only).
+// PostgresRepository reads Collection's and Scheduler's tables; it writes only sync_applied_ops.
 type PostgresRepository struct {
 	db dbtx
 }

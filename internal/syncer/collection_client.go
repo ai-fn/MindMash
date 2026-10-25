@@ -7,9 +7,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-// CollectionClient is the subset of Collection's public mutation RPCs Apply
-// needs. A thin interface (not the raw generated clients) so tests can fake
-// it without a real gRPC server.
+// CollectionClient is the slice of Collection's RPCs Apply needs, small enough to fake in tests.
 type CollectionClient interface {
 	GetNoteType(ctx context.Context, req *collectionv1.GetNoteTypeRequest) (*collectionv1.GetNoteTypeResponse, error)
 	UpdateNoteType(ctx context.Context, req *collectionv1.UpdateNoteTypeRequest) (*collectionv1.UpdateNoteTypeResponse, error)
@@ -30,10 +28,7 @@ type CollectionClient interface {
 	DeleteFilteredDeck(ctx context.Context, req *collectionv1.DeleteFilteredDeckRequest) (*collectionv1.DeleteFilteredDeckResponse, error)
 }
 
-// grpcCollectionClient adapts the generated per-service Collection gRPC
-// clients to CollectionClient. DeckConfig RPCs route through `decks` because
-// DeckConfig is a sub-resource of DeckService, not its own gRPC service (see
-// api/collection/v1/collection.proto's DeckService definition).
+// grpcCollectionClient routes DeckConfig RPCs through decks: they live on DeckService.
 type grpcCollectionClient struct {
 	noteTypes collectionv1.NoteTypeServiceClient
 	notes     collectionv1.NoteServiceClient
