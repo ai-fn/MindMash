@@ -39,11 +39,12 @@ Install buf + plugins if missing:
 ## Run a service
 
 ```bash
-go run ./cmd/<service>     # e.g. go run ./cmd/identity
+ENV=dev go run ./cmd/<service>     # e.g. ENV=dev go run ./cmd/identity
 ```
 
 Config comes from env (12-factor) via `internal/platform/config`; sensible localhost defaults
-point at the compose services. Every service exposes `/healthz`, `/readyz`, `/metrics`, and the
+point at the compose services. `ENV` (dev | staging | prod) is required: the service refuses to
+start without it, since dev turns on reflection, boot migrations and the local-key JWT fallback. Every service exposes `/healthz`, `/readyz`, `/metrics`, and the
 REST gateway on its configured HTTP port.
 
 ## Smoke test (Identity example)

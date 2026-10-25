@@ -14,6 +14,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/mindmesh/mindmesh/internal/platform/apperr"
+	"github.com/mindmesh/mindmesh/internal/platform/config"
 	"github.com/mindmesh/mindmesh/internal/platform/ids"
 )
 
@@ -40,28 +41,15 @@ func LoadConfig() (Config, error) {
 		Issuer:          "mindmesh",
 	}
 
-	if v, ok := os.LookupEnv("JWT_PRIVATE_KEY_PATH"); ok {
-		cfg.PrivateKeyPath = v
+	cfg.PrivateKeyPath = config.Str("JWT_PRIVATE_KEY_PATH", cfg.PrivateKeyPath)
+	cfg.PublicKeyPath = config.Str("JWT_PUBLIC_KEY_PATH", cfg.PublicKeyPath)
+	cfg.Issuer = config.Str("JWT_ISSUER", cfg.Issuer)
+	var err error
+	if cfg.AccessTokenTTL, err = config.Duration("JWT_ACCESS_TTL", cfg.AccessTokenTTL); err != nil {
+		return Config{}, fmt.Errorf("auth: %w", err)
 	}
-	if v, ok := os.LookupEnv("JWT_PUBLIC_KEY_PATH"); ok {
-		cfg.PublicKeyPath = v
-	}
-	if v, ok := os.LookupEnv("JWT_ACCESS_TTL"); ok {
-		d, err := time.ParseDuration(v)
-		if err != nil {
-			return Config{}, fmt.Errorf("auth: parse JWT_ACCESS_TTL: %w", err)
-		}
-		cfg.AccessTokenTTL = d
-	}
-	if v, ok := os.LookupEnv("JWT_REFRESH_TTL"); ok {
-		d, err := time.ParseDuration(v)
-		if err != nil {
-			return Config{}, fmt.Errorf("auth: parse JWT_REFRESH_TTL: %w", err)
-		}
-		cfg.RefreshTokenTTL = d
-	}
-	if v, ok := os.LookupEnv("JWT_ISSUER"); ok {
-		cfg.Issuer = v
+	if cfg.RefreshTokenTTL, err = config.Duration("JWT_REFRESH_TTL", cfg.RefreshTokenTTL); err != nil {
+		return Config{}, fmt.Errorf("auth: %w", err)
 	}
 
 	return cfg, nil

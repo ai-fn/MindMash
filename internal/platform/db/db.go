@@ -5,11 +5,12 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/mindmesh/mindmesh/internal/platform/config"
 )
 
 // Config holds PostgreSQL connection pool configuration.
@@ -29,24 +30,24 @@ func LoadConfig() (Config, error) {
 		return Config{}, fmt.Errorf("db: DB_DSN is required but not set")
 	}
 
-	maxConns, err := envInt32("DB_MAX_CONNS", 10)
+	maxConns, err := config.Int32("DB_MAX_CONNS", 10)
 	if err != nil {
-		return Config{}, fmt.Errorf("db: invalid DB_MAX_CONNS: %w", err)
+		return Config{}, fmt.Errorf("db: %w", err)
 	}
 
-	minConns, err := envInt32("DB_MIN_CONNS", 2)
+	minConns, err := config.Int32("DB_MIN_CONNS", 2)
 	if err != nil {
-		return Config{}, fmt.Errorf("db: invalid DB_MIN_CONNS: %w", err)
+		return Config{}, fmt.Errorf("db: %w", err)
 	}
 
-	maxConnLifetime, err := envDuration("DB_MAX_CONN_LIFETIME", 30*time.Minute)
+	maxConnLifetime, err := config.Duration("DB_MAX_CONN_LIFETIME", 30*time.Minute)
 	if err != nil {
-		return Config{}, fmt.Errorf("db: invalid DB_MAX_CONN_LIFETIME: %w", err)
+		return Config{}, fmt.Errorf("db: %w", err)
 	}
 
-	maxConnIdleTime, err := envDuration("DB_MAX_CONN_IDLE_TIME", 5*time.Minute)
+	maxConnIdleTime, err := config.Duration("DB_MAX_CONN_IDLE_TIME", 5*time.Minute)
 	if err != nil {
-		return Config{}, fmt.Errorf("db: invalid DB_MAX_CONN_IDLE_TIME: %w", err)
+		return Config{}, fmt.Errorf("db: %w", err)
 	}
 
 	return Config{
@@ -101,32 +102,4 @@ func WithTx(ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) error) erro
 	}
 
 	return nil
-}
-
-// envInt32 reads an int32 value from the environment variable key.
-// Returns def when the variable is unset, and an error when it cannot be parsed.
-func envInt32(key string, def int32) (int32, error) {
-	v, ok := os.LookupEnv(key)
-	if !ok {
-		return def, nil
-	}
-	n, err := strconv.ParseInt(v, 10, 32)
-	if err != nil {
-		return 0, fmt.Errorf("cannot parse %q as int32: %w", v, err)
-	}
-	return int32(n), nil
-}
-
-// envDuration reads a duration string from the environment variable key.
-// Returns def when the variable is unset, and an error when it cannot be parsed.
-func envDuration(key string, def time.Duration) (time.Duration, error) {
-	v, ok := os.LookupEnv(key)
-	if !ok {
-		return def, nil
-	}
-	d, err := time.ParseDuration(v)
-	if err != nil {
-		return 0, fmt.Errorf("cannot parse %q as duration: %w", v, err)
-	}
-	return d, nil
 }

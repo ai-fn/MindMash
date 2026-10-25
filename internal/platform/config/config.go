@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"time"
 )
@@ -10,7 +11,7 @@ import (
 // BaseConfig holds config fields shared by every service.
 type BaseConfig struct {
 	ServiceName     string        // SERVICE_NAME, default "mindmesh"
-	Env             string        // ENV: "dev"|"staging"|"prod", default "dev"
+	Env             string        // ENV: "dev"|"staging"|"prod", required
 	LogLevel        string        // LOG_LEVEL: "debug"|"info"|"warn"|"error", default "info"
 	GRPCAddr        string        // GRPC_ADDR, default ":50051"
 	HTTPAddr        string        // HTTP_ADDR, default ":8080"
@@ -18,56 +19,89 @@ type BaseConfig struct {
 	ShutdownTimeout time.Duration // SHUTDOWN_TIMEOUT_SECONDS, default 15s
 }
 
+var envs = []string{"dev", "staging", "prod"}
+
 // Load reads BaseConfig from environment, returning an error for invalid values.
 func Load() (*BaseConfig, error) {
-	shutdownTimeout, err := envDuration("SHUTDOWN_TIMEOUT_SECONDS", 15*time.Second)
+	// No default: dev turns on reflection and boot migrations, so a missing ENV must not mean dev.
+	env, _ := os.LookupEnv("ENV")
+	if !slices.Contains(envs, env) {
+		return nil, fmt.Errorf("config: ENV must be one of %v, got %q", envs, env)
+	}
+	shutdownTimeout, err := Seconds("SHUTDOWN_TIMEOUT_SECONDS", 15*time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("config: invalid SHUTDOWN_TIMEOUT_SECONDS: %w", err)
+		return nil, fmt.Errorf("config: %w", err)
 	}
 
 	return &BaseConfig{
-		ServiceName:     envStr("SERVICE_NAME", "mindmesh"),
-		Env:             envStr("ENV", "dev"),
-		LogLevel:        envStr("LOG_LEVEL", "info"),
-		GRPCAddr:        envStr("GRPC_ADDR", ":50051"),
-		HTTPAddr:        envStr("HTTP_ADDR", ":8080"),
-		MetricsAddr:     envStr("METRICS_ADDR", ":9090"),
+		ServiceName:     Str("SERVICE_NAME", "mindmesh"),
+		Env:             env,
+		LogLevel:        Str("LOG_LEVEL", "info"),
+		GRPCAddr:        Str("GRPC_ADDR", ":50051"),
+		HTTPAddr:        Str("HTTP_ADDR", ":8080"),
+		MetricsAddr:     Str("METRICS_ADDR", ":9090"),
 		ShutdownTimeout: shutdownTimeout,
 	}, nil
 }
 
-// MustLoad panics on error — for use in main() where misconfiguration is fatal.
-func MustLoad() *BaseConfig {
-	cfg, err := Load()
-	if err != nil {
-		panic(err)
-	}
-	return cfg
-}
+// Dev reports whether the service runs in local development.
+func (c *BaseConfig) Dev() bool { return c.Env == "dev" }
 
-// envStr returns the value of the environment variable key, or def if not set.
-// An explicitly set empty string is returned as-is (treated as "set").
-func envStr(key, def string) string {
+// Str returns the value of key, or def when it is unset. A value set to "" is returned as is,
+// so a blanked required setting fails its validation instead of falling back to a localhost default.
+func Str(key, def string) string {
 	if v, ok := os.LookupEnv(key); ok {
 		return v
 	}
 	return def
 }
 
-// envDuration reads an integer number of seconds from key and converts to
-// time.Duration. Returns def when the variable is not set, and an error when
-// the value cannot be parsed as a non-negative integer.
-func envDuration(key string, def time.Duration) (time.Duration, error) {
+// Int returns key parsed as an int, or def when it is unset.
+func Int(key string, def int) (int, error) {
+	return parse(key, def, strconv.Atoi)
+}
+
+// Int32 returns key parsed as an int32, or def when it is unset.
+func Int32(key string, def int32) (int32, error) {
+	return parse(key, def, func(v string) (int32, error) {
+		n, err := strconv.ParseInt(v, 10, 32)
+		return int32(n), err
+	})
+}
+
+// Bool returns key parsed by strconv.ParseBool, or def when it is unset.
+func Bool(key string, def bool) (bool, error) {
+	return parse(key, def, strconv.ParseBool)
+}
+
+// Duration returns key parsed by time.ParseDuration ("1500ms"), or def when it is unset.
+func Duration(key string, def time.Duration) (time.Duration, error) {
+	return parse(key, def, time.ParseDuration)
+}
+
+// Seconds returns key read as a non-negative integer number of seconds, or def when it is unset.
+func Seconds(key string, def time.Duration) (time.Duration, error) {
+	return parse(key, def, func(v string) (time.Duration, error) {
+		secs, err := strconv.Atoi(v)
+		if err != nil {
+			return 0, err
+		}
+		if secs < 0 {
+			return 0, fmt.Errorf("must be non-negative")
+		}
+		return time.Duration(secs) * time.Second, nil
+	})
+}
+
+func parse[T any](key string, def T, fn func(string) (T, error)) (T, error) {
 	v, ok := os.LookupEnv(key)
 	if !ok {
 		return def, nil
 	}
-	secs, err := strconv.Atoi(v)
+	got, err := fn(v)
 	if err != nil {
-		return 0, fmt.Errorf("cannot parse %q as integer seconds: %w", v, err)
+		var zero T
+		return zero, fmt.Errorf("%s=%q: %w", key, v, err)
 	}
-	if secs < 0 {
-		return 0, fmt.Errorf("SHUTDOWN_TIMEOUT_SECONDS must be non-negative, got %d", secs)
-	}
-	return time.Duration(secs) * time.Second, nil
+	return got, nil
 }

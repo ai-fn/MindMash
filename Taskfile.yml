@@ -82,6 +82,7 @@ tasks:
     desc: Start local deps and run the identity service
     deps: [keygen]
     env:
+      ENV: dev
       DB_DSN: postgres://mindmesh:mindmesh@localhost:5432/mindmesh?sslmode=disable
       REDIS_ADDR: localhost:6379
     cmds:

@@ -29,7 +29,8 @@ Default port convention (override an individual target via the matching `VITE_*_
 | Search     | `http://localhost:8085` | `VITE_SEARCH_URL`     | `/v1/search`                                                       |
 
 Because the same Go binary defaults `HTTP_ADDR` to `:8080`, running all six services
-simultaneously locally requires overriding each one's address, e.g.:
+simultaneously locally requires overriding each one's address, e.g. (after `export ENV=dev`,
+which every service requires):
 
 ```bash
 HTTP_ADDR=:8080 go run ./cmd/identity

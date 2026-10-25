@@ -8,18 +8,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
-	"github.com/aws/aws-sdk-go-v2/config"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
+
+	"github.com/mindmesh/mindmesh/internal/platform/config"
 )
 
 // Config holds S3/MinIO connection configuration.
@@ -35,22 +35,18 @@ type Config struct {
 // LoadConfig reads blob configuration from environment variables.
 // It returns an error when S3_USE_PATH_STYLE is set but cannot be parsed as bool.
 func LoadConfig() (Config, error) {
-	usePathStyle := true
-	if v, ok := os.LookupEnv("S3_USE_PATH_STYLE"); ok {
-		b, err := strconv.ParseBool(v)
-		if err != nil {
-			return Config{}, fmt.Errorf("blob: S3_USE_PATH_STYLE: cannot parse %q as bool: %w", v, err)
-		}
-		usePathStyle = b
+	usePathStyle, err := config.Bool("S3_USE_PATH_STYLE", true)
+	if err != nil {
+		return Config{}, fmt.Errorf("blob: %w", err)
 	}
 
 	return Config{
-		Endpoint:        envStr("S3_ENDPOINT", "http://localhost:9000"),
-		Region:          envStr("S3_REGION", "us-east-1"),
-		AccessKeyID:     envStr("S3_ACCESS_KEY_ID", "minioadmin"),
-		SecretAccessKey: envStr("S3_SECRET_ACCESS_KEY", "minioadmin"),
+		Endpoint:        config.Str("S3_ENDPOINT", "http://localhost:9000"),
+		Region:          config.Str("S3_REGION", "us-east-1"),
+		AccessKeyID:     config.Str("S3_ACCESS_KEY_ID", "minioadmin"),
+		SecretAccessKey: config.Str("S3_SECRET_ACCESS_KEY", "minioadmin"),
 		UsePathStyle:    usePathStyle,
-		DefaultBucket:   envStr("S3_DEFAULT_BUCKET", "mindmesh"),
+		DefaultBucket:   config.Str("S3_DEFAULT_BUCKET", "mindmesh"),
 	}, nil
 }
 
@@ -63,16 +59,16 @@ type Client struct {
 // NewClient creates a Client configured with static credentials and a custom
 // endpoint so that it can target a MinIO instance as well as real AWS S3.
 func NewClient(ctx context.Context, cfg Config) (*Client, error) {
-	awsCfg, err := config.LoadDefaultConfig(ctx,
-		config.WithRegion(cfg.Region),
-		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx,
+		awsconfig.WithRegion(cfg.Region),
+		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
 			cfg.AccessKeyID,
 			cfg.SecretAccessKey,
 			"",
 		)),
 		// WithBaseEndpoint redirects all requests to the custom endpoint.
 		// This is the recommended approach for MinIO and other S3-compatible stores.
-		config.WithBaseEndpoint(cfg.Endpoint),
+		awsconfig.WithBaseEndpoint(cfg.Endpoint),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("blob: load aws config: %w", err)
@@ -284,12 +280,4 @@ func (c *Client) EnsureBucket(ctx context.Context, bucket string) error {
 		return fmt.Errorf("blob: create bucket %s: %w", bucket, createErr)
 	}
 	return nil
-}
-
-// envStr returns the env var value for key, or def when the variable is unset.
-func envStr(key, def string) string {
-	if v, ok := os.LookupEnv(key); ok {
-		return v
-	}
-	return def
 }

@@ -19,6 +19,8 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/mindmesh/mindmesh/internal/platform/config"
 )
 
 // Config holds observability configuration for a single service instance.
@@ -34,10 +36,10 @@ type Config struct {
 // OTEL_SAMPLING_RATE is set but outside [0.0, 1.0].
 func LoadConfig() (Config, error) {
 	cfg := Config{
-		ServiceName:  envStr("OTEL_SERVICE_NAME", "mindmesh"),
-		OTLPEndpoint: envStr("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317"),
+		ServiceName:  config.Str("OTEL_SERVICE_NAME", "mindmesh"),
+		OTLPEndpoint: config.Str("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317"),
 		SamplingRate: 1.0,
-		MetricsAddr:  envStr("METRICS_ADDR", ":9090"),
+		MetricsAddr:  config.Str("METRICS_ADDR", ":9090"),
 	}
 
 	// A bare host:port parses as scheme "host" and the exporter silently falls back to localhost.
@@ -111,12 +113,4 @@ func InitMetrics() http.Handler {
 // the no-op tracer installed by default.
 func Tracer(name string) trace.Tracer {
 	return otel.Tracer(name)
-}
-
-// envStr returns the env var value for key, or def when the variable is unset.
-func envStr(key, def string) string {
-	if v, ok := os.LookupEnv(key); ok {
-		return v
-	}
-	return def
 }

@@ -5,11 +5,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"strconv"
 	"time"
 
 	"github.com/redis/go-redis/v9"
+
+	"github.com/mindmesh/mindmesh/internal/platform/config"
 )
 
 // Config holds Redis connection configuration.
@@ -24,30 +24,30 @@ type Config struct {
 
 // LoadConfig reads cache configuration from environment variables.
 func LoadConfig() (Config, error) {
-	addr := envStr("REDIS_ADDR", "localhost:6379")
+	addr := config.Str("REDIS_ADDR", "localhost:6379")
 	if addr == "" {
 		return Config{}, fmt.Errorf("cache: REDIS_ADDR must not be empty")
 	}
-	password := envStr("REDIS_PASSWORD", "")
+	password := config.Str("REDIS_PASSWORD", "")
 
-	db, err := envInt("REDIS_DB", 0)
+	db, err := config.Int("REDIS_DB", 0)
 	if err != nil {
-		return Config{}, fmt.Errorf("cache: invalid REDIS_DB: %w", err)
+		return Config{}, fmt.Errorf("cache: %w", err)
 	}
 
-	dialTimeout, err := envDuration("REDIS_DIAL_TIMEOUT", 5*time.Second)
+	dialTimeout, err := config.Duration("REDIS_DIAL_TIMEOUT", 5*time.Second)
 	if err != nil {
-		return Config{}, fmt.Errorf("cache: invalid REDIS_DIAL_TIMEOUT: %w", err)
+		return Config{}, fmt.Errorf("cache: %w", err)
 	}
 
-	readTimeout, err := envDuration("REDIS_READ_TIMEOUT", 3*time.Second)
+	readTimeout, err := config.Duration("REDIS_READ_TIMEOUT", 3*time.Second)
 	if err != nil {
-		return Config{}, fmt.Errorf("cache: invalid REDIS_READ_TIMEOUT: %w", err)
+		return Config{}, fmt.Errorf("cache: %w", err)
 	}
 
-	writeTimeout, err := envDuration("REDIS_WRITE_TIMEOUT", 3*time.Second)
+	writeTimeout, err := config.Duration("REDIS_WRITE_TIMEOUT", 3*time.Second)
 	if err != nil {
-		return Config{}, fmt.Errorf("cache: invalid REDIS_WRITE_TIMEOUT: %w", err)
+		return Config{}, fmt.Errorf("cache: %w", err)
 	}
 
 	return Config{
@@ -111,40 +111,4 @@ func Incr(ctx context.Context, client *redis.Client, key string) (int64, error) 
 		return 0, fmt.Errorf("cache: incr %q: %w", key, err)
 	}
 	return n, nil
-}
-
-// envStr returns the value of the environment variable key, or def if not set.
-func envStr(key, def string) string {
-	if v, ok := os.LookupEnv(key); ok {
-		return v
-	}
-	return def
-}
-
-// envInt reads an int value from the environment variable key.
-// Returns def when unset, and an error when unparseable.
-func envInt(key string, def int) (int, error) {
-	v, ok := os.LookupEnv(key)
-	if !ok {
-		return def, nil
-	}
-	n, err := strconv.Atoi(v)
-	if err != nil {
-		return 0, fmt.Errorf("cannot parse %q as int: %w", v, err)
-	}
-	return n, nil
-}
-
-// envDuration reads a duration string from the environment variable key.
-// Returns def when unset, and an error when unparseable.
-func envDuration(key string, def time.Duration) (time.Duration, error) {
-	v, ok := os.LookupEnv(key)
-	if !ok {
-		return def, nil
-	}
-	d, err := time.ParseDuration(v)
-	if err != nil {
-		return 0, fmt.Errorf("cannot parse %q as duration: %w", v, err)
-	}
-	return d, nil
 }

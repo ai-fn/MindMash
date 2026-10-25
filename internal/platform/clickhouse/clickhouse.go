@@ -13,6 +13,8 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+
+	"github.com/mindmesh/mindmesh/internal/platform/config"
 )
 
 // Config holds ClickHouse connection settings.
@@ -27,10 +29,10 @@ type Config struct {
 // to the local docker-compose defaults.
 func LoadConfig() Config {
 	return Config{
-		Addr:     envStr("CLICKHOUSE_ADDR", "localhost:9000"),
-		Database: envStr("CLICKHOUSE_DB", "mindmesh"),
-		Username: envStr("CLICKHOUSE_USER", "mindmesh"),
-		Password: envStr("CLICKHOUSE_PASSWORD", "mindmesh"),
+		Addr:     config.Str("CLICKHOUSE_ADDR", "localhost:9000"),
+		Database: config.Str("CLICKHOUSE_DB", "mindmesh"),
+		Username: config.Str("CLICKHOUSE_USER", "mindmesh"),
+		Password: config.Str("CLICKHOUSE_PASSWORD", "mindmesh"),
 	}
 }
 
@@ -106,11 +108,4 @@ func splitStatements(script string) []string {
 		}
 	}
 	return out
-}
-
-func envStr(key, def string) string {
-	if v, ok := os.LookupEnv(key); ok && v != "" {
-		return v
-	}
-	return def
 }

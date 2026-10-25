@@ -23,6 +23,8 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
+
+	"github.com/mindmesh/mindmesh/internal/platform/config"
 )
 
 const tracerName = "github.com/mindmesh/mindmesh/internal/platform/events"
@@ -69,54 +71,54 @@ func LoadConfig() (Config, error) {
 		brokers = filtered
 	}
 
-	readTimeout, err := envDuration("KAFKA_READ_TIMEOUT", 10*time.Second)
+	readTimeout, err := config.Duration("KAFKA_READ_TIMEOUT", 10*time.Second)
 	if err != nil {
-		return Config{}, fmt.Errorf("events: invalid KAFKA_READ_TIMEOUT: %w", err)
+		return Config{}, fmt.Errorf("events: %w", err)
 	}
 
-	writeTimeout, err := envDuration("KAFKA_WRITE_TIMEOUT", 10*time.Second)
+	writeTimeout, err := config.Duration("KAFKA_WRITE_TIMEOUT", 10*time.Second)
 	if err != nil {
-		return Config{}, fmt.Errorf("events: invalid KAFKA_WRITE_TIMEOUT: %w", err)
+		return Config{}, fmt.Errorf("events: %w", err)
 	}
 
-	maxRetries, err := envInt("KAFKA_MAX_RETRIES", 3)
+	maxRetries, err := config.Int("KAFKA_MAX_RETRIES", 3)
 	if err != nil {
-		return Config{}, fmt.Errorf("events: invalid KAFKA_MAX_RETRIES: %w", err)
+		return Config{}, fmt.Errorf("events: %w", err)
 	}
 
-	handlerAttempts, err := envInt("KAFKA_HANDLER_MAX_ATTEMPTS", defaultHandlerMaxAttempts)
+	handlerAttempts, err := config.Int("KAFKA_HANDLER_MAX_ATTEMPTS", defaultHandlerMaxAttempts)
 	if err != nil {
-		return Config{}, fmt.Errorf("events: invalid KAFKA_HANDLER_MAX_ATTEMPTS: %w", err)
+		return Config{}, fmt.Errorf("events: %w", err)
 	}
 	if handlerAttempts < 1 {
 		return Config{}, errors.New("events: invalid KAFKA_HANDLER_MAX_ATTEMPTS: must be >= 1")
 	}
 
-	handlerTimeout, err := envDuration("KAFKA_HANDLER_TIMEOUT", defaultHandlerTimeout)
+	handlerTimeout, err := config.Duration("KAFKA_HANDLER_TIMEOUT", defaultHandlerTimeout)
 	if err != nil {
-		return Config{}, fmt.Errorf("events: invalid KAFKA_HANDLER_TIMEOUT: %w", err)
+		return Config{}, fmt.Errorf("events: %w", err)
 	}
 	if handlerTimeout <= 0 {
 		return Config{}, errors.New("events: invalid KAFKA_HANDLER_TIMEOUT: must be a positive duration")
 	}
 
-	createTopics, err := envBool("KAFKA_CREATE_TOPICS", true)
+	createTopics, err := config.Bool("KAFKA_CREATE_TOPICS", true)
 	if err != nil {
-		return Config{}, fmt.Errorf("events: invalid KAFKA_CREATE_TOPICS: %w", err)
+		return Config{}, fmt.Errorf("events: %w", err)
 	}
-	partitions, err := envInt("KAFKA_TOPIC_PARTITIONS", 12)
+	partitions, err := config.Int("KAFKA_TOPIC_PARTITIONS", 12)
 	if err != nil || partitions < 1 {
 		return Config{}, errors.New("events: invalid KAFKA_TOPIC_PARTITIONS: must be an integer >= 1")
 	}
-	replication, err := envInt("KAFKA_TOPIC_REPLICATION", 1)
+	replication, err := config.Int("KAFKA_TOPIC_REPLICATION", 1)
 	if err != nil || replication < 1 {
 		return Config{}, errors.New("events: invalid KAFKA_TOPIC_REPLICATION: must be an integer >= 1")
 	}
 
 	return Config{
 		Brokers:      brokers,
-		GroupID:      envStr("KAFKA_GROUP_ID", ""),
-		ClientID:     envStr("KAFKA_CLIENT_ID", "mindmesh-events"),
+		GroupID:      config.Str("KAFKA_GROUP_ID", ""),
+		ClientID:     config.Str("KAFKA_CLIENT_ID", "mindmesh-events"),
 		ReadTimeout:  readTimeout,
 		WriteTimeout: writeTimeout,
 		MaxRetries:   maxRetries,
@@ -676,48 +678,4 @@ func outboxInsert(entries []OutboxEntry, traceHeaders []byte) (string, []any) {
 		args = append(args, e.ID, e.UserID, e.AggregateType, e.AggregateID, e.EventType, e.Payload, e.CreatedAt)
 	}
 	return b.String(), args
-}
-
-// envStr returns the env var value for key, or def when the variable is unset.
-func envStr(key, def string) string {
-	if v, ok := os.LookupEnv(key); ok {
-		return v
-	}
-	return def
-}
-
-// envInt reads an integer from the environment variable key.
-// Returns def when unset, and an error when the value cannot be parsed.
-func envInt(key string, def int) (int, error) {
-	v, ok := os.LookupEnv(key)
-	if !ok || v == "" {
-		return def, nil
-	}
-	n, err := strconv.Atoi(v)
-	if err != nil {
-		return 0, fmt.Errorf("events: %s must be an integer, got %q: %w", key, v, err)
-	}
-	return n, nil
-}
-
-func envBool(key string, def bool) (bool, error) {
-	v, ok := os.LookupEnv(key)
-	if !ok || v == "" {
-		return def, nil
-	}
-	return strconv.ParseBool(v)
-}
-
-// envDuration reads a duration string from the environment variable key.
-// Returns def when unset, and an error when the value cannot be parsed.
-func envDuration(key string, def time.Duration) (time.Duration, error) {
-	v, ok := os.LookupEnv(key)
-	if !ok {
-		return def, nil
-	}
-	d, err := time.ParseDuration(v)
-	if err != nil {
-		return 0, fmt.Errorf("events: %s: cannot parse %q as duration: %w", key, v, err)
-	}
-	return d, nil
 }
