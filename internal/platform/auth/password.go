@@ -18,6 +18,9 @@ const (
 	argonKeyLen      = 32
 )
 
+// PasswordHashBytes is the memory one HashPassword or VerifyPassword run holds.
+const PasswordHashBytes = argonMemory << 10
+
 // HashPassword hashes password using Argon2id and returns an encoded string.
 // Format: "$argon2id$v=19$m=<M>,t=<T>,p=<P>$<base64salt>$<base64hash>"
 func HashPassword(password string) (string, error) {

@@ -88,9 +88,19 @@ spec:
             - secretRef:
                 name: {{ include "mindmesh-service.secretName" . }}
             {{- end }}
-          {{- with .Values.extraEnv }}
+          {{- $memLimit := dig "limits" "memory" "" (.Values.resources | default dict) }}
+          {{- if or $memLimit .Values.extraEnv }}
           env:
+            {{- if $memLimit }}
+            # Soft limit for the GC; identity also sizes its argon2 pool from it.
+            - name: GOMEMLIMIT
+              valueFrom:
+                resourceFieldRef:
+                  resource: limits.memory
+            {{- end }}
+            {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
+            {{- end }}
           {{- end }}
           livenessProbe:
             httpGet:

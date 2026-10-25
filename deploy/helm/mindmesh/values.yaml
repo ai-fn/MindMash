@@ -68,6 +68,11 @@ identity:
     enabled: true
     stores: [identity]
     databaseUrl: "postgres://mindmesh:mindmesh@postgres:5432/mindmesh?sslmode=disable"
+  # Each concurrent argon2 hash holds 64 MiB; the pool is min(CPU limit, memory limit / 128 MiB),
+  # so raising the CPU limit buys hash throughput only with memory to match.
+  resources:
+    requests: { cpu: 250m, memory: 256Mi }
+    limits: { cpu: "2", memory: 512Mi }
   ingress:
     enabled: true
     hosts:
@@ -77,6 +82,29 @@ identity:
           - { path: /v1/users, pathType: Prefix }
           - { path: /v1/profiles, pathType: Prefix }
           - { path: /.well-known/jwks.json, pathType: Prefix }
+    # One bucket per Ingress, per client IP and controller replica; see "Edge rate limits" in
+    # deploy/README.md. Prefix, not Exact: scheduler's use-regex turns the host's paths into regexes.
+    extra:
+      - name: login
+        annotations:
+          nginx.ingress.kubernetes.io/limit-rpm: "10"
+          nginx.ingress.kubernetes.io/limit-burst-multiplier: "1"
+        paths:
+          - { path: /v1/auth/login, pathType: Prefix }
+      - name: account
+        annotations:
+          nginx.ingress.kubernetes.io/limit-rpm: "10"
+          nginx.ingress.kubernetes.io/limit-burst-multiplier: "1"
+        paths:
+          - { path: /v1/auth/register, pathType: Prefix }
+          - { path: /v1/auth/password-reset, pathType: Prefix }
+      - name: auth-flows
+        annotations:
+          nginx.ingress.kubernetes.io/limit-rpm: "60"
+        paths:
+          - { path: /v1/auth/oauth, pathType: Prefix }
+          - { path: /v1/auth/verify-email, pathType: Prefix }
+          - { path: /v1/auth/refresh, pathType: Prefix }
 
 # --- collection -----------------------------------------------------------
 collection:

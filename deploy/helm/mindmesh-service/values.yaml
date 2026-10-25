@@ -204,6 +204,8 @@ ingress:
   annotations: {}
   hosts: []                        # [{ host: api.mindmesh.dev, paths: [{path: /v1/auth, pathType: Prefix}] }]
   tls: []                          # [{ secretName: mindmesh-tls, hosts: [api.mindmesh.dev] }]
+  # Extra Ingresses on the same hosts whose annotations override the main one's for their paths.
+  extra: []                        # [{ name: credentials, annotations: {...}, paths: [{path: /v1/auth/login, pathType: Exact}] }]
 
 # KEDA ScaledObject for Kafka-consumer autoscaling. SCAFFOLD — off by default;
 # requires the KEDA operator. When enabled it replaces the HPA above.

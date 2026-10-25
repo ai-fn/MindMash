@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"sync"
@@ -88,9 +89,15 @@ func WithOAuth(states OAuthStateStore, redirectURIs []string) Option {
 // WithSyncEmail sends email inside the request, for tests.
 func WithSyncEmail() Option { return func(s *Service) { s.syncEmail = true } }
 
-// WithHashConcurrency caps concurrent password hashes (default GOMAXPROCS).
+// WithHashConcurrency caps concurrent password hashes (default defaultHashSlots).
 func WithHashConcurrency(n int) Option {
 	return func(s *Service) { s.hashSlots = make(chan struct{}, max(n, 1)) }
+}
+
+// defaultHashSlots runs one hash per P, within half of GOMEMLIMIT (set from the pod's memory
+// limit) so a CPU limit raised without memory can't let a login flood OOM the pod.
+func defaultHashSlots(procs int, memLimit int64) int {
+	return max(min(procs, int(memLimit/2/auth.PasswordHashBytes)), 1)
 }
 
 // NewService constructs a Service.  TTLs are pulled from the auth.Config so
@@ -112,7 +119,7 @@ func NewService(
 		log:        log,
 		accessTTL:  authCfg.AccessTokenTTL,
 		refreshTTL: authCfg.RefreshTokenTTL,
-		hashSlots:  make(chan struct{}, runtime.GOMAXPROCS(0)),
+		hashSlots:  make(chan struct{}, defaultHashSlots(runtime.GOMAXPROCS(0), debug.SetMemoryLimit(-1))),
 	}
 	for _, o := range opts {
 		o(s)

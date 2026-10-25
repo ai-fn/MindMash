@@ -2,8 +2,8 @@
 {{- /*
   Edge routing to this service's HTTP port. Paths are the service's grpc-gateway
   REST prefixes (wired by the umbrella from api/<svc>/v1 annotations). TLS is
-  terminated here; the app still validates JWT itself (edge JWT/rate-limit is a
-  future Envoy/Kong concern — see deploy/README.md).
+  terminated here; the app still validates JWT itself. ingress.extra adds same-host
+  Ingresses with their own annotations, e.g. per-IP rate limits (see deploy/README.md).
 */ -}}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -38,4 +38,42 @@ spec:
                   number: {{ $.Values.ports.http }}
           {{- end }}
     {{- end }}
+{{- range .Values.ingress.extra }}
+---
+# Same hosts and TLS as the main Ingress; its own annotations (e.g. a tighter rate limit) for these paths.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "mindmesh-service.fullname" $ }}-{{ .name }}
+  labels:
+    {{- include "mindmesh-service.labels" $ | nindent 4 }}
+  {{- with merge (deepCopy (.annotations | default dict)) ($.Values.ingress.annotations | default dict) }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with $.Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with $.Values.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- $paths := required (printf "ingress.extra[%s].paths is required" .name) .paths }}
+    {{- range $.Values.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range $paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType | default "Prefix" }}
+            backend:
+              service:
+                name: {{ include "mindmesh-service.fullname" $ }}
+                port:
+                  number: {{ $.Values.ports.http }}
+          {{- end }}
+    {{- end }}
+{{- end }}
 {{- end -}}

@@ -228,6 +228,34 @@ Requires ingress-nginx (`nginx.ingress.kubernetes.io/use-regex` splits the sched
 collection's `/v1/cards` prefix). Verify the regex precedence live when standing up a real
 controller — it's rendered and static-checked here but the dev cluster has no ingress controller.
 
+### Edge rate limits
+
+Unauthenticated identity endpoints have per-client-IP limits (`limit-rpm`). Each Ingress gets
+its own bucket:
+
+| Ingress | Paths | Limit |
+|---|---|---|
+| `identity-login` | `/v1/auth/login` | 10/min |
+| `identity-account` | `/v1/auth/register`, `/v1/auth/password-reset` | 10/min |
+| `identity-auth-flows` | `/v1/auth/oauth`, `/v1/auth/verify-email`, `/v1/auth/refresh` | 60/min |
+
+- **Burst.** nginx allows a burst of `limit-rpm × burst-multiplier` (1 for the first two
+  Ingresses), so a fresh client gets about twice the limit in its first minute.
+- **Shared addresses.** Every user behind one NAT shares a bucket; that cost is why login and
+  account creation are bucketed apart.
+- **Account lockout.** Identity's own per-account lockout still applies on login and reset.
+
+The controller must be configured for this to work:
+
+- **Real client IP.** Run the controller Service with `externalTrafficPolicy: Local` or
+  `use-forwarded-headers` / `proxy-real-ip-cidr` behind a trusted LB. Otherwise every request
+  appears to come from the LB and one shared bucket throttles everyone.
+- **Status code.** Set `limit-req-status-code: "429"` in the controller ConfigMap (the default
+  is 503, which clients would retry as an outage).
+- **Counting is per replica.** Each controller replica counts separately, so the effective
+  limit is 10 × replicas; size the number for that, or move the limit to a gateway with a
+  shared store.
+
 ## Known limitations (documented, not silently guessed around)
 
 - **`/v1/cards` prefix overlap** (addressed, needs live confirmation): collection owns
