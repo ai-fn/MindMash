@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync/atomic"
 
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -26,12 +27,7 @@ func Init(serviceName, env, level string) error {
 		_ = old.Sync()
 	}
 
-	var cfg zap.Config
-	if env == "prod" {
-		cfg = zap.NewProductionConfig()
-	} else {
-		cfg = zap.NewDevelopmentConfig()
-	}
+	cfg := configFor(env)
 	cfg.Level = zap.NewAtomicLevelAt(lvl)
 
 	l, err := cfg.Build()
@@ -44,6 +40,13 @@ func Init(serviceName, env, level string) error {
 		zap.String("env", env),
 	))
 	return nil
+}
+
+func configFor(env string) zap.Config {
+	if env == "dev" {
+		return zap.NewDevelopmentConfig()
+	}
+	return zap.NewProductionConfig()
 }
 
 // Replace swaps the package-level logger and returns a func restoring the previous one (tests).
@@ -62,16 +65,17 @@ func L() *zap.Logger {
 	return zap.NewNop()
 }
 
-// FromContext returns a logger from ctx, falling back to the package-level logger.
-// The returned logger includes a "trace_id" field if one was stored via WithTraceID.
+// FromContext returns the logger stored in ctx, else the package-level one with the
+// trace_id of ctx's span, if any.
 func FromContext(ctx context.Context) *zap.Logger {
 	if l, ok := ctx.Value(contextKey{}).(*zap.Logger); ok && l != nil {
 		return l
 	}
-	if l := global.Load(); l != nil {
-		return l
+	l := L()
+	if sc := trace.SpanContextFromContext(ctx); sc.HasTraceID() {
+		return l.With(zap.String("trace_id", sc.TraceID().String()))
 	}
-	return zap.NewNop()
+	return l
 }
 
 // WithContext returns a new context carrying the given logger.

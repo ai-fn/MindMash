@@ -63,7 +63,7 @@ func observe(next http.Handler) http.Handler {
 					rec.status = statusNoResponse
 				}
 			case p != nil:
-				log.L().Error("httpx: panic recovered", zap.Any("panic", p), zap.String("method", r.Method),
+				log.FromContext(r.Context()).Error("httpx: panic recovered", zap.Any("panic", p), zap.String("method", r.Method),
 					zap.String("route", route), zap.String("stack", string(debug.Stack())))
 				if !rec.wroteHeader {
 					h := rec.Header()
@@ -112,7 +112,7 @@ func record(r *http.Request, route string, status int, elapsed time.Duration) {
 	if status >= 500 {
 		level = zap.WarnLevel
 	}
-	log.L().Log(level, "httpx: request", fields...)
+	log.FromContext(r.Context()).Log(level, "httpx: request", fields...)
 }
 
 // limitBody rejects declared oversized bodies up front and caps chunked ones while read.

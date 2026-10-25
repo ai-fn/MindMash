@@ -176,7 +176,7 @@ func GRPCServiceOrUserAuthInterceptor(users Verifier, services *ServiceVerifier,
 		reject := func(caller, reason string, err, cause error) error {
 			serviceAuthRejections.WithLabelValues(info.FullMethod, caller, reason).Inc()
 			if suppressed, ok := rejectionLogs.allow(info.FullMethod + "|" + caller + "|" + reason); ok {
-				log.L().Warn("auth: service call rejected", zap.String("method", info.FullMethod),
+				log.FromContext(ctx).Warn("auth: service call rejected", zap.String("method", info.FullMethod),
 					zap.String("caller", caller), zap.String("reason", reason), zap.Error(err),
 					zap.NamedError("cause", cause), zap.Int("suppressed", suppressed))
 			}

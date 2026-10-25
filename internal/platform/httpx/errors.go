@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
-	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/mindmesh/mindmesh/internal/platform/apperr"
@@ -25,8 +24,8 @@ func GatewayErrors(next runtime.ErrorHandlerFunc) runtime.ServeMuxOption {
 			if len(path) > maxLoggedPath {
 				path = path[:maxLoggedPath]
 			}
-			log.L().Error("httpx: internal error", zap.String("method", r.Method), zap.String("path", path),
-				zap.Error(err), zap.String("trace_id", trace.SpanContextFromContext(ctx).TraceID().String()))
+			log.FromContext(ctx).Error("httpx: internal error", zap.String("method", r.Method), zap.String("path", path),
+				zap.Error(err))
 		}
 		next(ctx, mux, m, w, r, pub)
 	})

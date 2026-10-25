@@ -8,13 +8,14 @@ import (
 	"fmt"
 	"net"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/mindmesh/mindmesh/internal/platform/apperr"
 	"github.com/mindmesh/mindmesh/internal/platform/log"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
-	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health"
@@ -65,11 +66,11 @@ func New(cfg Config, opts Options) *Server {
 	hs := health.NewServer()
 
 	recoveryInterceptor := func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
-		defer recoverPanic(info.FullMethod, &err)
+		defer recoverPanic(ctx, info.FullMethod, &err)
 		return handler(ctx, req)
 	}
 	streamRecoveryInterceptor := func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) (err error) {
-		defer recoverPanic(info.FullMethod, &err)
+		defer recoverPanic(ss.Context(), info.FullMethod, &err)
 		return handler(srv, ss)
 	}
 
@@ -77,13 +78,13 @@ func New(cfg Config, opts Options) *Server {
 	observeInterceptor := func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		start := time.Now()
 		resp, err := handler(ctx, req)
-		observe(info.FullMethod, start, err)
+		observe(ctx, info.FullMethod, start, err)
 		return resp, err
 	}
 	streamObserveInterceptor := func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		start := time.Now()
 		err := handler(srv, ss)
-		observe(info.FullMethod, start, err)
+		observe(ss.Context(), info.FullMethod, start, err)
 		return err
 	}
 
@@ -131,9 +132,9 @@ func New(cfg Config, opts Options) *Server {
 	}
 }
 
-func recoverPanic(method string, err *error) {
+func recoverPanic(ctx context.Context, method string, err *error) {
 	if rec := recover(); rec != nil {
-		log.L().Error("grpcx: panic recovered",
+		log.FromContext(ctx).Error("grpcx: panic recovered",
 			zap.Any("panic", rec),
 			zap.String("method", method),
 			zap.String("stack", string(debug.Stack())),
@@ -146,22 +147,34 @@ func recoverPanic(method string, err *error) {
 func sanitize(ctx context.Context, method string, err error) error {
 	pub, logCause := apperr.Public(err)
 	if logCause {
-		log.L().Error("grpcx: internal error", zap.String("method", method), zap.Error(err),
-			zap.String("trace_id", trace.SpanContextFromContext(ctx).TraceID().String()))
+		log.FromContext(ctx).Error("grpcx: internal error", zap.String("method", method), zap.Error(err))
 	}
 	return pub
 }
 
-func observe(method string, start time.Time, err error) {
+func observe(ctx context.Context, method string, start time.Time, err error) {
 	elapsed := time.Since(start)
 	code := status.Code(err)
 	grpcRequests.WithLabelValues(method, code.String()).Inc()
 	grpcDuration.WithLabelValues(method).Observe(elapsed.Seconds())
-	log.L().Info("grpcx: request",
+	log.FromContext(ctx).Log(logLevel(method, code), "grpcx: request",
 		zap.String("method", method),
 		zap.String("duration_ms", fmt.Sprintf("%.2f", float64(elapsed.Microseconds())/1000.0)),
 		zap.String("code", code.String()),
 	)
+}
+
+// logLevel raises the codes the gateway answers with a 5xx and keeps healthy probe traffic at Debug.
+func logLevel(method string, code codes.Code) zapcore.Level {
+	switch {
+	case code == codes.Internal, code == codes.Unknown, code == codes.DataLoss,
+		code == codes.Unimplemented, code == codes.Unavailable, code == codes.DeadlineExceeded:
+		return zapcore.WarnLevel
+	case strings.HasPrefix(method, "/grpc.health.v1.Health/"):
+		return zapcore.DebugLevel
+	default:
+		return zapcore.InfoLevel
+	}
 }
 
 // Start begins serving on cfg.Addr and blocks until ctx is cancelled, then
