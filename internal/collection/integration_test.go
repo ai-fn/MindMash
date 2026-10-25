@@ -923,6 +923,26 @@ func TestDeleteDeck_WithCardsFailsAndKeepsChildren(t *testing.T) {
 	}
 }
 
+func TestDeckConfig_MaxIntervalDays(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+
+	cfg, err := c.svc.CreateDeckConfig(ctx, testUserID, testProfileID, DeckConfig{Name: "Default cap", Timezone: "UTC"})
+	if err != nil {
+		t.Fatalf("CreateDeckConfig: %v", err)
+	}
+	if cfg.MaxIntervalDays != maxIntervalDays {
+		t.Fatalf("unset max_interval_days = %d, want %d", cfg.MaxIntervalDays, maxIntervalDays)
+	}
+	if _, err := c.svc.UpdateDeckConfig(ctx, testUserID, cfg.ID, 0, DeckConfig{Name: "Capped", Timezone: "UTC", MaxIntervalDays: 30}); err != nil {
+		t.Fatalf("UpdateDeckConfig: %v", err)
+	}
+	got, err := c.svc.GetDeckConfig(ctx, testUserID, cfg.ID)
+	if err != nil || got.MaxIntervalDays != 30 {
+		t.Fatalf("stored max_interval_days = %v (err %v), want 30", got, err)
+	}
+}
+
 func TestDeleteDeckConfig_ResetsDecks(t *testing.T) {
 	c := setupIntegration(t)
 	ctx := context.Background()

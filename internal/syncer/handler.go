@@ -127,9 +127,9 @@ func deckConfigToProto(dc DeckConfig) *syncv1.DeckConfig {
 		RevPerDay:        dc.RevPerDay,
 		DesiredRetention: dc.DesiredRetention,
 		FsrsWeights:      dc.FSRSWeights,
-		LearningSteps:    dc.LearningSteps,
 		RolloverHour:     dc.RolloverHour,
 		Timezone:         dc.Timezone,
+		MaxIntervalDays:  dc.MaxIntervalDays,
 		Usn:              dc.USN,
 		Mtime:            timestamppb.New(dc.Mtime),
 	}
@@ -236,9 +236,9 @@ func deckConfigPayloadFromProto(p *syncv1.DeckConfigPayload) *DeckConfigPayload 
 		RevPerDay:        p.GetRevPerDay(),
 		DesiredRetention: p.GetDesiredRetention(),
 		FSRSWeights:      p.GetFsrsWeights(),
-		LearningSteps:    p.GetLearningSteps(),
 		RolloverHour:     p.GetRolloverHour(),
 		Timezone:         p.GetTimezone(),
+		MaxIntervalDays:  p.GetMaxIntervalDays(),
 	}
 }
 

@@ -22,7 +22,7 @@ import (
 const (
 	cardColumns       = "id, user_id, profile_id, deck_id, state, queue, due, stability, difficulty, reps, lapses, last_review, usn, mtime"
 	deckColumns       = "id, path::text, config_id"
-	deckConfigColumns = "new_per_day, rev_per_day, desired_retention, fsrs_weights, learning_steps, rollover_hour, timezone"
+	deckConfigColumns = "new_per_day, rev_per_day, desired_retention, fsrs_weights, rollover_hour, timezone, max_interval_days"
 )
 
 // dbtx is satisfied by both *pgxpool.Pool and pgx.Tx, allowing the same query
@@ -282,7 +282,7 @@ func (r *PostgresRepository) GetEffectiveDeckConfig(ctx context.Context, userID,
 	err = r.db.QueryRow(ctx,
 		`SELECT `+deckConfigColumns+` FROM deck_configs WHERE user_id = $1 AND id = $2`,
 		userID, *deck.ConfigID).Scan(
-		&dc.NewPerDay, &dc.RevPerDay, &dc.DesiredRetention, &dc.FSRSWeights, &dc.LearningSteps, &rollover, &dc.Timezone)
+		&dc.NewPerDay, &dc.RevPerDay, &dc.DesiredRetention, &dc.FSRSWeights, &rollover, &dc.Timezone, &dc.MaxIntervalDays)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return DefaultDeckConfig(), nil

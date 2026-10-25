@@ -711,13 +711,17 @@ type DeckConfig struct {
 	RevPerDay        int32                  `protobuf:"varint,4,opt,name=rev_per_day,json=revPerDay,proto3" json:"rev_per_day,omitempty"`
 	DesiredRetention float64                `protobuf:"fixed64,5,opt,name=desired_retention,json=desiredRetention,proto3" json:"desired_retention,omitempty"`
 	FsrsWeights      []float64              `protobuf:"fixed64,6,rep,packed,name=fsrs_weights,json=fsrsWeights,proto3" json:"fsrs_weights,omitempty"`
-	LearningSteps    []int32                `protobuf:"varint,7,rep,packed,name=learning_steps,json=learningSteps,proto3" json:"learning_steps,omitempty"` // minutes
-	RolloverHour     int32                  `protobuf:"varint,8,opt,name=rollover_hour,json=rolloverHour,proto3" json:"rollover_hour,omitempty"`
-	Timezone         string                 `protobuf:"bytes,9,opt,name=timezone,proto3" json:"timezone,omitempty"`
-	Usn              int64                  `protobuf:"varint,10,opt,name=usn,proto3" json:"usn,omitempty"`
-	Mtime            *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=mtime,proto3" json:"mtime,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Ignored: FSRS manages short-term steps itself.
+	//
+	// Deprecated: Marked as deprecated in collection/v1/collection.proto.
+	LearningSteps   []int32                `protobuf:"varint,7,rep,packed,name=learning_steps,json=learningSteps,proto3" json:"learning_steps,omitempty"` // minutes
+	RolloverHour    int32                  `protobuf:"varint,8,opt,name=rollover_hour,json=rolloverHour,proto3" json:"rollover_hour,omitempty"`
+	Timezone        string                 `protobuf:"bytes,9,opt,name=timezone,proto3" json:"timezone,omitempty"`
+	Usn             int64                  `protobuf:"varint,10,opt,name=usn,proto3" json:"usn,omitempty"`
+	Mtime           *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=mtime,proto3" json:"mtime,omitempty"`
+	MaxIntervalDays int32                  `protobuf:"varint,12,opt,name=max_interval_days,json=maxIntervalDays,proto3" json:"max_interval_days,omitempty"` // 1..36500
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *DeckConfig) Reset() {
@@ -792,6 +796,7 @@ func (x *DeckConfig) GetFsrsWeights() []float64 {
 	return nil
 }
 
+// Deprecated: Marked as deprecated in collection/v1/collection.proto.
 func (x *DeckConfig) GetLearningSteps() []int32 {
 	if x != nil {
 		return x.LearningSteps
@@ -825,6 +830,13 @@ func (x *DeckConfig) GetMtime() *timestamppb.Timestamp {
 		return x.Mtime
 	}
 	return nil
+}
+
+func (x *DeckConfig) GetMaxIntervalDays() int32 {
+	if x != nil {
+		return x.MaxIntervalDays
+	}
+	return 0
 }
 
 // FilteredDeck — saved card query (no execution via this service).
@@ -2903,11 +2915,13 @@ type CreateDeckConfigRequest struct {
 	RevPerDay        int32                  `protobuf:"varint,3,opt,name=rev_per_day,json=revPerDay,proto3" json:"rev_per_day,omitempty"`
 	DesiredRetention float64                `protobuf:"fixed64,4,opt,name=desired_retention,json=desiredRetention,proto3" json:"desired_retention,omitempty"`
 	FsrsWeights      []float64              `protobuf:"fixed64,5,rep,packed,name=fsrs_weights,json=fsrsWeights,proto3" json:"fsrs_weights,omitempty"`
-	LearningSteps    []int32                `protobuf:"varint,6,rep,packed,name=learning_steps,json=learningSteps,proto3" json:"learning_steps,omitempty"`
-	RolloverHour     int32                  `protobuf:"varint,7,opt,name=rollover_hour,json=rolloverHour,proto3" json:"rollover_hour,omitempty"`
-	Timezone         string                 `protobuf:"bytes,8,opt,name=timezone,proto3" json:"timezone,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Deprecated: Marked as deprecated in collection/v1/collection.proto.
+	LearningSteps   []int32 `protobuf:"varint,6,rep,packed,name=learning_steps,json=learningSteps,proto3" json:"learning_steps,omitempty"`
+	RolloverHour    int32   `protobuf:"varint,7,opt,name=rollover_hour,json=rolloverHour,proto3" json:"rollover_hour,omitempty"`
+	Timezone        string  `protobuf:"bytes,8,opt,name=timezone,proto3" json:"timezone,omitempty"`
+	MaxIntervalDays int32   `protobuf:"varint,9,opt,name=max_interval_days,json=maxIntervalDays,proto3" json:"max_interval_days,omitempty"` // 1..36500; 0 means 36500
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *CreateDeckConfigRequest) Reset() {
@@ -2975,6 +2989,7 @@ func (x *CreateDeckConfigRequest) GetFsrsWeights() []float64 {
 	return nil
 }
 
+// Deprecated: Marked as deprecated in collection/v1/collection.proto.
 func (x *CreateDeckConfigRequest) GetLearningSteps() []int32 {
 	if x != nil {
 		return x.LearningSteps
@@ -2994,6 +3009,13 @@ func (x *CreateDeckConfigRequest) GetTimezone() string {
 		return x.Timezone
 	}
 	return ""
+}
+
+func (x *CreateDeckConfigRequest) GetMaxIntervalDays() int32 {
+	if x != nil {
+		return x.MaxIntervalDays
+	}
+	return 0
 }
 
 type CreateDeckConfigResponse struct {
@@ -3049,12 +3071,14 @@ type UpdateDeckConfigRequest struct {
 	RevPerDay        int32                  `protobuf:"varint,4,opt,name=rev_per_day,json=revPerDay,proto3" json:"rev_per_day,omitempty"`
 	DesiredRetention float64                `protobuf:"fixed64,5,opt,name=desired_retention,json=desiredRetention,proto3" json:"desired_retention,omitempty"`
 	FsrsWeights      []float64              `protobuf:"fixed64,6,rep,packed,name=fsrs_weights,json=fsrsWeights,proto3" json:"fsrs_weights,omitempty"`
-	LearningSteps    []int32                `protobuf:"varint,7,rep,packed,name=learning_steps,json=learningSteps,proto3" json:"learning_steps,omitempty"`
-	RolloverHour     int32                  `protobuf:"varint,8,opt,name=rollover_hour,json=rolloverHour,proto3" json:"rollover_hour,omitempty"`
-	Timezone         string                 `protobuf:"bytes,9,opt,name=timezone,proto3" json:"timezone,omitempty"`
-	ExpectedUsn      int64                  `protobuf:"varint,10,opt,name=expected_usn,json=expectedUsn,proto3" json:"expected_usn,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Deprecated: Marked as deprecated in collection/v1/collection.proto.
+	LearningSteps   []int32 `protobuf:"varint,7,rep,packed,name=learning_steps,json=learningSteps,proto3" json:"learning_steps,omitempty"`
+	RolloverHour    int32   `protobuf:"varint,8,opt,name=rollover_hour,json=rolloverHour,proto3" json:"rollover_hour,omitempty"`
+	Timezone        string  `protobuf:"bytes,9,opt,name=timezone,proto3" json:"timezone,omitempty"`
+	ExpectedUsn     int64   `protobuf:"varint,10,opt,name=expected_usn,json=expectedUsn,proto3" json:"expected_usn,omitempty"`
+	MaxIntervalDays int32   `protobuf:"varint,11,opt,name=max_interval_days,json=maxIntervalDays,proto3" json:"max_interval_days,omitempty"` // 1..36500; 0 means 36500
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *UpdateDeckConfigRequest) Reset() {
@@ -3129,6 +3153,7 @@ func (x *UpdateDeckConfigRequest) GetFsrsWeights() []float64 {
 	return nil
 }
 
+// Deprecated: Marked as deprecated in collection/v1/collection.proto.
 func (x *UpdateDeckConfigRequest) GetLearningSteps() []int32 {
 	if x != nil {
 		return x.LearningSteps
@@ -3153,6 +3178,13 @@ func (x *UpdateDeckConfigRequest) GetTimezone() string {
 func (x *UpdateDeckConfigRequest) GetExpectedUsn() int64 {
 	if x != nil {
 		return x.ExpectedUsn
+	}
+	return 0
+}
+
+func (x *UpdateDeckConfigRequest) GetMaxIntervalDays() int32 {
+	if x != nil {
+		return x.MaxIntervalDays
 	}
 	return 0
 }
@@ -4407,7 +4439,7 @@ const file_collection_v1_collection_proto_rawDesc = "" +
 	"\x04path\x18\x04 \x01(\tR\x04path\x12\x1b\n" +
 	"\tconfig_id\x18\x05 \x01(\tR\bconfigId\x12\x10\n" +
 	"\x03usn\x18\x06 \x01(\x03R\x03usn\x120\n" +
-	"\x05mtime\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\x05mtime\"\xec\x02\n" +
+	"\x05mtime\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\x05mtime\"\x9c\x03\n" +
 	"\n" +
 	"DeckConfig\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
@@ -4415,13 +4447,14 @@ const file_collection_v1_collection_proto_rawDesc = "" +
 	"\vnew_per_day\x18\x03 \x01(\x05R\tnewPerDay\x12\x1e\n" +
 	"\vrev_per_day\x18\x04 \x01(\x05R\trevPerDay\x12+\n" +
 	"\x11desired_retention\x18\x05 \x01(\x01R\x10desiredRetention\x12!\n" +
-	"\ffsrs_weights\x18\x06 \x03(\x01R\vfsrsWeights\x12%\n" +
-	"\x0elearning_steps\x18\a \x03(\x05R\rlearningSteps\x12#\n" +
+	"\ffsrs_weights\x18\x06 \x03(\x01R\vfsrsWeights\x12)\n" +
+	"\x0elearning_steps\x18\a \x03(\x05B\x02\x18\x01R\rlearningSteps\x12#\n" +
 	"\rrollover_hour\x18\b \x01(\x05R\frolloverHour\x12\x1a\n" +
 	"\btimezone\x18\t \x01(\tR\btimezone\x12\x10\n" +
 	"\x03usn\x18\n" +
 	" \x01(\x03R\x03usn\x120\n" +
-	"\x05mtime\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\x05mtime\"\x8c\x01\n" +
+	"\x05mtime\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\x05mtime\x12*\n" +
+	"\x11max_interval_days\x18\f \x01(\x05R\x0fmaxIntervalDays\"\x8c\x01\n" +
 	"\fFilteredDeck\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +
@@ -4553,31 +4586,33 @@ const file_collection_v1_collection_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"S\n" +
 	"\x15GetDeckConfigResponse\x12:\n" +
 	"\vdeck_config\x18\x01 \x01(\v2\x19.collection.v1.DeckConfigR\n" +
-	"deckConfig\"\xa5\x02\n" +
+	"deckConfig\"\xd5\x02\n" +
 	"\x17CreateDeckConfigRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1e\n" +
 	"\vnew_per_day\x18\x02 \x01(\x05R\tnewPerDay\x12\x1e\n" +
 	"\vrev_per_day\x18\x03 \x01(\x05R\trevPerDay\x12+\n" +
 	"\x11desired_retention\x18\x04 \x01(\x01R\x10desiredRetention\x12!\n" +
-	"\ffsrs_weights\x18\x05 \x03(\x01R\vfsrsWeights\x12%\n" +
-	"\x0elearning_steps\x18\x06 \x03(\x05R\rlearningSteps\x12#\n" +
+	"\ffsrs_weights\x18\x05 \x03(\x01R\vfsrsWeights\x12)\n" +
+	"\x0elearning_steps\x18\x06 \x03(\x05B\x02\x18\x01R\rlearningSteps\x12#\n" +
 	"\rrollover_hour\x18\a \x01(\x05R\frolloverHour\x12\x1a\n" +
-	"\btimezone\x18\b \x01(\tR\btimezone\"V\n" +
+	"\btimezone\x18\b \x01(\tR\btimezone\x12*\n" +
+	"\x11max_interval_days\x18\t \x01(\x05R\x0fmaxIntervalDays\"V\n" +
 	"\x18CreateDeckConfigResponse\x12:\n" +
 	"\vdeck_config\x18\x01 \x01(\v2\x19.collection.v1.DeckConfigR\n" +
-	"deckConfig\"\xd8\x02\n" +
+	"deckConfig\"\x88\x03\n" +
 	"\x17UpdateDeckConfigRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1e\n" +
 	"\vnew_per_day\x18\x03 \x01(\x05R\tnewPerDay\x12\x1e\n" +
 	"\vrev_per_day\x18\x04 \x01(\x05R\trevPerDay\x12+\n" +
 	"\x11desired_retention\x18\x05 \x01(\x01R\x10desiredRetention\x12!\n" +
-	"\ffsrs_weights\x18\x06 \x03(\x01R\vfsrsWeights\x12%\n" +
-	"\x0elearning_steps\x18\a \x03(\x05R\rlearningSteps\x12#\n" +
+	"\ffsrs_weights\x18\x06 \x03(\x01R\vfsrsWeights\x12)\n" +
+	"\x0elearning_steps\x18\a \x03(\x05B\x02\x18\x01R\rlearningSteps\x12#\n" +
 	"\rrollover_hour\x18\b \x01(\x05R\frolloverHour\x12\x1a\n" +
 	"\btimezone\x18\t \x01(\tR\btimezone\x12!\n" +
 	"\fexpected_usn\x18\n" +
-	" \x01(\x03R\vexpectedUsn\"V\n" +
+	" \x01(\x03R\vexpectedUsn\x12*\n" +
+	"\x11max_interval_days\x18\v \x01(\x05R\x0fmaxIntervalDays\"V\n" +
 	"\x18UpdateDeckConfigResponse\x12:\n" +
 	"\vdeck_config\x18\x01 \x01(\v2\x19.collection.v1.DeckConfigR\n" +
 	"deckConfig\"L\n" +

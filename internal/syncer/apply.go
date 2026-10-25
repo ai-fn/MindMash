@@ -407,9 +407,9 @@ func protoToDeckConfig(dc *collectionv1.DeckConfig) *DeckConfig {
 		RevPerDay:        dc.GetRevPerDay(),
 		DesiredRetention: dc.GetDesiredRetention(),
 		FSRSWeights:      dc.GetFsrsWeights(),
-		LearningSteps:    dc.GetLearningSteps(),
 		RolloverHour:     dc.GetRolloverHour(),
 		Timezone:         dc.GetTimezone(),
+		MaxIntervalDays:  dc.GetMaxIntervalDays(),
 		USN:              dc.GetUsn(),
 		Mtime:            dc.GetMtime().AsTime(),
 	}
@@ -436,8 +436,8 @@ func (s *Service) applyDeckConfigUpdate(ctx context.Context, m Mutation) (ApplyR
 	updResp, err := s.coll.UpdateDeckConfig(ctx, &collectionv1.UpdateDeckConfigRequest{
 		Id: m.EntityID, Name: m.DeckConfig.Name, NewPerDay: m.DeckConfig.NewPerDay, RevPerDay: m.DeckConfig.RevPerDay,
 		DesiredRetention: m.DeckConfig.DesiredRetention, FsrsWeights: m.DeckConfig.FSRSWeights,
-		LearningSteps: m.DeckConfig.LearningSteps, RolloverHour: m.DeckConfig.RolloverHour, Timezone: m.DeckConfig.Timezone,
-		ExpectedUsn: server.GetUsn(),
+		RolloverHour: m.DeckConfig.RolloverHour, Timezone: m.DeckConfig.Timezone,
+		MaxIntervalDays: m.DeckConfig.MaxIntervalDays, ExpectedUsn: server.GetUsn(),
 	})
 	if err != nil {
 		if st, ok := status.FromError(err); ok && st.Code() == codes.Aborted {

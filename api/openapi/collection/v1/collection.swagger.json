@@ -898,6 +898,11 @@
         "expectedUsn": {
           "type": "string",
           "format": "int64"
+        },
+        "maxIntervalDays": {
+          "type": "integer",
+          "format": "int32",
+          "title": "1..36500; 0 means 36500"
         }
       },
       "description": "Update replaces the full desired state of the config (see UpdateNoteTypeRequest)."
@@ -1189,6 +1194,11 @@
         },
         "timezone": {
           "type": "string"
+        },
+        "maxIntervalDays": {
+          "type": "integer",
+          "format": "int32",
+          "title": "1..36500; 0 means 36500"
         }
       }
     },
@@ -1372,7 +1382,7 @@
             "type": "integer",
             "format": "int32"
           },
-          "title": "minutes"
+          "description": "Ignored: FSRS manages short-term steps itself.\n\nminutes"
         },
         "rolloverHour": {
           "type": "integer",
@@ -1388,6 +1398,11 @@
         "mtime": {
           "type": "string",
           "format": "date-time"
+        },
+        "maxIntervalDays": {
+          "type": "integer",
+          "format": "int32",
+          "title": "1..36500"
         }
       },
       "description": "DeckConfig — per-deck scheduling parameters."

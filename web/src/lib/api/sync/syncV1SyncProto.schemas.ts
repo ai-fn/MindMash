@@ -121,6 +121,7 @@ export interface V1DeckConfigPayload {
   learningSteps?: number[]
   rolloverHour?: number
   timezone?: string
+  maxIntervalDays?: number
 }
 
 /**
@@ -198,6 +199,7 @@ export interface V1DeckConfig {
   timezone?: string
   usn?: string
   mtime?: string
+  maxIntervalDays?: number
 }
 
 /**

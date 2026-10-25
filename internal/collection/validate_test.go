@@ -165,11 +165,15 @@ func TestServiceRejectsInvalidInput(t *testing.T) {
 			_, err := s.CreateDeckConfig(ctx, u, u, DeckConfig{Name: "C", FSRSWeights: make([]float64, maxConfigListLen+1)})
 			return err
 		}},
-		{"UpdateDeckConfig id", func() error { _, err := s.UpdateDeckConfig(ctx, u, bad, 1, DeckConfig{Name: "C"}); return err }},
-		{"UpdateDeckConfig too many steps", func() error {
-			_, err := s.UpdateDeckConfig(ctx, u, u, 1, DeckConfig{Name: "C", LearningSteps: make([]int32, maxConfigListLen+1)})
+		{"CreateDeckConfig max interval too long", func() error {
+			_, err := s.CreateDeckConfig(ctx, u, u, DeckConfig{Name: "C", MaxIntervalDays: maxIntervalDays + 1})
 			return err
 		}},
+		{"UpdateDeckConfig negative max interval", func() error {
+			_, err := s.UpdateDeckConfig(ctx, u, u, 1, DeckConfig{Name: "C", MaxIntervalDays: -1})
+			return err
+		}},
+		{"UpdateDeckConfig id", func() error { _, err := s.UpdateDeckConfig(ctx, u, bad, 1, DeckConfig{Name: "C"}); return err }},
 		{"DeleteDeckConfig id", func() error { return s.DeleteDeckConfig(ctx, u, bad, 1) }},
 
 		{"CreateFilteredDeck blank name", func() error { _, err := s.CreateFilteredDeck(ctx, u, u, "", "q"); return err }},

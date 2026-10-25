@@ -44,6 +44,7 @@ func fsrsParams(dc *DeckConfig) fsrs.Params {
 	return fsrs.Params{
 		Weights:          dc.FSRSWeights,
 		DesiredRetention: dc.DesiredRetention,
+		MaxIntervalDays:  int(dc.MaxIntervalDays),
 	}
 }
 

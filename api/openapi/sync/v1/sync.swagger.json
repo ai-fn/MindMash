@@ -367,6 +367,10 @@
         "mtime": {
           "type": "string",
           "format": "date-time"
+        },
+        "maxIntervalDays": {
+          "type": "integer",
+          "format": "int32"
         }
       },
       "description": "DeckConfig mirrors collection.v1.DeckConfig."
@@ -409,6 +413,11 @@
         },
         "timezone": {
           "type": "string"
+        },
+        "maxIntervalDays": {
+          "type": "integer",
+          "format": "int32",
+          "title": "0 means 36500"
         }
       },
       "description": "DeckConfigPayload mirrors collection.v1.UpdateDeckConfigRequest's body fields."

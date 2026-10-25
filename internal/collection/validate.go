@@ -20,7 +20,8 @@ const (
 	maxTags          = 100
 	maxTagRunes      = 100
 	maxTimezoneBytes = 64
-	maxConfigListLen = 64 // FSRS weights, learning steps
+	maxConfigListLen = 64 // FSRS weights
+	maxIntervalDays  = 36500
 )
 
 func validatePage(p Page) error {
@@ -118,10 +119,10 @@ func validateDeckConfig(dc DeckConfig) error {
 	if err := validate.Text("timezone", dc.Timezone, maxTimezoneBytes); err != nil {
 		return err
 	}
-	if err := validate.Count("fsrs_weights", len(dc.FSRSWeights), maxConfigListLen); err != nil {
-		return err
+	if dc.MaxIntervalDays < 0 || dc.MaxIntervalDays > maxIntervalDays {
+		return apperr.InvalidArgument(fmt.Sprintf("max_interval_days must be 0 (default) or 1..%d", maxIntervalDays))
 	}
-	return validate.Count("learning_steps", len(dc.LearningSteps), maxConfigListLen)
+	return validate.Count("fsrs_weights", len(dc.FSRSWeights), maxConfigListLen)
 }
 
 func validateSelector(sel SearchDocSelector) error {

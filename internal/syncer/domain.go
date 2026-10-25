@@ -102,9 +102,9 @@ type DeckConfig struct {
 	RevPerDay        int32
 	DesiredRetention float64
 	FSRSWeights      []float64
-	LearningSteps    []int32
 	RolloverHour     int32
 	Timezone         string
+	MaxIntervalDays  int32
 	USN              int64
 	Mtime            time.Time
 }
@@ -271,9 +271,9 @@ type DeckConfigPayload struct {
 	RevPerDay        int32
 	DesiredRetention float64
 	FSRSWeights      []float64
-	LearningSteps    []int32
 	RolloverHour     int32
 	Timezone         string
+	MaxIntervalDays  int32
 }
 
 // Mutation is a single client-submitted change in an ApplyRequest. Exactly

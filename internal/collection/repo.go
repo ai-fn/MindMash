@@ -37,7 +37,7 @@ const (
 	noteColumns         = "id, user_id, profile_id, note_type_id, fields, tags, flags, usn, mtime"
 	cardColumns         = "id, user_id, profile_id, note_id, deck_id, template_ord, state, queue, due, stability, difficulty, reps, lapses, last_review, usn, mtime"
 	deckColumns         = "id, user_id, profile_id, parent_id, name, path::text, config_id, usn, mtime"
-	deckConfigColumns   = "id, user_id, profile_id, name, new_per_day, rev_per_day, desired_retention, fsrs_weights, learning_steps, rollover_hour, timezone, usn, mtime"
+	deckConfigColumns   = "id, user_id, profile_id, name, new_per_day, rev_per_day, desired_retention, fsrs_weights, rollover_hour, timezone, max_interval_days, usn, mtime"
 	filteredDeckColumns = "id, user_id, profile_id, name, query, usn, mtime"
 )
 
@@ -766,7 +766,7 @@ func scanDeckConfig(s rowScanner) (*DeckConfig, error) {
 	dc := &DeckConfig{}
 	var rollover int16
 	if err := s.Scan(&dc.ID, &dc.UserID, &dc.ProfileID, &dc.Name, &dc.NewPerDay, &dc.RevPerDay,
-		&dc.DesiredRetention, &dc.FSRSWeights, &dc.LearningSteps, &rollover, &dc.Timezone, &dc.USN, &dc.Mtime); err != nil {
+		&dc.DesiredRetention, &dc.FSRSWeights, &rollover, &dc.Timezone, &dc.MaxIntervalDays, &dc.USN, &dc.Mtime); err != nil {
 		return nil, err
 	}
 	dc.RolloverHour = int32(rollover)
@@ -775,10 +775,10 @@ func scanDeckConfig(s rowScanner) (*DeckConfig, error) {
 
 func (r *PostgresRepository) CreateDeckConfig(ctx context.Context, dc *DeckConfig) error {
 	_, err := r.db.Exec(ctx, `
-		INSERT INTO deck_configs (id, user_id, profile_id, name, new_per_day, rev_per_day, desired_retention, fsrs_weights, learning_steps, rollover_hour, timezone, usn, mtime)
+		INSERT INTO deck_configs (id, user_id, profile_id, name, new_per_day, rev_per_day, desired_retention, fsrs_weights, rollover_hour, timezone, max_interval_days, usn, mtime)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
 		dc.ID, dc.UserID, dc.ProfileID, dc.Name, dc.NewPerDay, dc.RevPerDay, dc.DesiredRetention,
-		normSlice(dc.FSRSWeights), normSlice(dc.LearningSteps), int16(dc.RolloverHour), dc.Timezone, dc.USN, dc.Mtime)
+		normSlice(dc.FSRSWeights), int16(dc.RolloverHour), dc.Timezone, dc.MaxIntervalDays, dc.USN, dc.Mtime)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return apperr.AlreadyExists("deck config already exists")
@@ -824,10 +824,10 @@ func (r *PostgresRepository) ListDeckConfigs(ctx context.Context, userID string,
 func (r *PostgresRepository) UpdateDeckConfig(ctx context.Context, dc *DeckConfig) error {
 	ct, err := r.db.Exec(ctx, `
 		UPDATE deck_configs SET name = $3, new_per_day = $4, rev_per_day = $5, desired_retention = $6,
-			fsrs_weights = $7, learning_steps = $8, rollover_hour = $9, timezone = $10, usn = $11, mtime = $12
+			fsrs_weights = $7, rollover_hour = $8, timezone = $9, max_interval_days = $10, usn = $11, mtime = $12
 		WHERE user_id = $1 AND id = $2`,
 		dc.UserID, dc.ID, dc.Name, dc.NewPerDay, dc.RevPerDay, dc.DesiredRetention,
-		normSlice(dc.FSRSWeights), normSlice(dc.LearningSteps), int16(dc.RolloverHour), dc.Timezone, dc.USN, dc.Mtime)
+		normSlice(dc.FSRSWeights), int16(dc.RolloverHour), dc.Timezone, dc.MaxIntervalDays, dc.USN, dc.Mtime)
 	if err != nil {
 		return fmt.Errorf("collection: update deck config: %w", err)
 	}

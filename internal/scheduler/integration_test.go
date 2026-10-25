@@ -589,6 +589,36 @@ func TestAnswer_StoresLongInterval(t *testing.T) {
 	}
 }
 
+func TestAnswer_CapsIntervalAtDeckMax(t *testing.T) {
+	c := setupIntegration(t)
+	ctx := context.Background()
+	cfgID := insertDeckConfig(t, c, 20, 200)
+	if _, err := c.pool.Exec(ctx, `UPDATE deck_configs SET max_interval_days = 30 WHERE user_id = $1 AND id = $2`,
+		testUserID, cfgID); err != nil {
+		t.Fatalf("set max_interval_days: %v", err)
+	}
+	due := time.Now().Add(-time.Hour)
+	deckID := insertDeck(t, c, "Capped", &cfgID)
+	cardID := insertCard(t, c, insertNote(t, c, insertNoteType(t, c)), deckID, cardFixture{state: StateReview, due: &due})
+	if _, err := c.pool.Exec(ctx, `
+		UPDATE cards SET stability = 1e6, difficulty = 1, reps = 50, last_review = $3
+		WHERE user_id = $1 AND id = $2`, testUserID, cardID, due.AddDate(-1, 0, 0)); err != nil {
+		t.Fatalf("set stability: %v", err)
+	}
+
+	if _, _, err := c.svc.Answer(ctx, testUserID, testProfileID, cardID, "", Easy, 100); err != nil {
+		t.Fatalf("Answer: %v", err)
+	}
+	var newIvl int64
+	if err := c.pool.QueryRow(ctx, `SELECT new_ivl FROM review_logs WHERE user_id = $1 AND card_id = $2`,
+		testUserID, cardID).Scan(&newIvl); err != nil {
+		t.Fatalf("read new_ivl: %v", err)
+	}
+	if newIvl > 30*86400 {
+		t.Fatalf("new_ivl = %d s, want at most the deck's 30 days", newIvl)
+	}
+}
+
 // ─── Buried and suspended cards in the queue ──────────────────────────────────
 
 func TestBuildQueue_SkipsSuspendedNewCards(t *testing.T) {

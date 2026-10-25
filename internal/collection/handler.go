@@ -155,11 +155,11 @@ func deckConfigToProto(dc *DeckConfig) *collectionv1.DeckConfig {
 		RevPerDay:        dc.RevPerDay,
 		DesiredRetention: dc.DesiredRetention,
 		FsrsWeights:      dc.FSRSWeights,
-		LearningSteps:    dc.LearningSteps,
 		RolloverHour:     dc.RolloverHour,
 		Timezone:         dc.Timezone,
 		Usn:              dc.USN,
 		Mtime:            timestamppb.New(dc.Mtime),
+		MaxIntervalDays:  dc.MaxIntervalDays,
 	}
 }
 
@@ -467,9 +467,9 @@ func (h *Handler) CreateDeckConfig(ctx context.Context, req *collectionv1.Create
 		RevPerDay:        req.GetRevPerDay(),
 		DesiredRetention: req.GetDesiredRetention(),
 		FSRSWeights:      req.GetFsrsWeights(),
-		LearningSteps:    req.GetLearningSteps(),
 		RolloverHour:     req.GetRolloverHour(),
 		Timezone:         req.GetTimezone(),
+		MaxIntervalDays:  req.GetMaxIntervalDays(),
 	})
 	if err != nil {
 		return nil, err
@@ -488,9 +488,9 @@ func (h *Handler) UpdateDeckConfig(ctx context.Context, req *collectionv1.Update
 		RevPerDay:        req.GetRevPerDay(),
 		DesiredRetention: req.GetDesiredRetention(),
 		FSRSWeights:      req.GetFsrsWeights(),
-		LearningSteps:    req.GetLearningSteps(),
 		RolloverHour:     req.GetRolloverHour(),
 		Timezone:         req.GetTimezone(),
+		MaxIntervalDays:  req.GetMaxIntervalDays(),
 	})
 	if err != nil {
 		return nil, err

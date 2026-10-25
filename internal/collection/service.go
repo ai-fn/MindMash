@@ -1,6 +1,7 @@
 package collection
 
 import (
+	"cmp"
 	"context"
 	"strings"
 	"time"
@@ -987,6 +988,7 @@ func (s *Service) CreateDeckConfig(ctx context.Context, userID, profileID string
 	}
 	now := time.Now().UTC()
 	dc := req
+	dc.MaxIntervalDays = cmp.Or(dc.MaxIntervalDays, maxIntervalDays)
 	dc.ID = ids.NewUUID()
 	dc.UserID = userID
 	dc.ProfileID = profileID
@@ -1046,9 +1048,9 @@ func (s *Service) UpdateDeckConfig(ctx context.Context, userID, id string, expec
 		existing.RevPerDay = req.RevPerDay
 		existing.DesiredRetention = req.DesiredRetention
 		existing.FSRSWeights = req.FSRSWeights
-		existing.LearningSteps = req.LearningSteps
 		existing.RolloverHour = req.RolloverHour
 		existing.Timezone = req.Timezone
+		existing.MaxIntervalDays = cmp.Or(req.MaxIntervalDays, maxIntervalDays)
 		existing.Mtime = time.Now().UTC()
 
 		usn, err := tx.NextUSN(ctx, userID)

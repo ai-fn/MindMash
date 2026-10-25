@@ -75,7 +75,8 @@ type Params struct {
 
 // Engine holds a configured FSRS instance.
 type Engine struct {
-	f *gofsrs.FSRS
+	f      *gofsrs.FSRS
+	maxIvl time.Duration
 }
 
 // New creates an Engine from Params. Safe for concurrent use; the underlying
@@ -96,7 +97,7 @@ func New(p Params) *Engine {
 	// not have to re-implement the step queue ourselves.
 	param.EnableShortTerm = true
 
-	return &Engine{f: gofsrs.NewFSRS(param)}
+	return &Engine{f: gofsrs.NewFSRS(param), maxIvl: time.Duration(param.MaximumInterval) * 24 * time.Hour}
 }
 
 // Next advances a card by one answer and returns the new scheduling state.
@@ -104,7 +105,7 @@ func New(p Params) *Engine {
 func (e *Engine) Next(card SchedulingInput, grade Grade, now time.Time) SchedulingResult {
 	gc := toGoCard(card, now)
 	info := e.f.Next(gc, now, toGoRating(grade))
-	return fromGoCard(info.Card, now)
+	return fromGoCard(e.capDue(info.Card, now), now)
 }
 
 // Preview returns the four hypothetical next-due intervals without persisting
@@ -113,11 +114,20 @@ func (e *Engine) Preview(card SchedulingInput, now time.Time) IntervalPreview {
 	gc := toGoCard(card, now)
 	log := e.f.Repeat(gc, now)
 	return IntervalPreview{
-		Again: intervalSec(log[gofsrs.Again].Card, now),
-		Hard:  intervalSec(log[gofsrs.Hard].Card, now),
-		Good:  intervalSec(log[gofsrs.Good].Card, now),
-		Easy:  intervalSec(log[gofsrs.Easy].Card, now),
+		Again: intervalSec(e.capDue(log[gofsrs.Again].Card, now), now),
+		Hard:  intervalSec(e.capDue(log[gofsrs.Hard].Card, now), now),
+		Good:  intervalSec(e.capDue(log[gofsrs.Good].Card, now), now),
+		Easy:  intervalSec(e.capDue(log[gofsrs.Easy].Card, now), now),
 	}
+}
+
+// capDue enforces MaximumInterval: go-fsrs keeps Hard < Good < Easy after clamping,
+// which can push Good and Easy a day or two past it.
+func (e *Engine) capDue(gc gofsrs.Card, now time.Time) gofsrs.Card {
+	if limit := now.Add(e.maxIvl); gc.Due.After(limit) {
+		gc.Due = limit
+	}
+	return gc
 }
 
 // toGoCard converts our nullable scheduling columns into a go-fsrs Card.

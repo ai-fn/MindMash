@@ -164,9 +164,9 @@ type DeckConfig struct {
 	RevPerDay        int32
 	DesiredRetention float64
 	FSRSWeights      []float64
-	LearningSteps    []int32 // minutes
 	RolloverHour     int32
 	Timezone         string
+	MaxIntervalDays  int32
 	USN              int64
 	Mtime            time.Time
 }

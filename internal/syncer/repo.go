@@ -20,7 +20,7 @@ const (
 	noteColumns         = "id, note_type_id, fields, tags, flags, usn, mtime"
 	cardColumns         = "id, note_id, deck_id, template_ord, state, queue, due, stability, difficulty, reps, lapses, last_review, usn, mtime"
 	deckColumns         = "id, parent_id, name, path::text, config_id, usn, mtime"
-	deckConfigColumns   = "id, name, new_per_day, rev_per_day, desired_retention, fsrs_weights, learning_steps, rollover_hour, timezone, usn, mtime"
+	deckConfigColumns   = "id, name, new_per_day, rev_per_day, desired_retention, fsrs_weights, rollover_hour, timezone, max_interval_days, usn, mtime"
 	filteredDeckColumns = "id, name, query, usn, mtime"
 	tagColumns          = "id, name, usn, mtime"
 )
@@ -211,7 +211,7 @@ func (r *PostgresRepository) ListDeckConfigsSince(ctx context.Context, userID st
 		var dc DeckConfig
 		var rollover int16
 		if err := rows.Scan(&dc.ID, &dc.Name, &dc.NewPerDay, &dc.RevPerDay, &dc.DesiredRetention,
-			&dc.FSRSWeights, &dc.LearningSteps, &rollover, &dc.Timezone, &dc.USN, &dc.Mtime); err != nil {
+			&dc.FSRSWeights, &rollover, &dc.Timezone, &dc.MaxIntervalDays, &dc.USN, &dc.Mtime); err != nil {
 			return nil, fmt.Errorf("sync: scan deck_config: %w", err)
 		}
 		dc.RolloverHour = int32(rollover)

@@ -9,9 +9,9 @@ CREATE TABLE IF NOT EXISTS deck_configs (
     rev_per_day       INT           NOT NULL DEFAULT 200,
     desired_retention DOUBLE PRECISION   NOT NULL DEFAULT 0.9,
     fsrs_weights      DOUBLE PRECISION[] NOT NULL DEFAULT '{}',
-    learning_steps    INT[]              NOT NULL DEFAULT '{1,10}', -- minutes
     rollover_hour     SMALLINT      NOT NULL DEFAULT 4,
     timezone          TEXT          NOT NULL DEFAULT 'UTC',
+    max_interval_days INT           NOT NULL DEFAULT 36500 CHECK (max_interval_days BETWEEN 1 AND 36500),
     usn               BIGINT        NOT NULL DEFAULT 0, -- update sequence number for sync
     mtime             TIMESTAMPTZ   NOT NULL DEFAULT now(),
     PRIMARY KEY (user_id, id)

@@ -134,3 +134,24 @@ func gradeStr(g fsrs.Grade) string {
 		return "Unknown"
 	}
 }
+
+// go-fsrs orders Hard < Good < Easy after clamping, which can push Good and Easy past the cap.
+func TestMaxIntervalDays_CapsEveryGrade(t *testing.T) {
+	const maxDays = 30
+	e := fsrs.New(fsrs.Params{DesiredRetention: 0.9, MaxIntervalDays: maxDays})
+	stability, difficulty := 1e6, 1.0
+	last := now.AddDate(-1, 0, 0)
+	due := now.Add(-time.Hour)
+	card := fsrs.SchedulingInput{State: fsrs.StateReview, Due: &due, Stability: &stability, Difficulty: &difficulty, Reps: 50, LastReview: &last}
+	limit := int64(maxDays * 24 * 60 * 60)
+
+	p := e.Preview(card, now)
+	for _, ivl := range []int64{p.Hard, p.Good, p.Easy} {
+		assert.LessOrEqual(t, ivl, limit)
+	}
+	for _, g := range []fsrs.Grade{fsrs.Hard, fsrs.Good, fsrs.Easy} {
+		res := e.Next(card, g, now)
+		assert.LessOrEqual(t, res.IntervalSec, limit, gradeStr(g))
+		assert.False(t, res.Due.After(now.Add(maxDays*24*time.Hour)), gradeStr(g))
+	}
+}

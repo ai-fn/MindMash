@@ -287,11 +287,13 @@ message DeckConfig {
   int32           rev_per_day       = 4;
   double          desired_retention = 5;
   repeated double fsrs_weights      = 6;
-  repeated int32            learning_steps    = 7; // minutes
+  // Ignored: FSRS manages short-term steps itself.
+  repeated int32            learning_steps    = 7 [deprecated = true]; // minutes
   int32                     rollover_hour     = 8;
   string                    timezone          = 9;
   int64                     usn               = 10;
   google.protobuf.Timestamp mtime             = 11;
+  int32                     max_interval_days = 12; // 1..36500
 }
 
 // FilteredDeck — saved card query (no execution via this service).
@@ -526,9 +528,10 @@ message CreateDeckConfigRequest {
   int32           rev_per_day       = 3;
   double          desired_retention = 4;
   repeated double fsrs_weights      = 5;
-  repeated int32  learning_steps    = 6;
+  repeated int32  learning_steps    = 6 [deprecated = true];
   int32           rollover_hour     = 7;
   string          timezone          = 8;
+  int32           max_interval_days = 9; // 1..36500; 0 means 36500
 }
 
 message CreateDeckConfigResponse {
@@ -543,10 +546,11 @@ message UpdateDeckConfigRequest {
   int32           rev_per_day       = 4;
   double          desired_retention = 5;
   repeated double fsrs_weights      = 6;
-  repeated int32  learning_steps    = 7;
+  repeated int32  learning_steps    = 7 [deprecated = true];
   int32           rollover_hour     = 8;
   string          timezone          = 9;
   int64           expected_usn      = 10;
+  int32           max_interval_days = 11; // 1..36500; 0 means 36500
 }
 
 message UpdateDeckConfigResponse {

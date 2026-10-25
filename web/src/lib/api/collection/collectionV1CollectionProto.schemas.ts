@@ -28,6 +28,7 @@ export interface DeckServiceUpdateDeckConfigBody {
   rolloverHour?: number
   timezone?: string
   expectedUsn?: string
+  maxIntervalDays?: number
 }
 
 export type NoteServiceUpdateNoteBodyFields = { [key: string]: string }
@@ -183,6 +184,7 @@ export interface V1CreateDeckConfigRequest {
   learningSteps?: number[]
   rolloverHour?: number
   timezone?: string
+  maxIntervalDays?: number
 }
 
 /**
@@ -195,11 +197,17 @@ export interface V1DeckConfig {
   revPerDay?: number
   desiredRetention?: number
   fsrsWeights?: number[]
+  /**
+   * Ignored: FSRS manages short-term steps itself.
+   *
+   * minutes
+   */
   learningSteps?: number[]
   rolloverHour?: number
   timezone?: string
   usn?: string
   mtime?: string
+  maxIntervalDays?: number
 }
 
 export interface V1CreateDeckConfigResponse {

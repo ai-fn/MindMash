@@ -46,7 +46,7 @@ function fromPercentString(value: string): number | undefined {
 // Scope cut (confirmed in the task brief): edits exactly three fields —
 // `desiredRetention` (rendered/edited as a 0-100 percentage, converted to/from the
 // API's 0..1 float using the same precedent as StatsScreen.tsx's `toPercent`),
-// `newPerDay`, `revPerDay`. `fsrsWeights`/`learningSteps`/`rolloverHour`/`timezone` are
+// `newPerDay`, `revPerDay`. `fsrsWeights`/`maxIntervalDays`/`rolloverHour`/`timezone` are
 // internal-tuning fields with no UI here — out of scope for this task.
 //
 // Missing-configId handling (judgment call, option (a) from the brief): if
@@ -113,7 +113,7 @@ export function DeckConfigDialog({ deck, onClose }: DeckConfigDialogProps) {
           newPerDay: Number(newPerDay),
           revPerDay: Number(revPerDay),
           fsrsWeights: config.fsrsWeights,
-          learningSteps: config.learningSteps,
+          maxIntervalDays: config.maxIntervalDays,
           rolloverHour: config.rolloverHour,
           timezone: config.timezone,
           expectedUsn: config.usn,

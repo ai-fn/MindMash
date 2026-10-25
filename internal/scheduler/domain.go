@@ -85,9 +85,9 @@ type DeckConfig struct {
 	RevPerDay        int32
 	DesiredRetention float64
 	FSRSWeights      []float64
-	LearningSteps    []int32 // minutes
 	RolloverHour     int32
 	Timezone         string
+	MaxIntervalDays  int32
 }
 
 // DefaultDeckConfig is used when a deck has no config_id set.
@@ -96,9 +96,9 @@ func DefaultDeckConfig() *DeckConfig {
 		NewPerDay:        20,
 		RevPerDay:        200,
 		DesiredRetention: 0.9,
-		LearningSteps:    []int32{1, 10},
 		RolloverHour:     4,
 		Timezone:         "UTC",
+		MaxIntervalDays:  36500,
 	}
 }
 
