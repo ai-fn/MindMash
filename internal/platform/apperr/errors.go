@@ -11,14 +11,8 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// AppError is a domain error that carries both a gRPC status code and an
-// optional wrapped cause. It satisfies the grpc Status interface so it can be
-// returned directly from gRPC handlers and translated by grpc-gateway.
-//
-// Message is the English (fallback) text always present. For user-facing errors that should be
-// localized, callers additionally set a MsgID (a platform/i18n message key) via WithMsgID; the
-// HTTP edge then renders it in the request's locale via Localize. Errors without a MsgID (the
-// vast majority — internal/500-class) are unaffected and stay English.
+// AppError carries a gRPC code and optional cause; Message is the English fallback, and a MsgID
+// set via WithMsgID lets the HTTP edge localize it.
 type AppError struct {
 	Code    codes.Code
 	Message string
@@ -38,10 +32,7 @@ func (e *AppError) Unwrap() error {
 	return e.Err
 }
 
-// WithMsgID marks this error as localizable, tagging it with a platform/i18n message key and
-// optional format args. Returns the same error for fluent use:
-//
-//	return apperr.Unauthenticated("invalid credentials").WithMsgID(i18n.MsgInvalidCredentials)
+// WithMsgID tags e with an i18n message key and format args, returning e.
 func (e *AppError) WithMsgID(id string, args ...any) *AppError {
 	e.MsgID = id
 	e.Args = args
@@ -57,9 +48,7 @@ func (e *AppError) Localize(p *message.Printer) string {
 	return e.Message
 }
 
-// GRPCStatus implements the interface checked by status.FromError, allowing
-// gRPC and grpc-gateway to map this error to the right HTTP/gRPC status codes
-// without any extra middleware.
+// GRPCStatus lets status.FromError, and so grpc-gateway, map e without middleware.
 func (e *AppError) GRPCStatus() *status.Status {
 	return status.New(e.Code, e.Message)
 }
@@ -84,18 +73,13 @@ func InvalidArgument(msg string, cause ...error) *AppError {
 	return newAppError(codes.InvalidArgument, msg, cause)
 }
 
-// FailedPrecondition signals that a resource is in a state incompatible with the
-// operation — e.g. deleting a note type that still has notes, or a deck that
-// still holds cards (an ON DELETE RESTRICT violation). Per the gRPC↔HTTP
-// convention (and grpc-gateway's default mapping) this is HTTP 400, not 412/409.
-// For optimistic-concurrency (expected_usn) conflicts use Aborted instead.
+// FailedPrecondition is a state conflict such as an ON DELETE RESTRICT (HTTP 400); expected_usn
+// mismatches are Aborted.
 func FailedPrecondition(msg string, cause ...error) *AppError {
 	return newAppError(codes.FailedPrecondition, msg, cause)
 }
 
-// Aborted signals that the operation was rejected due to a concurrency conflict
-// the client can retry after refetching — e.g. an optimistic-concurrency
-// (expected_usn) mismatch on a write. Maps to gRPC Aborted / HTTP 409.
+// Aborted is a retry-after-refetch concurrency conflict, e.g. an expected_usn mismatch (HTTP 409).
 func Aborted(msg string, cause ...error) *AppError {
 	return newAppError(codes.Aborted, msg, cause)
 }
@@ -165,9 +149,8 @@ var downstreamPassthrough = map[codes.Code]bool{
 	codes.Canceled:         true,
 }
 
-// Public returns what a client may see of err: the unwrapped *AppError for client errors (edges
-// localize it), else a status with a fixed message. logCause reports that err itself should be
-// logged: a server fault, or bad input that only SQL caught.
+// Public returns client errors as their *AppError and anything else with a fixed message; logCause
+// marks server faults and bad input that only SQL caught.
 func Public(err error) (public error, logCause bool) {
 	if err == nil {
 		return nil, false
