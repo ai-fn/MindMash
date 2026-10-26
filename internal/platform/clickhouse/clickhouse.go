@@ -1,7 +1,5 @@
-// Package clickhouse provides a thin clickhouse-go/v2 native client plus a
-// startup migration helper. ClickHouse is MindMesh's analytics mirror: the
-// authoritative review logs live in Postgres, while ClickHouse holds the
-// columnar copy used for sub-second aggregations.
+// Package clickhouse wraps the clickhouse-go native client for the analytics mirror; Postgres
+// stays authoritative.
 package clickhouse
 
 import (
@@ -57,11 +55,8 @@ func New(ctx context.Context, cfg Config) (driver.Conn, error) {
 	return conn, nil
 }
 
-// RunMigrations applies every `*.up.sql` file in migrationsDir (lexically
-// ordered) against the connection. Statements are separated by `;`. All DDL is
-// expected to be idempotent (`IF NOT EXISTS`), so re-running on an already
-// migrated database is a no-op — ClickHouse has no migration-version table and
-// the analytics schema is small and additive.
+// RunMigrations applies every *.up.sql in order with no version table, so all DDL must be
+// idempotent (IF NOT EXISTS).
 func RunMigrations(ctx context.Context, conn driver.Conn, migrationsDir string) error {
 	entries, err := os.ReadDir(migrationsDir)
 	if err != nil {
@@ -88,10 +83,7 @@ func RunMigrations(ctx context.Context, conn driver.Conn, migrationsDir string) 
 	return nil
 }
 
-// splitStatements strips `--` line comments first (which may themselves contain
-// semicolons), then splits the remaining SQL on `;` boundaries, dropping blank
-// statements. The analytics DDL contains no semicolons inside string literals,
-// so a simple split is safe once comments are gone.
+// splitStatements strips -- comments before splitting on ";"; safe while no literal contains ";".
 func splitStatements(script string) []string {
 	var code []string
 	for _, line := range strings.Split(script, "\n") {
