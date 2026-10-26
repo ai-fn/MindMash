@@ -38,9 +38,7 @@ type rowScanner interface {
 	Scan(dest ...any) error
 }
 
-// PostgresRepository implements Repository over the shared Collection
-// Postgres pool (same DB, same `cards`/`decks`/`deck_configs` tables; owns
-// `review_logs`).
+// PostgresRepository shares Collection's tables and owns review_logs.
 type PostgresRepository struct {
 	pool *pgxpool.Pool
 	db   dbtx

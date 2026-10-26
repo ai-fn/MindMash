@@ -50,10 +50,7 @@ func setupIntegration(t *testing.T) integrationComponents {
 	t.Helper()
 	ctx := context.Background()
 
-	// The postgres image restarts its server process after initdb; without an
-	// explicit occurrence count the default wait strategy can report ready
-	// after the first (pre-restart) boot, so the first connection attempt
-	// hits a server that's about to restart ("connection reset by peer").
+	// Postgres restarts after initdb; wait for the second "ready" or the first connect gets reset.
 	pgCtr, err := postgres.Run(ctx, "postgres:18-alpine",
 		postgres.WithDatabase("scheduler_test"),
 		postgres.WithUsername("test"),
@@ -93,10 +90,7 @@ const (
 	testProfileID = "00000000-0000-0000-0000-000000000002"
 )
 
-// ─── Fixtures ────────────────────────────────────────────────────────────────
-// The scheduler shares Collection's tables but owns none of their writers in
-// this test binary, so fixtures are inserted with raw SQL mirroring the
-// migrations/collection schema (note_types, decks, deck_configs, notes, cards).
+// ─── Fixtures (raw SQL: Collection's writers aren't in this binary) ─────────
 
 func insertNoteType(t *testing.T, c integrationComponents) string {
 	t.Helper()
@@ -351,9 +345,7 @@ func TestGetCounts_TimezoneRollover(t *testing.T) {
 	c := setupIntegration(t)
 	ctx := context.Background()
 
-	// Tokyo, rollover at 04:00 local. Choose "now" so that local time is
-	// 02:00 JST — before rollover, so today's study-day actually started
-	// yesterday at 04:00 JST (= yesterday 19:00 UTC).
+	// 02:00 JST is before the 04:00 rollover, so the study day began yesterday 19:00 UTC.
 	cfg := insertDeckConfig(t, c, 20, 1) // rev_per_day = 1
 	_, err := c.pool.Exec(ctx, `UPDATE deck_configs SET timezone = 'Asia/Tokyo', rollover_hour = 4 WHERE user_id = $1 AND id = $2`,
 		testUserID, cfg)

@@ -1,9 +1,5 @@
-// Package scheduler contains the domain layer for the Scheduler service:
-// FSRS-driven study queues, answer processing, interval previews, and manual
-// reschedule actions. It shares the Collection Postgres database and writes
-// the `cards` table's scheduling columns directly (state, queue, due,
-// stability, difficulty, reps, lapses, last_review); Collection owns the
-// structural columns (note_id, deck_id, template_ord) and never resets these.
+// Package scheduler runs FSRS study queues and answers, writing the scheduling columns of
+// Collection's cards table directly; Collection owns the structural ones.
 package scheduler
 
 import (
@@ -13,9 +9,7 @@ import (
 	"github.com/mindmesh/mindmesh/internal/platform/events"
 )
 
-// CardState mirrors the cards.state SMALLINT value used by Collection
-// (internal/collection/domain.go). The wire/proto enum is offset by +1;
-// that mapping lives in the handler, not here.
+// CardState is the stored cards.state SMALLINT; the proto enum is offset by +1 in the handler.
 type CardState int16
 
 const (
@@ -187,9 +181,7 @@ type Repository interface {
 	WriteOutbox(ctx context.Context, entries []events.OutboxEntry) error
 }
 
-// DayStart returns the start of the study "day" for the given IANA timezone
-// and rollover hour (0-23). A review answered before the day's rollover hour
-// counts toward the previous day's quota. Falls back to UTC on an invalid tz.
+// DayStart counts time before the rollover hour toward the previous day; an invalid tz means UTC.
 func DayStart(now time.Time, tz string, rolloverHour int32) time.Time {
 	loc, err := time.LoadLocation(tz)
 	if err != nil {

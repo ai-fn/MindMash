@@ -6,9 +6,7 @@ import (
 	"time"
 )
 
-// TestReviewLogEntry_PayloadContract locks the review.recorded payload shape.
-// The Analytics stats-aggregator consumes these fields by name, so any change
-// here is a cross-service contract break.
+// Analytics consumes these fields by name: changing them breaks it.
 func TestReviewLogEntry_PayloadContract(t *testing.T) {
 	ts := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
 	rl := &ReviewLog{

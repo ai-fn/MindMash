@@ -26,9 +26,7 @@ const (
 	maxAnswerTimeMs = 60_000 // Anki's default cap, so an idle tab doesn't skew time stats
 )
 
-// Service orchestrates the Scheduler domain: study queue assembly, FSRS
-// answer processing, interval previews, today's counts, and manual
-// reschedule actions.
+// Service orchestrates the Scheduler domain.
 type Service struct {
 	repo       Repository
 	collClient collectionv1.CollectionInternalServiceClient
@@ -73,10 +71,8 @@ func remaining(available, perDay, done int32) int32 {
 	return int32(max(0, min(int64(available), int64(perDay)-int64(done))))
 }
 
-// BuildQueue resolves the deck subtree rooted at deckID and pulls due learning
-// cards, then reviews and new cards within what today's review_logs leave of the
-// daily limits, and renders their front HTML via Collection's RenderCards RPC.
-// Fetching reserves nothing: only answers consume the limits.
+// BuildQueue fills learning, then review and new cards within what today's review_logs leave of
+// the daily limits; fetching reserves nothing, only answers consume them.
 func (s *Service) BuildQueue(ctx context.Context, userID, profileID, deckID string, limit int) ([]QueueCard, error) {
 	if err := validate.ID("deck_id", deckID); err != nil {
 		return nil, err
@@ -208,11 +204,8 @@ func (s *Service) Preview(ctx context.Context, userID, cardID string) (fsrs.Inte
 	return engine.Preview(toFSRSInput(c), time.Now().UTC()), nil
 }
 
-// Answer submits a grade for a card: locks the card row, advances its FSRS
-// state, persists the new schedule, appends a review_logs row, and writes
-// the review.recorded outbox entry, all in one transaction. Returns the
-// updated card and the next-answer interval previews. A repeated
-// clientReviewID returns the card's current state without answering again.
+// Answer schedules, logs and emits review.recorded in one transaction; a repeated clientReviewID
+// returns the current state without answering again.
 func (s *Service) Answer(ctx context.Context, userID, profileID, cardID, clientReviewID string, grade Grade, timeMs int32) (*Card, fsrs.IntervalPreview, error) {
 	if err := validate.ID("card_id", cardID); err != nil {
 		return nil, fsrs.IntervalPreview{}, err
