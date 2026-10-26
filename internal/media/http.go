@@ -8,11 +8,8 @@ import (
 	"github.com/mindmesh/mindmesh/internal/platform/auth"
 )
 
-// RegisterDownloadRoute wires GET /v1/media/{media_id} as a custom gateway route
-// that 302-redirects to a short-lived presigned GET URL. grpc-gateway can only
-// return JSON, so serving a redirect requires a hand-registered handler rather
-// than a generated RPC. Identity is already on the request context (the auth
-// middleware wraps this mux).
+// RegisterDownloadRoute hand-registers the 302 to a presigned URL: generated gateway routes only
+// return JSON.
 func RegisterDownloadRoute(mux *runtime.ServeMux, svc *Service) error {
 	return mux.HandlePath("GET", "/v1/media/{media_id}",
 		func(w http.ResponseWriter, r *http.Request, pathParams map[string]string) {

@@ -19,9 +19,7 @@ import (
 	platformevents "github.com/mindmesh/mindmesh/internal/platform/events"
 )
 
-// errBadImage marks a permanent, non-retryable failure to decode an upload
-// declared as an image. Retrying can never succeed, so the worker acks it (the
-// original is still served unprocessed) rather than looping on redelivery.
+// errBadImage is acked, not retried: it can never decode, and the original is still served.
 var errBadImage = errors.New("media: undecodable image")
 
 // jpegQuality is the encode quality for thumbnails without alpha.
@@ -30,10 +28,8 @@ const jpegQuality = 85
 // maxDecodePixels bounds a decode to ~800 MB worst case (progressive JPEG): a tiny file can declare huge dimensions.
 const maxDecodePixels = 50_000_000
 
-// Worker consumes media.uploaded events and produces derived renditions. This
-// slice handles images only (a 256px-longest-edge thumbnail); other kinds are
-// acknowledged as no-ops. The original is always served unprocessed, so a
-// worker failure degrades gracefully rather than blocking uploads.
+// Worker thumbnails images and acks other kinds; the original is always served, so a failure
+// never blocks uploads.
 type Worker struct {
 	repo   *Repo
 	blob   blobStore
@@ -101,9 +97,7 @@ type thumbnail struct {
 	width, height int
 }
 
-// renderThumb downloads the original, decodes it, resizes the longest edge to
-// thumbMaxEdge, and re-encodes. Sources with an alpha channel encode to PNG to
-// preserve transparency; the rest encode to JPEG.
+// renderThumb encodes sources with alpha as PNG to keep transparency, the rest as JPEG.
 func (w *Worker) renderThumb(ctx context.Context, m *Media) (thumbnail, error) {
 	rc, err := w.blob.Download(ctx, w.bucket, m.S3Key)
 	if err != nil {

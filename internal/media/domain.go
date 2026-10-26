@@ -88,9 +88,7 @@ type UploadRequest struct {
 	Kind     string
 }
 
-// ValidateUpload checks the declared mime against the allowlist and the declared
-// size against the per-kind cap, and decodes the hex checksum. It returns a typed
-// InvalidArgument error on any violation.
+// ValidateUpload checks the mime allowlist and per-kind size cap, and decodes the checksum.
 func ValidateUpload(mime, sha256Hex string, bytes int64) (UploadRequest, error) {
 	mime = strings.ToLower(strings.TrimSpace(mime))
 	rule, ok := allowedMime[mime]
