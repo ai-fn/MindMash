@@ -191,11 +191,7 @@ type ObjectInfo struct {
 	ChecksumSHA256 []byte // nil unless the object was stored with a SHA-256 checksum
 }
 
-// Stat issues a HEAD request for bucket/key. It returns found=false (and a nil
-// error) when the object does not exist, so callers can distinguish "absent"
-// from a genuine transport/permission failure. This backs the Media confirm
-// flow, which HEADs a client-uploaded object to verify it landed and to read
-// its size before recording metadata.
+// Stat reports a missing object as found=false with a nil error, apart from real failures.
 func (c *Client) Stat(ctx context.Context, bucket, key string) (ObjectInfo, bool, error) {
 	out, err := c.s3.HeadObject(ctx, &s3.HeadObjectInput{
 		Bucket:       aws.String(bucket),
@@ -227,9 +223,7 @@ func (c *Client) Stat(ctx context.Context, bucket, key string) (ObjectInfo, bool
 	return info, true, nil
 }
 
-// isNotFound reports whether err represents an S3/MinIO "object not found"
-// condition. HeadObject models this as types.NotFound; MinIO and some proxies
-// surface types.NoSuchKey or a bare 404 smithy APIError instead.
+// isNotFound also accepts NoSuchKey and a bare 404, which MinIO and some proxies return.
 func isNotFound(err error) bool {
 	var notFound *types.NotFound
 	var noSuchKey *types.NoSuchKey
@@ -254,9 +248,7 @@ func (c *Client) CheckBucket(ctx context.Context, bucket string) error {
 	return nil
 }
 
-// EnsureBucket creates bucket if it does not already exist.
-// It is safe to call on a bucket that was created by a prior run of the same
-// service or by an operator; "already exists" conditions are silently ignored.
+// EnsureBucket creates bucket unless it exists; "already exists" races are ignored.
 func (c *Client) EnsureBucket(ctx context.Context, bucket string) error {
 	_, err := c.s3.HeadBucket(ctx, &s3.HeadBucketInput{
 		Bucket: aws.String(bucket),
@@ -265,9 +257,7 @@ func (c *Client) EnsureBucket(ctx context.Context, bucket string) error {
 		return nil
 	}
 
-	// HeadBucket returns a generic error that wraps types.NotFound for a
-	// missing bucket; MinIO may return types.NoSuchBucket instead.
-	// Attempt to create when we see either sentinel.
+	// MinIO may return NoSuchBucket instead of NotFound.
 	var notFound *types.NotFound
 	var noSuchBucket *types.NoSuchBucket
 	if !errors.As(err, &notFound) && !errors.As(err, &noSuchBucket) {
