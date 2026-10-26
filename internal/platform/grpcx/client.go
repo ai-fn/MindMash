@@ -44,9 +44,8 @@ func defaultDeadline(ctx context.Context, method string, req, reply any, cc *grp
 	return invoker(ctx, method, req, reply, cc, opts...)
 }
 
-// RetryOn retries Unavailable for the named "pkg.Service" or "[/]pkg.Service/Method" calls.
-// List only idempotent calls: the server may have applied an attempt whose reply was lost.
-// Pass it once: a later default service config replaces this one.
+// RetryOn retries Unavailable on "pkg.Service" or "pkg.Service/Method"; list only idempotent calls
+// (a lost reply may hide an applied attempt), and pass it once, as a later service config replaces it.
 func RetryOn(names ...string) grpc.DialOption {
 	if len(names) == 0 {
 		return grpc.EmptyDialOption{}
