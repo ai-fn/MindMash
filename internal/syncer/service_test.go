@@ -408,23 +408,13 @@ func TestPageTokenRoundTrip(t *testing.T) {
 	}
 }
 
-func TestDecodePageToken_AcceptsV1(t *testing.T) {
-	v1 := base64.RawURLEncoding.EncodeToString([]byte(`{"note":7,"card":12}`))
-	got, _, err := decodePageToken(v1)
-	if err != nil {
-		t.Fatalf("decodePageToken(v1): %v", err)
-	}
-	if got[EntityNote] != (Cursor{USN: 7}) || got[EntityCard] != (Cursor{USN: 12}) {
-		t.Fatalf("want v1 usns resumed after their whole usn, got %+v", got)
-	}
-}
-
 func TestDecodePageToken_RejectsForgedCursors(t *testing.T) {
 	for name, raw := range map[string]string{
 		"non-uuid id":  `{"v":2,"c":{"note":{"u":1,"i":"zzz"}}}`,
 		"negative usn": `{"v":2,"c":{"card":{"u":-1}}}`,
 		"unknown v":    `{"v":3,"c":{}}`,
 		"negative l":   `{"v":2,"c":{},"l":-1}`,
+		"unversioned":  `{"note":7,"card":12}`,
 	} {
 		if _, _, err := decodePageToken(base64.RawURLEncoding.EncodeToString([]byte(raw))); err == nil {
 			t.Errorf("%s: want error", name)

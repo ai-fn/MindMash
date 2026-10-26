@@ -266,24 +266,17 @@ func decodePageToken(token string) (Cursors, int64, error) {
 		return nil, 0, err
 	}
 	var pt pageToken
-	if err := json.Unmarshal(b, &pt); err == nil && pt.V == pageTokenVersion {
-		if pt.L < 0 {
-			return nil, 0, errors.New("negative latest_usn")
-		}
-		c, err := validCursors(pt.C)
-		return c, pt.L, err
-	}
-	// v1 tokens ({type: usn}) predate keyset cursors; resume them after their whole usn.
-	var v1 map[string]int64
-	if err := json.Unmarshal(b, &v1); err != nil {
+	if err := json.Unmarshal(b, &pt); err != nil {
 		return nil, 0, err
 	}
-	c := make(Cursors, len(v1))
-	for k, usn := range v1 {
-		c[k] = Cursor{USN: usn}
+	if pt.V != pageTokenVersion {
+		return nil, 0, fmt.Errorf("unsupported page_token version %d", pt.V)
 	}
-	c, err = validCursors(c)
-	return c, 0, err
+	if pt.L < 0 {
+		return nil, 0, errors.New("negative latest_usn")
+	}
+	c, err := validCursors(pt.C)
+	return c, pt.L, err
 }
 
 // ─── Realtime notifier pub/sub ──────────────────────────────────────────────
