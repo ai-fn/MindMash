@@ -225,9 +225,7 @@ func TestClozeRendering(t *testing.T) {
 			want:   "shown [...]",
 		},
 		{
-			// Non-greedy match: answer="out{{c2", hint="in", consuming through the
-			// first "}}"; the remaining "}}" is left as literal text. Back reveals
-			// the answer, so "out{{c2" + trailing "}}".
+			// Non-greedy: answer="out{{c2", hint="in", and the second "}}" stays literal.
 			name:   "nested braces match first close (documents current behavior)",
 			tmpl:   "{{cloze:Text}}",
 			fields: map[string]string{"Text": "{{c1::out{{c2::in}}}}"},

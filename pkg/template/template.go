@@ -1,21 +1,5 @@
-// Package template implements a Mustache-like card template engine for MindMesh
-// flashcards. It renders HTML/CSS only via pure string substitution and NEVER
-// executes or evaluates any code: card JavaScript is run client-side in a
-// sandboxed iframe (see spec 09), so the server only does literal templating.
-//
-// Field values are passed through verbatim. The engine does not escape, sanitize,
-// or otherwise transform field content (HTML in fields is intentional);
-// sanitization and CSP happen at the client iframe layer.
-//
-// Supported constructs:
-//
-//	{{FieldName}}            field substitution (unknown field -> "")
-//	{{#FieldName}}...{{/FieldName}}   section, rendered iff field is non-empty
-//	{{^FieldName}}...{{/FieldName}}   inverted section, rendered iff field is empty/absent
-//	{{FrontSide}}            substituted with the already-rendered front side (Opts.FrontSide)
-//	{{cloze:FieldName}}      cloze rendering of the named field (see cloze.go)
-//
-// The package is pure: no I/O, no globals, no mutable shared state.
+// Package template renders {{Field}}, {{#F}}/{{^F}} sections, {{FrontSide}} and {{cloze:F}} by pure
+// substitution. Fields pass through unescaped: the client's sandboxed iframe sanitizes and runs JS.
 package template
 
 import (
@@ -79,9 +63,7 @@ const (
 	closeTag = "}}"
 )
 
-// parse consumes nodes from src until it reaches a closing tag for stopTag
-// (when stopTag != "") or the end of input (when stopTag == ""). It returns the
-// parsed nodes and any remaining input after the consumed close tag.
+// parse reads until stopTag's close tag (or EOF when stopTag is "") and returns the rest of src.
 func parse(src, stopTag string) ([]node, string, error) {
 	var nodes []node
 	for {
