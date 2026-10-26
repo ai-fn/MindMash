@@ -16,14 +16,11 @@ import (
 )
 
 const (
-	// AliasName lets a mapping change roll in a new concrete index without an in-place reindex.
+	// AliasName lets a mapping change roll in a new concrete index behind it.
 	AliasName = "cards"
 
 	// currentIndex is bumped on every mapping change; boot points the alias at it.
 	currentIndex = "cards-v2"
-
-	// legacyIndex is the pre-alias index, copied into currentIndex when no alias exists yet.
-	legacyIndex = "cards-v1"
 
 	// templateName is the index-template name; its index_patterns match every
 	// cards-v* concrete index so each rolls up with the same base mapping.
@@ -160,8 +157,8 @@ func templateBody() map[string]any {
 	}
 }
 
-// EnsureIndex is a no-op once the alias exists; otherwise it points the alias at currentIndex, first
-// creating it and copying in cards-v1 if present, so search doesn't regress across the cutover.
+// EnsureIndex is a no-op once the alias exists; otherwise it creates currentIndex if needed and
+// points the alias at it.
 func (r *Repo) EnsureIndex(ctx context.Context) error {
 	if err := r.ensureTemplate(ctx); err != nil {
 		return err
@@ -181,16 +178,6 @@ func (r *Repo) EnsureIndex(ctx context.Context) error {
 	if !currentExists {
 		if err := r.createIndex(ctx, currentIndex); err != nil {
 			return err
-		}
-		// Per-language fields aren't in the legacy index; the forward path and backfill fill them.
-		legacyExists, err := r.resourceExists(ctx, legacyIndex)
-		if err != nil {
-			return err
-		}
-		if legacyExists {
-			if err := r.Reindex(ctx, legacyIndex, currentIndex); err != nil {
-				return err
-			}
 		}
 	}
 	return r.pointAlias(ctx, AliasName, currentIndex)
@@ -247,22 +234,6 @@ func (r *Repo) pointAlias(ctx context.Context, alias, index string) error {
 	}
 	if _, err := r.client.Aliases(ctx, opensearchapi.AliasesReq{Body: bytes.NewReader(body)}); err != nil {
 		return fmt.Errorf("search: point alias %s->%s: %w", alias, index, err)
-	}
-	return nil
-}
-
-// Reindex runs synchronously (the alias is pointed after) and keeps external versions, so later
-// external_gte upserts stay monotonic.
-func (r *Repo) Reindex(ctx context.Context, src, dst string) error {
-	body, err := json.Marshal(map[string]any{
-		"source": map[string]any{"index": src},
-		"dest":   map[string]any{"index": dst, "version_type": "external"},
-	})
-	if err != nil {
-		return fmt.Errorf("search: marshal reindex: %w", err)
-	}
-	if _, err := r.client.Reindex(ctx, opensearchapi.ReindexReq{Body: bytes.NewReader(body)}); err != nil {
-		return fmt.Errorf("search: reindex %s->%s: %w", src, dst, err)
 	}
 	return nil
 }

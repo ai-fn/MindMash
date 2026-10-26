@@ -44,8 +44,7 @@ const (
 
 // ─── Container / harness setup ────────────────────────────────────────────────
 
-// setupOpenSearch starts an OpenSearch container (security disabled) and returns
-// a Repo with the cards-v1 template installed.
+// setupOpenSearch starts an OpenSearch container (security disabled) with the index bootstrapped.
 func setupOpenSearch(t *testing.T) *Repo {
 	t.Helper()
 	ctx := context.Background()

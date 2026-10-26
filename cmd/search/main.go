@@ -24,15 +24,13 @@ import (
 )
 
 func main() {
-	// --backfill reindexes the given users (fills per-language buckets on old cards) and exits.
+	// --backfill re-indexes the given users from Collection and exits.
 	backfill := flag.String("backfill", "", "comma-separated user ids to reindex, then exit")
 	flag.Parse()
 	app.Main("search", func(ctx context.Context, a *app.App) error { return setup(ctx, a, *backfill) })
 }
 
 func setup(ctx context.Context, a *app.App, backfill string) error {
-	// OpenSearch repo + index/alias bootstrap (template, current index, alias, and
-	// a one-time reindex from a pre-alias cards-v1 index if present).
 	repo, err := search.NewRepo(search.LoadRepoConfig())
 	if err != nil {
 		return fmt.Errorf("init opensearch: %w", err)
