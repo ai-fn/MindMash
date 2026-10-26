@@ -476,7 +476,7 @@ func (s *Service) applyDeckConfigDelete(ctx context.Context, m Mutation) (ApplyR
 }
 
 // applyFilteredDeckDelete has no staleness check: Collection ignores expected_usn here and has no
-// Get RPC, but filtered decks are immutable, so a delete has nothing to race. NotFound is success.
+// Get RPC, but filtered decks are immutable, so a delete has nothing to race; Aborted is future-proofing.
 func (s *Service) applyFilteredDeckDelete(ctx context.Context, _ string, m Mutation) (ApplyResult, bool) {
 	_, err := s.coll.DeleteFilteredDeck(ctx, &collectionv1.DeleteFilteredDeckRequest{Id: m.EntityID, ExpectedUsn: m.BaseUSN})
 	if err != nil {

@@ -28,7 +28,8 @@ const (
 	deckFrench   = "deck-french"
 )
 
-// Tests drive Aggregator.HandleBatch directly; the Kafka transport is covered by the events tests.
+// setupClickHouseConn starts ClickHouse with the analytics schema. Tests call HandleBatch directly;
+// the Kafka transport is covered by the events tests.
 func setupClickHouseConn(t *testing.T) (chdriver.Conn, context.Context) {
 	t.Helper()
 	ctx := context.Background()

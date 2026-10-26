@@ -160,7 +160,7 @@ type Repository interface {
 
 	// GetAppliedOp returns (nil, nil) for an op_id never applied.
 	GetAppliedOp(ctx context.Context, userID, opID string) (*AppliedOp, error)
-	// RecordAppliedOp must never see an Aborted outcome, or a retry would replay a race instead of resolving it.
+	// RecordAppliedOp must not get a codes.Aborted failure, or a retry would replay the race, not re-resolve it.
 	RecordAppliedOp(ctx context.Context, userID, opID string, outcome ApplyOutcome, newUSN int64) error
 }
 
@@ -246,7 +246,7 @@ type Mutation struct {
 	DeckConfig *DeckConfigPayload // DECK_CONFIG_UPDATE only
 }
 
-// ApplyResult carries at most one entity, its post-apply state; none for deletes and failures.
+// ApplyResult carries at most one entity, in its current state after the op; none for deletes and failures.
 type ApplyResult struct {
 	OpID    string
 	Outcome ApplyOutcome

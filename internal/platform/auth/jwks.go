@@ -32,7 +32,7 @@ var jwksRefreshFailures = promauto.NewCounter(prometheus.CounterOpts{
 })
 
 // RemoteVerifier keeps its cached JWKS keys through an Identity outage, so revoking a key needs
-// Identity reachable.
+// Identity reachable. Safe for concurrent use.
 type RemoteVerifier struct {
 	jwksURL string
 	issuer  string

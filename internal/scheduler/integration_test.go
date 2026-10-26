@@ -345,7 +345,6 @@ func TestGetCounts_TimezoneRollover(t *testing.T) {
 	c := setupIntegration(t)
 	ctx := context.Background()
 
-	// 02:00 JST is before the 04:00 rollover, so the study day began yesterday 19:00 UTC.
 	cfg := insertDeckConfig(t, c, 20, 1) // rev_per_day = 1
 	_, err := c.pool.Exec(ctx, `UPDATE deck_configs SET timezone = 'Asia/Tokyo', rollover_hour = 4 WHERE user_id = $1 AND id = $2`,
 		testUserID, cfg)

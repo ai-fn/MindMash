@@ -26,7 +26,8 @@ import (
 	"github.com/mindmesh/mindmesh/internal/platform/ids"
 )
 
-// errTokenReuse rolls the Refresh tx back so the family can then be revoked on the pool.
+// errTokenReuse carries reuse detection out of the Refresh tx; the family is revoked after it, as a
+// revoke inside would roll back too.
 var errTokenReuse = errors.New("token reuse detected")
 
 const (

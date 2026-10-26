@@ -934,7 +934,7 @@ func (r *PostgresRepository) WriteTombstones(ctx context.Context, userID, typ st
 const tombstoneChunk = 5000
 
 // tombstoneInsert uses multi-row VALUES, which Citus router-plans (unnest goes via the coordinator);
-// excluded.deleted_at because DO UPDATE SET allows only IMMUTABLE functions.
+// excluded.deleted_at because Citus allows only IMMUTABLE functions in DO UPDATE SET.
 func tombstoneInsert(userID, typ string, usn int64, ids []string) (string, []any) {
 	var b strings.Builder
 	b.WriteString(`INSERT INTO tombstones (user_id, type, id, usn) VALUES `)

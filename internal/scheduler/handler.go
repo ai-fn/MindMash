@@ -28,7 +28,7 @@ func identity(ctx context.Context) (auth.IdentityContext, error) {
 }
 
 // ─── Proto ↔ domain enum mappers ─────────────────────────────────────────────
-// Proto reserves 0 for UNSPECIFIED, so CardState and Grade are offset by +1; RescheduleAction isn't.
+// Proto reserves 0 for UNSPECIFIED: CardState is offset by +1; Grade and RescheduleAction start at 1 in both.
 
 func cardStateToProto(s CardState) schedulerv1.CardState {
 	return schedulerv1.CardState(s + 1)

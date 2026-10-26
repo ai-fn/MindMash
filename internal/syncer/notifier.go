@@ -25,7 +25,7 @@ func RunNotifier(ctx context.Context, consumer events.Consumer, svc *Service, lo
 	return consumer.Subscribe(ctx, notifyTopics, func(ctx context.Context, msg events.Message) error {
 		var p userIDPayload
 		if err := json.Unmarshal(msg.Value, &p); err != nil {
-			// Ack: a message that never parses would block the topic forever.
+			// Ack: retrying can't fix a malformed payload, so skip the retries and the DLQ entry.
 			log.Warn("sync: notifier: unmarshal payload", zap.String("topic", msg.Topic), zap.Error(err))
 			return nil
 		}

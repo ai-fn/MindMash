@@ -160,8 +160,8 @@ func templateBody() map[string]any {
 	}
 }
 
-// EnsureIndex upserts the template, creates currentIndex and swaps the alias in one atomic action,
-// so search never regresses across a cutover. Safe on every boot.
+// EnsureIndex is a no-op once the alias exists; otherwise it points the alias at currentIndex, first
+// creating it and copying in cards-v1 if present, so search doesn't regress across the cutover.
 func (r *Repo) EnsureIndex(ctx context.Context) error {
 	if err := r.ensureTemplate(ctx); err != nil {
 		return err
@@ -251,7 +251,8 @@ func (r *Repo) pointAlias(ctx context.Context, alias, index string) error {
 	return nil
 }
 
-// Reindex keeps each doc's external version, so later external_gte upserts stay monotonic.
+// Reindex runs synchronously (the alias is pointed after) and keeps external versions, so later
+// external_gte upserts stay monotonic.
 func (r *Repo) Reindex(ctx context.Context, src, dst string) error {
 	body, err := json.Marshal(map[string]any{
 		"source": map[string]any{"index": src},

@@ -264,8 +264,8 @@ func NewConsumer(cfg Config, log *zap.Logger) (*KafkaConsumer, error) {
 	}, nil
 }
 
-// Subscribe retries a failing message in place (keeping key order), then dead-letters it to
-// "<topic>.dlq", committing only after one succeeds. Pass all topics in one call: one reader.
+// Subscribe blocks until ctx is done or a read fails; a failing message is retried, then dead-lettered to "<topic>.dlq".
+// Each attempt is bounded by HandlerTimeout, so handlers must honor ctx; pass all topics in one call.
 func (c *KafkaConsumer) Subscribe(ctx context.Context, topics []string, handler func(ctx context.Context, msg Message) error) (retErr error) {
 	r, closeReader, err := c.open(ctx, topics)
 	if err != nil || r == nil {
@@ -616,7 +616,7 @@ type OutboxEntry struct {
 // the shard key and the Kafka partition key that keeps a user's events ordered.
 func WriteOutbox(ctx context.Context, tx pgx.Tx, entries []OutboxEntry) error {
 	for _, e := range entries {
-		// Otherwise it surfaces as an opaque invalid-UUID error mid-transaction.
+		// Fail fast: it would otherwise surface as an opaque invalid-UUID error mid-transaction.
 		if e.UserID == "" {
 			return fmt.Errorf("events: write outbox entry %s: user_id is required", e.ID)
 		}
