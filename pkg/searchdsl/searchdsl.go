@@ -1,7 +1,5 @@
-// Package searchdsl parses the Anki-like card/note search query language into a
-// boolean AST. The AST is the package's public contract; translating it into a
-// concrete backend query (e.g. OpenSearch) is the caller's responsibility, so
-// the parser stays pure and independently testable.
+// Package searchdsl parses the Anki-like search language into a boolean AST; callers translate it
+// to a backend query.
 package searchdsl
 
 import (
@@ -15,9 +13,8 @@ import (
 // (And, Or, Not) over child nodes.
 type Node interface{ node() }
 
-// Term is a single search clause. Field is the token prefix before the first
-// colon ("deck", "tag", ...) or empty for a bare full-text term. Value is the
-// remainder (which may itself contain colons, e.g. a nested deck path).
+// Term splits at the first colon only, so Value may hold more (a nested deck path); Field "" is
+// full-text.
 type Term struct {
 	Field string
 	Value string
@@ -46,9 +43,7 @@ type Not struct {
 
 func (Not) node() {}
 
-// Or is a disjunction: any child may match. The "OR" keyword (case-insensitive)
-// separates Or branches and binds looser than implicit AND, so "a b OR c"
-// parses as (a AND b) OR c.
+// Or binds looser than implicit AND: "a b OR c" is (a AND b) OR c.
 type Or struct {
 	Children []Node
 }
@@ -120,9 +115,7 @@ func parseToken(s string) (Node, error) {
 	return parseClause(s)
 }
 
-// tokenize splits the input on whitespace, except whitespace inside double
-// quotes, which is preserved so a quoted phrase stays a single token. The quote
-// characters are kept in the token; parseClause interprets and strips them.
+// tokenize keeps a quoted phrase as one token, quotes included; parseClause strips them.
 func tokenize(s string) []string {
 	var toks []string
 	var b strings.Builder
@@ -148,11 +141,7 @@ func tokenize(s string) []string {
 	return toks
 }
 
-// parseClause parses a single token into a leaf Node. A field prefix is split
-// off at the first colon, unless the token is itself a quoted phrase. A "prop:"
-// clause becomes a Prop comparison; a double-quoted value (bare or after a field
-// prefix) becomes a Phrase Term with the quotes stripped; everything else is a
-// plain Term.
+// parseClause doesn't split a quoted phrase at its colons.
 func parseClause(s string) (Node, error) {
 	field, value := "", s
 	if !strings.HasPrefix(s, `"`) {
