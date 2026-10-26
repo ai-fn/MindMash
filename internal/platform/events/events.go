@@ -51,9 +51,7 @@ const (
 	defaultHandlerTimeout     = 30 * time.Second
 )
 
-// LoadConfig reads Kafka configuration from environment variables.
-// It returns an error when KAFKA_BROKERS is explicitly set to an empty string,
-// resulting in no usable broker addresses.
+// LoadConfig rejects a KAFKA_BROKERS that is set but empty.
 func LoadConfig() (Config, error) {
 	brokers := []string{"localhost:9092"}
 	if v, ok := os.LookupEnv("KAFKA_BROKERS"); ok {
@@ -266,17 +264,8 @@ func NewConsumer(cfg Config, log *zap.Logger) (*KafkaConsumer, error) {
 	}, nil
 }
 
-// Subscribe starts a blocking read loop over topics, calling handler for each
-// message. A failing message is retried in place with backoff (keeping per-key
-// order), then dead-lettered to "<topic>.dlq"; its offset is committed only after
-// one of those succeeds. Each attempt is bounded by HandlerTimeout, so handlers
-// must honor ctx. The loop exits when ctx is cancelled or a fatal read error occurs.
-//
-// A single topic uses kafka-go's plain Topic field; two or more use
-// GroupTopics, which makes one Reader (one consumer-group member, one set of
-// broker connections) consume all of them — callers needing several topics
-// should pass them all in one Subscribe call rather than calling Subscribe
-// once per topic, which would open a redundant reader per topic.
+// Subscribe retries a failing message in place (keeping key order), then dead-letters it to
+// "<topic>.dlq", committing only after one succeeds. Pass all topics in one call: one reader.
 func (c *KafkaConsumer) Subscribe(ctx context.Context, topics []string, handler func(ctx context.Context, msg Message) error) (retErr error) {
 	r, closeReader, err := c.open(ctx, topics)
 	if err != nil || r == nil {
@@ -314,9 +303,8 @@ type BatchOptions struct {
 	Wait time.Duration
 }
 
-// SubscribeBatch is Subscribe for handlers that work in bulk (e.g. one ClickHouse insert per batch).
-// The batch is committed once handler accepts it. A batch that keeps failing is replayed message by
-// message with Subscribe's retry and dead-letter rules, so one bad message doesn't sink the rest.
+// SubscribeBatch replays a batch that keeps failing one message at a time under Subscribe's retry
+// and dead-letter rules, so one bad message doesn't sink the rest.
 func (c *KafkaConsumer) SubscribeBatch(ctx context.Context, topics []string, opts BatchOptions, handler func(ctx context.Context, msgs []Message) error) (retErr error) {
 	if opts.Size < 1 {
 		return fmt.Errorf("events: subscribe batch: size must be positive")
@@ -624,16 +612,11 @@ type OutboxEntry struct {
 	CreatedAt     time.Time
 }
 
-// WriteOutbox inserts outbox entries into the outbox table within an existing
-// transaction. Using the caller's tx keeps the domain write and the outbox
-// append atomic, which is the core guarantee of the transactional outbox pattern.
-// user_id is required: the outbox is sharded by it and the relay uses it as the
-// Kafka partition key so a user's events stay ordered.
+// WriteOutbox appends in the caller's tx, atomic with the domain write. user_id is required: it is
+// the shard key and the Kafka partition key that keeps a user's events ordered.
 func WriteOutbox(ctx context.Context, tx pgx.Tx, entries []OutboxEntry) error {
 	for _, e := range entries {
-		// user_id is the shard key + Kafka partition key; an empty value would
-		// otherwise surface only as an opaque invalid-UUID error mid-transaction
-		// and break per-user event ordering. Fail fast and clearly instead.
+		// Otherwise it surfaces as an opaque invalid-UUID error mid-transaction.
 		if e.UserID == "" {
 			return fmt.Errorf("events: write outbox entry %s: user_id is required", e.ID)
 		}
