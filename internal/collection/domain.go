@@ -1,7 +1,5 @@
-// Package collection contains the domain layer for the Collection service:
-// note types (schema + templates + CSS), notes, generated cards, decks, deck
-// configs, filtered decks, and tags. All data is tenant-scoped by user_id
-// (the Citus shard key) and versioned with a per-user USN for sync.
+// Package collection owns note types, notes, cards, decks, deck configs, filtered decks and tags,
+// all scoped by user_id and versioned with a per-user USN.
 package collection
 
 import (
@@ -11,9 +9,7 @@ import (
 	"github.com/mindmesh/mindmesh/internal/platform/events"
 )
 
-// CardState is the FSRS scheduling state of a card, stored as the schema
-// SMALLINT value. The wire/proto enum is offset by +1; that mapping lives in
-// the handler, not here.
+// CardState is the stored SMALLINT; the proto enum is offset by +1 in the handler.
 type CardState int16
 
 const (
@@ -42,9 +38,7 @@ type Field struct {
 	Name   string `json:"name"`
 	Sticky bool   `json:"sticky"` // persist value across successive note creates
 	RTL    bool   `json:"rtl"`    // render right-to-left
-	// Language is an optional BCP-47-ish language tag (e.g. "en", "ru", "zh") that
-	// selects the OpenSearch analyzer for this field's text at index time. Empty
-	// means language-agnostic (indexed only under the standard analyzer).
+	// Language ("en", "ru", "zh") picks the search analyzer; empty means standard only.
 	Language string `json:"language,omitempty"`
 }
 
@@ -97,10 +91,7 @@ type Note struct {
 	Mtime      time.Time
 }
 
-// Card is the schedulable unit, always a child of a Note. Scheduling fields
-// (State, Queue, Due, Stability, Difficulty, Reps, Lapses, LastReview) are
-// owned by the Scheduler service; Collection only sets defaults at generation
-// and never resets them on note edits.
+// Card's scheduling fields belong to Scheduler; Collection only sets defaults at generation.
 type Card struct {
 	ID          string
 	UserID      string
@@ -203,12 +194,8 @@ type Page struct {
 
 // ─── Repository ─────────────────────────────────────────────────────────────
 
-// Repository defines all persistent-storage operations for the Collection
-// domain. Every method is tenant-scoped by userID. Single-entity reads return
-// errors.NotFound when absent; unique-constraint violations surface as
-// errors.AlreadyExists; FK RESTRICT violations on delete surface as
-// errors.FailedPrecondition. List methods use keyset pagination by id ascending
-// and return the next page token ("" when exhausted).
+// Repository maps a missing row to apperr.NotFound, a unique violation to AlreadyExists and an
+// FK RESTRICT on delete to FailedPrecondition. Lists are keyset by id; "" means exhausted.
 type Repository interface {
 	// WithTx runs fn inside a single transaction; the Repository passed to fn is
 	// scoped to that tx. Callers must not use the outer repository inside fn.
@@ -242,9 +229,7 @@ type Repository interface {
 	GetCardsByIDs(ctx context.Context, userID string, ids []string) ([]Card, error)
 	ListCardsByNote(ctx context.Context, userID, noteID string) ([]Card, error)
 	DeleteCardsByNote(ctx context.Context, userID, noteID string) ([]Card, error)
-	// ListCardIDs returns all card ids for the user (keyset). Query-based
-	// selection is owned by the Search service (spec 05) and is not implemented
-	// here; the service rejects non-empty queries with Unimplemented.
+	// ListCardIDs takes no query: query-based selection belongs to Search.
 	ListCardIDs(ctx context.Context, userID string, page Page) (ids []string, next string, err error)
 	// GetSearchDocs resolves the selector into denormalized card documents for
 	// the Search indexer (card+note+deck joined, shard-local).
@@ -280,9 +265,7 @@ type Repository interface {
 	// WriteTombstones records hard deletes for the Sync service.
 	WriteTombstones(ctx context.Context, userID, typ string, usn int64, ids ...string) error
 
-	// WriteOutbox appends outbox entries to the outbox table within the current
-	// transaction. Must be called inside a WithTx callback — calling it on the
-	// pool-backed repository panics.
+	// WriteOutbox panics outside WithTx.
 	WriteOutbox(ctx context.Context, entries []events.OutboxEntry) error
 
 	// ── Bulk operations (scoped by userID, batched by card-id set) ──

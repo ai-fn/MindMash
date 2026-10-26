@@ -14,28 +14,14 @@ var clozeTagRe = regexp.MustCompile(`\{\{\s*cloze:`)
 
 func containsCloze(s string) bool { return clozeTagRe.MatchString(s) }
 
-// CardDiff is the set of card mutations needed to make a note's cards exactly
-// match the cards its note type + fields should produce. Cards for ordinals
-// that already exist and are still wanted are absent from both lists — their
-// scheduling state is left untouched.
+// CardDiff omits cards that exist and are still wanted, so their scheduling state survives.
 type CardDiff struct {
 	ToCreate []Card // new cards with FSRS defaults (usn/mtime unset — service stamps)
 	ToDelete []Card // existing cards whose ordinal is no longer produced
 }
 
-// GenerateCardDiff computes the create/delete card set for a note.
-//
-// Card generation is diff-based and never resets existing cards:
-//   - Cloze note types produce one card per distinct {{cN::}} index in the
-//     note's fields; the card's TemplateOrd is N-1 (cloze indices are 1-based).
-//   - Standard note types produce one card per template whose FRONT renders to
-//     non-empty content for this note (Anki-style conditional generation), so a
-//     Basic+Reversed note with an empty reverse field yields a single card.
-//
-// New cards get id from newID() and inherit user/profile from the note and the
-// given deckID, with new-card FSRS defaults (State=StateNew, Queue=0, nil
-// scheduling, zero reps/lapses). USN and Mtime are left zero for the service to
-// stamp inside the write transaction.
+// GenerateCardDiff yields one card per cloze index (ord N-1), or per template whose front renders
+// non-empty (Anki-style). USN and Mtime are left for the write transaction to stamp.
 func GenerateCardDiff(nt *NoteType, note *Note, existing []Card, deckID string, newID func() string) (CardDiff, error) {
 	desired, err := desiredOrdinals(nt, note)
 	if err != nil {
@@ -74,10 +60,7 @@ func GenerateCardDiff(nt *NoteType, note *Note, existing []Card, deckID string, 
 	return diff, nil
 }
 
-// maxTemplateOrd bounds a card's template ordinal to the cards.template_ord
-// SMALLINT range. Cloze indices come from user-authored note text, so an absurd
-// {{cN::}} index is rejected here rather than silently wrapping on the int16
-// write (which would corrupt or collide template ordinals).
+// maxTemplateOrd is the SMALLINT bound: a user-typed {{c99999::}} must fail, not wrap and collide.
 const maxTemplateOrd = 32767
 
 // desiredOrdinals returns the set of 0-based card ordinals the note should have.

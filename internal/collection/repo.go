@@ -18,9 +18,7 @@ import (
 	"github.com/mindmesh/mindmesh/internal/platform/usn"
 )
 
-// Pagination bounds and the keyset sentinel. An empty page token means "from the
-// start"; we translate it to the all-zero UUID so the `id > $token` predicate is
-// uniform whether or not a cursor was supplied.
+// An empty page token becomes the zero UUID, so `id > $token` also covers the first page.
 const (
 	defaultPageSize = 50
 	maxPageSize     = 200
@@ -96,9 +94,7 @@ func isUniqueViolation(err error) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
-// isForeignKeyViolation reports whether err is a Postgres foreign-key
-// constraint violation, raised when an ON DELETE RESTRICT child still
-// references the row being deleted.
+// isForeignKeyViolation catches an ON DELETE RESTRICT child still referencing the row.
 func isForeignKeyViolation(err error) bool {
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) {
@@ -515,11 +511,8 @@ func (r *PostgresRepository) ListCardIDs(ctx context.Context, userID string, pag
 	return paginate(ids, limit, func(id string) string { return id })
 }
 
-// GetSearchDocs joins cards to their owning note and deck and assembles the
-// denormalized documents the Search indexer consumes. Exactly one selector list
-// must be non-empty; an empty selector returns no docs. deck_ids expands to the
-// deck subtree (path <@ root.path) so a parent rename reindexes every descendant.
-// Pages are keyset by card id and cut early once searchDocPageBytes is reached.
+// GetSearchDocs expands deck_ids to the subtree, so a parent rename reindexes every descendant.
+// Pages are keyset by card id and cut early at searchDocPageBytes.
 func (r *PostgresRepository) GetSearchDocs(ctx context.Context, userID string, sel SearchDocSelector, page Page) ([]SearchDoc, string, error) {
 	var pred string
 	var arg any
@@ -538,13 +531,8 @@ func (r *PostgresRepository) GetSearchDocs(ctx context.Context, userID string, s
 	}
 	token, limit := pageBounds(page)
 
-	// deck_path is the human-readable name path ("Parent::Child"), not the
-	// internal ltree id-path: the Search service's `deck:` token matches by name
-	// and a deck rename must change it (which is why deck.updated reindexes the
-	// subtree). It is assembled from the deck's ltree ancestors, ordered root→leaf.
-	// nt.fields carries the note type's field descriptors so per-field language tags
-	// reach the SearchDoc (for per-language search analyzers); nt.fields is never
-	// null (note types always define their fields), so an INNER join is safe.
+	// deck_path is the name path ("Parent::Child"), since `deck:` matches by name; nt.fields is
+	// never null, so the INNER join is safe.
 	rows, err := r.db.Query(ctx, `
 		SELECT c.id, c.user_id, c.profile_id, c.note_id, c.deck_id, c.template_ord,
 		       c.state, c.queue, c.due, c.reps, c.lapses, c.last_review, c.usn,
@@ -945,9 +933,8 @@ func (r *PostgresRepository) WriteTombstones(ctx context.Context, userID, typ st
 // tombstoneChunk keeps one INSERT's parameters well under Postgres' 65535 limit.
 const tombstoneChunk = 5000
 
-// tombstoneInsert builds a multi-row VALUES upsert, which Citus router-plans (INSERT ... SELECT
-// FROM unnest would go through the coordinator). excluded.deleted_at, not now(): Citus only
-// allows IMMUTABLE functions in DO UPDATE SET.
+// tombstoneInsert uses multi-row VALUES, which Citus router-plans (unnest goes via the coordinator);
+// excluded.deleted_at because DO UPDATE SET allows only IMMUTABLE functions.
 func tombstoneInsert(userID, typ string, usn int64, ids []string) (string, []any) {
 	var b strings.Builder
 	b.WriteString(`INSERT INTO tombstones (user_id, type, id, usn) VALUES `)
@@ -1047,9 +1034,7 @@ func (r *PostgresRepository) SetFlagOnNotesOfCards(ctx context.Context, userID s
 	return collectIDs(rows, "set flag on notes of cards")
 }
 
-// WriteOutbox appends outbox entries to the outbox table within the current
-// transaction. It panics if called on a pool-backed repository (i.e. outside
-// a WithTx callback), because the atomicity guarantee requires a tx.
+// WriteOutbox panics outside WithTx: the outbox is only atomic inside the write's transaction.
 func (r *PostgresRepository) WriteOutbox(ctx context.Context, entries []events.OutboxEntry) error {
 	tx, ok := r.db.(pgx.Tx)
 	if !ok {

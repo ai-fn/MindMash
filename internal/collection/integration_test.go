@@ -36,10 +36,7 @@ func setupIntegrationOn(t *testing.T, image string, citus bool) integrationCompo
 	t.Helper()
 	ctx := context.Background()
 
-	// The postgres image restarts its server process after initdb; without an
-	// explicit occurrence count the default wait strategy can report ready
-	// after the first (pre-restart) boot, so the first connection attempt
-	// hits a server that's about to restart ("connection reset by peer").
+	// Postgres restarts after initdb; wait for the second "ready" or the first connect gets reset.
 	pgCtr, err := postgres.Run(ctx, image,
 		postgres.WithDatabase("collection_test"),
 		postgres.WithUsername("test"),

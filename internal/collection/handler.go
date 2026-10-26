@@ -26,10 +26,7 @@ func NewHandler(svc *Service) *Handler {
 	return &Handler{svc: svc}
 }
 
-// InternalHandler implements the CollectionInternalService gRPC interface.
-// It is kept separate from Handler because both NoteService and
-// CollectionInternalService define a GetNote method with different signatures;
-// Go does not allow two methods with the same name on one struct.
+// InternalHandler is separate from Handler: both services define GetNote, with different signatures.
 type InternalHandler struct {
 	collectionv1.UnimplementedCollectionInternalServiceServer
 	svc *Service
