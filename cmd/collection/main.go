@@ -1,6 +1,5 @@
-// Command collection runs the MindMesh Collection service: gRPC (internal) plus
-// a grpc-gateway REST edge, with health, metrics, JWKS JWT auth, migrations,
-// and an outbox relay goroutine.
+// Command collection runs the MindMesh Collection service: gRPC plus a grpc-gateway REST edge, and
+// its outbox relay.
 package main
 
 import (

@@ -1,7 +1,5 @@
-// Command media runs the MindMesh Media service: a gRPC (plus grpc-gateway REST)
-// upload/dedupe/delivery API over S3/MinIO and Postgres metadata, an outbox
-// relay, and an image-processing worker consuming media.uploaded. One binary; MODE
-// (api | worker | all, default all) picks the roles so the worker can run as its own Deployment.
+// Command media runs the MindMesh Media service; MODE (api | worker | all, default all) picks the
+// roles, so the image worker can run as its own Deployment.
 package main
 
 import (

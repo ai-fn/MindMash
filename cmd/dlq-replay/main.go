@@ -1,7 +1,5 @@
-// Command dlq-replay republishes dead-lettered Kafka messages from <topic>.dlq
-// back to <topic> once the failure behind them is fixed.
-//
-//	dlq-replay -topic card -only-group search-indexer -dry-run
+// Command dlq-replay republishes <topic>.dlq messages to <topic> once their failure is fixed, e.g.
+// dlq-replay -topic card -only-group search-indexer -dry-run
 package main
 
 import (

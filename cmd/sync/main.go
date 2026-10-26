@@ -1,9 +1,5 @@
-// Command sync runs the MindMesh Sync service: gRPC + grpc-gateway REST for
-// the USN delta pull (GetChanges), plus an SSE route for the multi-tab
-// realtime notifier. Sync reads Collection's and Scheduler's colocated
-// Postgres tables directly (see internal/syncer's package doc) and owns one
-// small migrated table of its own, sync_applied_ops, for /sync/apply op_id
-// idempotency.
+// Command sync runs the MindMesh Sync service: the USN delta pull and apply over gRPC/REST, plus the
+// SSE route that nudges open tabs.
 package main
 
 import (

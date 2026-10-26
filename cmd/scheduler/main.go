@@ -1,7 +1,5 @@
-// Command scheduler runs the MindMesh Scheduler service: gRPC (StudyService)
-// plus a grpc-gateway REST edge, with health, metrics, JWKS JWT auth,
-// migrations, an outbox relay goroutine, and a
-// client connection to Collection's internal RenderCards RPC.
+// Command scheduler runs the MindMesh Scheduler service: gRPC plus a grpc-gateway REST edge, its
+// outbox relay, and a client for Collection's RenderCards.
 package main
 
 import (

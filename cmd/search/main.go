@@ -1,7 +1,5 @@
-// Command search runs the MindMesh Search service: a gRPC (plus grpc-gateway
-// REST) query endpoint over an OpenSearch card index, together with an indexer
-// consumer goroutine that keeps the index in sync with Collection change
-// events. One binary, two roles for the MVP; they can be split later.
+// Command search runs the MindMesh Search service: the query API over OpenSearch plus the indexer
+// consumer that follows Collection's change events.
 package main
 
 import (

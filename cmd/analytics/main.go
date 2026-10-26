@@ -1,8 +1,5 @@
-// Command analytics runs the MindMesh Analytics service: a gRPC (plus
-// grpc-gateway REST) statistics API over a ClickHouse review-events mirror,
-// together with a stats-aggregator consumer goroutine that ingests Scheduler's
-// review.recorded stream into ClickHouse. One binary, two roles for the MVP;
-// they can be split later.
+// Command analytics runs the MindMesh Analytics service: the stats API over ClickHouse plus the
+// stats-aggregator consumer that fills it.
 package main
 
 import (
