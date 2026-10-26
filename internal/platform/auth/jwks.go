@@ -31,9 +31,8 @@ var jwksRefreshFailures = promauto.NewCounter(prometheus.CounterOpts{
 	Help: "Failed JWKS fetches by remote verifiers.",
 })
 
-// RemoteVerifier caches the Ed25519 keys of a JWKS endpoint, refreshes them in the
-// background and implements Verifier. Keys stay cached through an Identity outage, so revocation
-// needs Identity reachable. It is safe for concurrent use.
+// RemoteVerifier keeps its cached JWKS keys through an Identity outage, so revoking a key needs
+// Identity reachable.
 type RemoteVerifier struct {
 	jwksURL string
 	issuer  string
@@ -47,9 +46,8 @@ type RemoteVerifier struct {
 	lastRefresh time.Time
 }
 
-// NewRemoteVerifier starts a verifier that refreshes the JWKS until ctx is done. A failed first
-// fetch is not fatal (Identity may still be starting): tokens are rejected and the fetch is
-// retried with backoff. When issuer is non-empty, Verify enforces the "iss" claim.
+// NewRemoteVerifier survives a failed first fetch (Identity may be starting) by rejecting tokens
+// and retrying with backoff. A non-empty issuer is enforced on "iss".
 func NewRemoteVerifier(ctx context.Context, jwksURL, issuer string) (*RemoteVerifier, error) {
 	return newRemoteVerifier(ctx, jwksURL, issuer, jwksRefreshInterval)
 }
@@ -185,10 +183,7 @@ func (rv *RemoteVerifier) refresh(ctx context.Context) error {
 	return nil
 }
 
-// fetchKeysRaw performs the HTTP fetch of the JWKS and parses the result into
-// a key map.  The caller is responsible for holding rv.fetchMu to serialize
-// concurrent HTTP callers.  No read/write lock on rv.mu is held during the
-// fetch.
+// fetchKeysRaw needs rv.fetchMu held by the caller; it takes no rv.mu lock during the HTTP call.
 func (rv *RemoteVerifier) fetchKeysRaw(ctx context.Context) (map[string]ed25519.PublicKey, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rv.jwksURL, nil)
 	if err != nil {

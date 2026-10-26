@@ -82,9 +82,6 @@ func TestRemoteVerifier_ValidAccessToken(t *testing.T) {
 	}
 }
 
-// TestRemoteVerifier_UnknownKIDTriggersOneRefresh: a token signed by a key
-// not present at construction time causes exactly one refresh call, bringing
-// the total hit count to 2 (1 initial + 1 refresh).
 func TestRemoteVerifier_UnknownKIDTriggersOneRefresh(t *testing.T) {
 	// First signer served at construction.
 	s1 := newTestSigner(t)
@@ -508,9 +505,7 @@ func newJWTWithoutKID(t *testing.T, priv ed25519.PrivateKey, claims *Claims) str
 	return str
 }
 
-// TestRemoteVerifier_FailedRefreshRateLimits: after a failed refresh attempt,
-// a second rapid Verify with an unknown kid must not trigger another HTTP
-// request (the attempt stamps lastRefresh, rate-limiting subsequent tries).
+// A failed refresh still stamps lastRefresh, so the next unknown kid doesn't refetch.
 func TestRemoteVerifier_FailedRefreshRateLimits(t *testing.T) {
 	s := newTestSigner(t)
 

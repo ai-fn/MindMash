@@ -32,11 +32,7 @@ func IdentityFromContext(ctx context.Context) (IdentityContext, bool) {
 	return id, ok
 }
 
-// RequireIdentity retrieves the IdentityContext stored by WithIdentity, or
-// returns a typed Unauthenticated error if the auth interceptor/middleware
-// did not inject one. Every service's gRPC handler calls this at the top of
-// each RPC instead of duplicating the IdentityFromContext-plus-error-mapping
-// pattern locally.
+// RequireIdentity returns Unauthenticated when no auth interceptor or middleware set an identity.
 func RequireIdentity(ctx context.Context) (IdentityContext, error) {
 	id, ok := IdentityFromContext(ctx)
 	if !ok {

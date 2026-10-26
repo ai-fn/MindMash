@@ -138,9 +138,7 @@ func (s *Signer) SignRefresh(userID, profileID string) (string, string, error) {
 	return tok, jti, err
 }
 
-// SignRefreshWithID signs a refresh token using a caller-supplied jti, so the
-// caller can persist the token's identity (e.g. a refresh_tokens row) before
-// signing, keeping signing out of the database transaction.
+// SignRefreshWithID takes the jti so the caller can store the row first and sign outside the tx.
 func (s *Signer) SignRefreshWithID(userID, profileID, jti string) (string, error) {
 	now := time.Now()
 	claims := Claims{
