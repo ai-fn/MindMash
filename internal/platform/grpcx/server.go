@@ -59,9 +59,8 @@ type Server struct {
 	health     *health.Server
 }
 
-// New builds a Server with logging/metrics, error sanitizing and recovery interceptors prepended to
-// opts.Unary/StreamInterceptors, registers the health service (and reflection
-// when enabled), and calls opts.Register to register application services.
+// New prepends observe, sanitize and recovery to opts' interceptors and registers health (and
+// reflection when enabled).
 func New(cfg Config, opts Options) *Server {
 	hs := health.NewServer()
 

@@ -17,9 +17,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// freeAddr finds a free TCP port on localhost, closes the listener, and
-// returns the address string. There is an inherent TOCTOU race, but for
-// tests on loopback this is acceptable.
+// freeAddr races for the port after closing; fine on loopback in tests.
 func freeAddr(t *testing.T) string {
 	t.Helper()
 	lis, err := net.Listen("tcp", "127.0.0.1:0")

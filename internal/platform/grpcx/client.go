@@ -14,9 +14,8 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-// Dial opens a gRPC client connection to target using insecure credentials
-// (mTLS / service-mesh TLS is handled at the infrastructure layer in prod).
-// Unary calls without a deadline get defaultCallTimeout; idle connections are pinged so dead peers are noticed.
+// Dial uses insecure credentials (TLS is the mesh's job), defaults unary deadlines and pings idle
+// connections so dead peers are noticed.
 func Dial(ctx context.Context, target string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
 	base := []grpc.DialOption{
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -84,11 +83,7 @@ func RetryOn(names ...string) grpc.DialOption {
 	return grpc.WithDefaultServiceConfig(string(cfg))
 }
 
-// ForwardAuthInterceptor returns a client-side unary interceptor that copies
-// the incoming "authorization" metadata from the server context onto the
-// outgoing context. This propagates the end-user JWT when the Scheduler calls
-// Collection's internal gRPC API, so Collection's auth interceptor sees a
-// valid identity without the Scheduler needing its own service account.
+// ForwardAuthInterceptor passes the caller's JWT on, so the callee authenticates the end user.
 func ForwardAuthInterceptor() grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		if md, ok := metadata.FromIncomingContext(ctx); ok {
