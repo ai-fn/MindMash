@@ -12,9 +12,7 @@ import (
 	"github.com/mindmesh/mindmesh/internal/platform/auth"
 )
 
-// defaultTargetRetention is reported by GetRetention as the comparison baseline.
-// Per-deck FSRS desired_retention lives in Scheduler's deck config; looking it
-// up there is deferred (see the MVP scope), so the system default stands in.
+// defaultTargetRetention stands in for the per-deck desired_retention, which isn't looked up yet.
 const defaultTargetRetention = 0.9
 
 // defaultRange is applied when a request's range is empty.
@@ -209,17 +207,13 @@ func (h *Handler) parseRange(s string) (time.Time, error) {
 	return h.now().AddDate(0, 0, -n), nil
 }
 
-// unavailable maps a ClickHouse query failure to a 503 — analytics is a
-// best-effort mirror, so a backend outage degrades charts rather than erroring
-// hard as an internal fault.
+// unavailable makes a ClickHouse outage a 503: charts degrade, it's not an internal fault.
 func unavailable(err error) error {
 	return apperr.Unavailable("analytics backend unavailable", err)
 }
 
-// computeStreak counts consecutive study days ending at today or yesterday.
-// `days` must be distinct UTC dates in descending order. A current streak is
-// only credited if the most recent study day is today or yesterday; otherwise
-// it has lapsed and the streak is 0.
+// computeStreak counts consecutive days ending today or yesterday (else 0); days must be distinct
+// UTC dates, newest first.
 func computeStreak(days []time.Time, today time.Time) int {
 	if len(days) == 0 {
 		return 0

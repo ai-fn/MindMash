@@ -15,9 +15,7 @@ type Tenant struct {
 	UserID string
 }
 
-// Repo runs aggregation queries against the ClickHouse review_events mirror.
-// All reads use FINAL so the ReplacingMergeTree's duplicate rows (from
-// at-least-once ingestion) are folded before aggregation.
+// Repo reads with FINAL so redelivered duplicates fold before aggregation.
 type Repo struct {
 	conn driver.Conn
 }
@@ -112,9 +110,7 @@ type Retention struct {
 	DueCorrect int64
 }
 
-// Retention counts reviews of cards that were in the review state (prev_state =
-// 2) and how many were recalled (grade > Again), since `since`, optionally
-// scoped to one deck.
+// Retention counts reviews of cards in the review state (prev_state = 2) and recalls (grade > Again).
 func (r *Repo) Retention(ctx context.Context, t Tenant, deckID string, since time.Time) (Retention, error) {
 	q := `SELECT toInt64(countIf(prev_state = 2)), toInt64(countIf(prev_state = 2 AND grade > 1))
 		FROM review_events FINAL
@@ -140,9 +136,7 @@ type Bucket struct {
 	TimeMs  int64
 }
 
-// Breakdown groups reviews since `since` by deck_id, the card state at review
-// time (prev_state), or hour-of-day. `by` must be one of "deck", "state",
-// "hour" (in loc); an unknown value returns an error.
+// Breakdown groups reviews by "deck", "state" (prev_state) or "hour" (in loc).
 func (r *Repo) Breakdown(ctx context.Context, t Tenant, by string, loc *time.Location, since time.Time) ([]Bucket, error) {
 	var keyExpr string
 	args := []any{t.UserID, since}

@@ -28,11 +28,7 @@ const (
 	deckFrench   = "deck-french"
 )
 
-// setupClickHouse starts a ClickHouse container, applies the analytics schema,
-// and returns a connected client. The Kafka transport is exercised by the
-// shared platform consumer's own tests and Search's pipeline test; here we drive
-// Aggregator.HandleBatch directly (it is exactly what SubscribeBatch invokes),
-// which covers ingestion, dedup, and every query path against real ClickHouse.
+// Tests drive Aggregator.HandleBatch directly; the Kafka transport is covered by the events tests.
 func setupClickHouseConn(t *testing.T) (chdriver.Conn, context.Context) {
 	t.Helper()
 	ctx := context.Background()

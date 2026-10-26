@@ -1,6 +1,5 @@
-// Package analytics is the Search-fed-equivalent for study statistics: a
-// stats-aggregator worker mirrors Scheduler's review.recorded stream into
-// ClickHouse, and a read API serves columnar aggregations over it.
+// Package analytics mirrors Scheduler's review.recorded stream into ClickHouse and serves
+// aggregations over it.
 package analytics
 
 import (
@@ -15,9 +14,7 @@ import (
 	"github.com/mindmesh/mindmesh/internal/platform/events"
 )
 
-// ReviewTopic is the Kafka topic the aggregator consumes. The relay publishes
-// each outbox row to a topic named after its aggregate_type; Scheduler writes
-// review.recorded under aggregate_type "review_log".
+// ReviewTopic is Scheduler's review.recorded aggregate type, which the relay uses as the topic.
 const ReviewTopic = "review_log"
 
 // eventReviewRecorded is the event_type the aggregator acts on. Other event
@@ -40,9 +37,8 @@ type reviewPayload struct {
 	Ts        time.Time `json:"ts"`
 }
 
-// Aggregator inserts review events into ClickHouse, one insert per Kafka batch. It is
-// at-least-once and idempotent: review_events is a ReplacingMergeTree keyed on review_id,
-// so a redelivered review collapses to a single row on merge.
+// Aggregator inserts once per Kafka batch; a redelivered review collapses on merge, since
+// review_events is a ReplacingMergeTree keyed on review_id.
 type Aggregator struct {
 	conn driver.Conn
 	log  *zap.Logger
