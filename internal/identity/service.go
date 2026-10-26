@@ -26,10 +26,7 @@ import (
 	"github.com/mindmesh/mindmesh/internal/platform/ids"
 )
 
-// errTokenReuse is a private sentinel returned from within the Refresh
-// transaction to signal reuse detection without carrying the full
-// Unauthenticated error through WithTx (which would roll back the tx before
-// we can revoke the family on the pool connection).
+// errTokenReuse rolls the Refresh tx back so the family can then be revoked on the pool.
 var errTokenReuse = errors.New("token reuse detected")
 
 const (
@@ -129,12 +126,8 @@ func NewService(
 
 // ─── Registration ────────────────────────────────────────────────────────────
 
-// Register creates a new user, a default profile, and dispatches a verification
-// email.  All three DB inserts run inside a single transaction so a crash
-// mid-way cannot leave a user with no profile.  The email send stays outside
-// the transaction — IO against an external gateway must not hold a DB
-// connection open, and a send failure is not fatal (log and continue so that a
-// misconfigured email gateway cannot block sign-ups).
+// Register sends the verification email outside the transaction and only logs a failure, so a
+// broken email gateway neither holds a connection nor blocks sign-ups.
 func (s *Service) Register(ctx context.Context, email, password, locale string) (string, error) {
 	email, err := normalizeEmail(email)
 	if err != nil {
@@ -668,12 +661,8 @@ func (s *Service) CreateProfile(ctx context.Context, userID, name string) (*Prof
 	return p, nil
 }
 
-// ActivateProfile mints a new access token scoped to the given profile.
-//
-// Note: the refresh token keeps its original profile binding.  ActivateProfile
-// only re-scopes the access token, which is short-lived and re-issued on each
-// refresh.  To fully re-scope a session the client must call Logout and Login
-// again with the target profile.
+// ActivateProfile re-scopes only the access token; the refresh token keeps its profile, so a
+// refresh reverts it until the client logs in again.
 func (s *Service) ActivateProfile(ctx context.Context, userID, profileID string) (accessToken string, expiresIn int64, err error) {
 	profile, err := s.repo.GetProfile(ctx, profileID)
 	if err != nil {
@@ -866,9 +855,7 @@ func samePassword(a, b *string) bool {
 	return *a == *b
 }
 
-// pickDefaultProfile returns the user's default profile, falling back to the
-// first profile if none is marked default (defensive: the schema enforces at
-// most one default, but a user created via direct DB insert might lack one).
+// pickDefaultProfile falls back to the first profile: the schema allows a user with no default.
 func (s *Service) pickDefaultProfile(ctx context.Context, userID string) (*Profile, error) {
 	profiles, err := s.repo.ListProfiles(ctx, userID)
 	if err != nil {

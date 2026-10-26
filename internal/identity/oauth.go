@@ -28,9 +28,7 @@ type cachedProvider struct {
 	oauth2Cfg    oauth2.Config
 }
 
-// OIDCExchanger implements OAuthExchanger using OIDC discovery and standard
-// authorization-code exchange.  Provider metadata is lazily cached after the
-// first exchange so the service can start without a live issuer.
+// OIDCExchanger discovers providers lazily, so the service starts without a live issuer.
 type OIDCExchanger struct {
 	configs map[string]ProviderConfig
 
@@ -128,10 +126,8 @@ func (b *claimBool) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// getOrCreateProvider returns the cached oidc.Provider and a per-call copy of
-// the oauth2.Config with RedirectURL set.  The config is copied by value so
-// that setting RedirectURL on the copy does not race with concurrent Exchange
-// calls that hold a pointer into the same cached struct.
+// getOrCreateProvider returns the oauth2.Config by value, so setting RedirectURL doesn't race
+// concurrent Exchange calls.
 func (e *OIDCExchanger) getOrCreateProvider(ctx context.Context, name string, cfg ProviderConfig, redirectURI string) (*gooidc.Provider, oauth2.Config, error) {
 	e.mu.Lock()
 	cp, ok := e.providers[name]

@@ -276,9 +276,7 @@ func (r *fakeRepo) ConsumeEmailVerification(_ context.Context, tokenHash, purpos
 	return ev.UserID, nil
 }
 
-// WithTx simulates transaction semantics: it snapshots all in-memory maps
-// before calling fn, and if fn returns an error it restores the snapshot so
-// that the fake behaves like a real database that rolls back on error.
+// WithTx restores a snapshot of the maps when fn fails, like a rollback.
 func (r *fakeRepo) WithTx(ctx context.Context, fn func(Repository) error) error {
 	r.mu.Lock()
 	// Deep-copy every map so we can roll back on error.

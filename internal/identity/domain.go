@@ -7,11 +7,7 @@ import (
 	"time"
 )
 
-// DefaultRoles returns the set of roles assigned to every newly registered
-// user.  A dedicated roles table is intentionally deferred until role-based
-// access control becomes a product requirement; hard-coding "user" keeps the
-// JWT claims schema stable without prematurely adding complexity.  Returned as
-// a fresh slice so callers cannot accidentally mutate the canonical list.
+// DefaultRoles is hard-coded until RBAC is a requirement; a fresh slice so callers can't mutate it.
 func DefaultRoles() []string { return []string{"user"} }
 
 // ─── Domain entities ────────────────────────────────────────────────────────
@@ -88,9 +84,7 @@ type EmailVerification struct {
 
 // ─── Repository ─────────────────────────────────────────────────────────────
 
-// Repository defines all persistent-storage operations for the identity domain.
-// Implementations must return errors.NotFound when a row is absent, and
-// errors.AlreadyExists on unique-constraint violations.
+// Repository returns apperr.NotFound for a missing row and AlreadyExists on a unique violation.
 type Repository interface {
 	// User operations
 	CreateUser(ctx context.Context, u *User) error
@@ -99,7 +93,7 @@ type Repository interface {
 	// Anything that revokes or mints sessions takes them (update / share) so a revoke cannot miss a concurrent mint.
 	GetUserForUpdate(ctx context.Context, id string) (*User, error)
 	GetUserForShare(ctx context.Context, id string) (*User, error)
-	// GetUserByEmail returns errors.NotFound when no user matches.
+	// GetUserByEmail returns apperr.NotFound when no user matches.
 	GetUserByEmail(ctx context.Context, email string) (*User, error)
 	SetEmailVerified(ctx context.Context, userID string) error
 	UpdatePassword(ctx context.Context, userID, hash string) error
@@ -137,9 +131,7 @@ type Repository interface {
 	// InvalidateEmailVerifications consumes every outstanding token of the user.
 	InvalidateEmailVerifications(ctx context.Context, userID string) error
 
-	// WithTx executes fn inside a single database transaction.  The Repository
-	// passed to fn is scoped to that transaction; callers must not use the
-	// outer repository inside fn.
+	// WithTx scopes fn's Repository to the transaction; don't use the outer one inside fn.
 	WithTx(ctx context.Context, fn func(Repository) error) error
 }
 
@@ -170,9 +162,7 @@ type OAuthExchanger interface {
 
 // ─── Email sender ────────────────────────────────────────────────────────────
 
-// EmailSender dispatches transactional emails.  The production implementation
-// uses an SMTP/SES/SendGrid gateway; the dev stub logs the token.
-// The recipient's locale drives the subject/body language (rendered via platform/i18n).
+// EmailSender renders in the recipient's locale; the dev stub just logs the token.
 type EmailSender interface {
 	SendVerification(ctx context.Context, email, token, locale string) error
 	SendPasswordReset(ctx context.Context, email, token, locale string) error

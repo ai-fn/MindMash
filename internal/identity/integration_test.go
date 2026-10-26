@@ -365,9 +365,6 @@ func TestPasswordReset_Integration(t *testing.T) {
 	assert.NotEmpty(t, refresh)
 }
 
-// TestOAuthExchange_Integration verifies that OAuthExchange creates a new user
-// on first call and returns isNew=false on subsequent calls with the same
-// provider+subject.
 func TestOAuthExchange_Integration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
