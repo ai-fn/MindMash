@@ -90,9 +90,7 @@ func SetNX(ctx context.Context, client *redis.Client, key string, value any, ttl
 	return set, nil
 }
 
-// GetDel atomically retrieves and deletes the value stored at key.
-// Returns ("", nil) when the key does not exist (redis.Nil is treated as
-// empty, not an error).
+// GetDel atomically reads and deletes key; a missing key is ("", nil).
 func GetDel(ctx context.Context, client *redis.Client, key string) (string, error) {
 	val, err := client.GetDel(ctx, key).Result()
 	if errors.Is(err, redis.Nil) {
