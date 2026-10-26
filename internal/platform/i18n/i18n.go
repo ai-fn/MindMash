@@ -1,11 +1,5 @@
-// Package i18n provides backend message localization: a message catalog (English source with
-// Russian/Chinese translations), locale negotiation, and request-scoped locale plumbing.
-//
-// It backs two surfaces (spec 13 build step 2): localized transactional emails (rendered from
-// the recipient's stored `users.locale`) and localized user-facing error messages (rendered at
-// the HTTP edge from the request's resolved locale). Precedence for request locale is the JWT
-// `locale` claim (authenticated calls) over the `Accept-Language` header (pre-auth calls) over
-// the English default.
+// Package i18n localizes emails (by users.locale) and user-facing errors (by request locale: JWT
+// claim, then Accept-Language, then English).
 package i18n
 
 import (
@@ -22,10 +16,7 @@ import (
 // Supported UI/message locales. English is first and is the fallback/default.
 var supported = []language.Tag{language.English, language.Russian, language.Chinese}
 
-// Message IDs — stable keys into the catalog below. User-facing error IDs are attached to
-// AppErrors via (*AppError).WithMsgID and localized at the HTTP edge; email IDs are rendered
-// directly by the email sender. Keep the error strings aligned with the frontend catalogs
-// (web/src/locales/*/auth.json) where they surface the same condition.
+// Message IDs. Keep error strings aligned with web/src/locales/*/auth.json where they overlap.
 const (
 	MsgInvalidCredentials    = "error.invalid_credentials"
 	MsgEmailAlreadyExists    = "error.email_already_exists"
@@ -96,9 +87,7 @@ func Printer(tag language.Tag) *message.Printer {
 // ResolveTag negotiates a supported locale. The JWT `locale` claim (identityLocale) takes
 // precedence when present; otherwise the Accept-Language header is honored; otherwise English.
 func ResolveTag(identityLocale, acceptLanguage string) language.Tag {
-	// matcher.Match returns the *input* tag decorated with region extensions (e.g.
-	// "zh-u-rg-cnzzzz"); the second return value is the index into `supported`, which is what
-	// we want — the clean base tag. A no-match yields index 0 (English), our default.
+	// Use Match's index, not its tag: the tag carries extensions like "zh-u-rg-cnzzzz". No match is 0.
 	if identityLocale != "" {
 		tag, err := language.Parse(identityLocale)
 		if err != nil {
@@ -145,9 +134,7 @@ func PrinterFromContext(ctx context.Context) *message.Printer {
 	return Printer(TagFromContext(ctx))
 }
 
-// HTTPMiddleware resolves the request locale (identity claim → Accept-Language → English) and
-// stores it in the request context for downstream handlers. Order it after the auth/identity
-// middleware so the JWT locale claim is available to take precedence.
+// HTTPMiddleware must run after auth so the JWT locale claim can take precedence.
 func HTTPMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		tag := ResolveFromRequest(r)
