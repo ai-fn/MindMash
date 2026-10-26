@@ -230,7 +230,8 @@ func (s *Service) Answer(ctx context.Context, userID, profileID, cardID, clientR
 			return err
 		}
 		engine := fsrs.New(fsrsParams(dc))
-		now := time.Now().UTC()
+		// Postgres keeps microseconds; truncating makes the returned card match what a retry reads back.
+		now := time.Now().UTC().Truncate(time.Microsecond)
 
 		// Checked under the card lock, so a concurrent retry sees the first attempt's committed log.
 		if clientReviewID != "" {
@@ -375,7 +376,7 @@ func (s *Service) Reschedule(ctx context.Context, userID, cardID string, action 
 			return err
 		}
 
-		now := time.Now().UTC()
+		now := time.Now().UTC().Truncate(time.Microsecond)
 		switch action {
 		case ActionSuspend:
 			c.Queue = QueueSuspended

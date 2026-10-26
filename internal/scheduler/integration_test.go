@@ -519,7 +519,8 @@ func TestAnswer_ClientReviewIDIsIdempotent(t *testing.T) {
 	if n := reviewLogCount(t, c, cardID); n != 1 {
 		t.Fatalf("want 1 review_logs row after retry, got %d", n)
 	}
-	if second.Reps != first.Reps || second.State != first.State || !second.Due.Equal(*first.Due) {
+	if second.Reps != first.Reps || second.State != first.State || !second.Due.Equal(*first.Due) ||
+		!second.LastReview.Equal(*first.LastReview) || !second.Mtime.Equal(first.Mtime) {
 		t.Fatalf("want retry to return the stored state %+v, got %+v", first, second)
 	}
 
