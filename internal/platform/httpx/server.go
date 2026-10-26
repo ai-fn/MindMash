@@ -137,9 +137,7 @@ func New(cfg Config, opts Options) *Server {
 	}
 }
 
-// Start begins serving and blocks until the context is cancelled, then
-// gracefully shuts down within cfg.ShutdownTimeout. Returns nil on clean
-// shutdown, or an error if ListenAndServe or Shutdown fails.
+// Start serves until ctx is cancelled, then shuts down within cfg.ShutdownTimeout.
 func (s *Server) Start(ctx context.Context) error {
 	log.L().Info("httpx: starting server", zap.String("addr", s.cfg.Addr))
 
