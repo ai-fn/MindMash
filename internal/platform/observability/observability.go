@@ -31,9 +31,7 @@ type Config struct {
 	MetricsAddr  string  // METRICS_ADDR, default ":9090"
 }
 
-// LoadConfig reads observability configuration from environment variables.
-// It returns an error when the OTLP endpoint isn't an http(s) URL or
-// OTEL_SAMPLING_RATE is set but outside [0.0, 1.0].
+// LoadConfig rejects a non-http(s) OTLP endpoint and a sampling rate outside [0, 1].
 func LoadConfig() (Config, error) {
 	cfg := Config{
 		ServiceName:  config.Str("OTEL_SERVICE_NAME", "mindmesh"),
@@ -61,9 +59,7 @@ func LoadConfig() (Config, error) {
 	return cfg, nil
 }
 
-// InitTracer configures and registers a global OTLP gRPC TracerProvider.
-// The returned shutdown function must be called during graceful shutdown to
-// flush pending spans before the process exits.
+// InitTracer registers the global TracerProvider; call shutdown on exit to flush pending spans.
 func InitTracer(ctx context.Context, cfg Config) (func(context.Context) error, error) {
 	// The endpoint is a URL; its scheme picks TLS (https) or plaintext (http).
 	exporter, err := otlptracegrpc.New(ctx, otlptracegrpc.WithEndpointURL(cfg.OTLPEndpoint))
@@ -108,9 +104,7 @@ func InitMetrics() http.Handler {
 	return promhttp.Handler()
 }
 
-// Tracer returns a named tracer from the globally registered TracerProvider.
-// Call InitTracer first so the global provider is set; otherwise this returns
-// the no-op tracer installed by default.
+// Tracer is a no-op until InitTracer has run.
 func Tracer(name string) trace.Tracer {
 	return otel.Tracer(name)
 }
