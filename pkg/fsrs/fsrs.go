@@ -1,6 +1,4 @@
-// Package fsrs wraps go-fsrs v3 and exposes the scheduling primitives used by
-// the Scheduler service. All FSRS state math is confined here; callers only
-// deal with domain types.
+// Package fsrs wraps go-fsrs v3 so all FSRS math stays here and callers see only domain types.
 package fsrs
 
 import (
