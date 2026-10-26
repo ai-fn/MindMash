@@ -1,10 +1,5 @@
-// Command identity runs the MindMesh Identity service: gRPC (internal) plus a
-// grpc-gateway REST edge, with health, metrics, JWKS, and graceful shutdown.
-//
-// This main is the reference composition for every later service — a service is
-// a thin wiring of internal/platform/* and its internal/<svc> domain.  Copy
-// this file, swap the domain wiring, and adjust which generated handlers are
-// registered.
+// Command identity runs the MindMesh Identity service: gRPC plus a grpc-gateway REST edge that
+// also serves the JWKS.
 package main
 
 import (
@@ -114,9 +109,7 @@ func setup(ctx context.Context, a *app.App) error {
 	})
 
 	httpSrv := httpx.New(httpx.DefaultConfig(a.Base.HTTPAddr), httpx.Options{
-		// injectIdentity resolves the JWT (populating IdentityContext, incl. Locale) first, then
-		// i18n.HTTPMiddleware resolves the request locale (claim → Accept-Language → English)
-		// into the context for the handlers and the localized error handler.
+		// Identity first, so i18n.HTTPMiddleware can prefer the JWT locale claim.
 		Handler:        injectIdentity(signer)(i18n.HTTPMiddleware(gwMux)),
 		MetricsHandler: observability.InitMetrics(),
 		// Only the owned store: Redis (rate limits, OAuth state) failing must not pull every pod out.
@@ -139,10 +132,7 @@ func setup(ctx context.Context, a *app.App) error {
 	return nil
 }
 
-// localizedErrorHandler is the grpc-gateway error handler for the REST edge. When the returned
-// error is an *AppError tagged with a localizable MsgID, it re-renders the status message in the
-// request's resolved locale (carried in ctx by i18n.HTTPMiddleware) before delegating to the
-// default handler. Errors without a MsgID pass through unchanged.
+// localizedErrorHandler re-renders an AppError with a MsgID in the request locale.
 func localizedErrorHandler(ctx context.Context, mux *runtime.ServeMux, m runtime.Marshaler, w http.ResponseWriter, r *http.Request, err error) {
 	var ae *apperr.AppError
 	if errors.As(err, &ae) && ae.MsgID != "" {
@@ -175,9 +165,7 @@ func injectIdentity(v auth.Verifier) func(http.Handler) http.Handler {
 	}
 }
 
-// oauthProvidersFromEnv reads per-provider OIDC settings from the environment.
-// A provider is enabled only when both its issuer URL and client ID are set, so
-// the service can run with no social login configured.
+// oauthProvidersFromEnv enables a provider only when both its issuer URL and client ID are set.
 func oauthProvidersFromEnv() map[string]identity.ProviderConfig {
 	providers := make(map[string]identity.ProviderConfig)
 	for _, name := range []string{"google", "apple"} { // OIDC issuers only: GitHub has no discovery or id_token
