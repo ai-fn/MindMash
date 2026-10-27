@@ -21,8 +21,12 @@ vendor/
 .DS_Store
 .idea/
 .vscode/
-# Claude Code local overrides
-.claude/settings.local.json
+# Claude Code
+.claude/
+
+# Local project docs
+/functional-requirements.md
+/CLAUDE.md
 
 # Local dev signing keys (never commit)
 keys/

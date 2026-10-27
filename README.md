@@ -190,10 +190,8 @@ docs/                 # architecture spec
 
 - [`docs/architecture.md`](docs/architecture.md) — system overview, service catalog, data
   model, build order.
-- [`functional-requirements.md`](functional-requirements.md) — product requirements.
 - [`deploy/README.md`](deploy/README.md) — local (kind/Tilt) and production (Helm/ArgoCD)
   deployment.
-- [`CLAUDE.md`](CLAUDE.md) — repository conventions for AI-assisted development.
 
 ## Contributing
 

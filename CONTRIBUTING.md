@@ -1,7 +1,7 @@
 # Contributing
 
 Thanks for considering a contribution! This project welcomes bug reports, feature requests,
-documentation improvements, and code. See [`CLAUDE.md`](./CLAUDE.md) for a repo orientation.
+documentation improvements, and code. See [`docs/architecture.md`](./docs/architecture.md) for a repo orientation.
 
 ## Ways to contribute
 
@@ -31,8 +31,8 @@ task migrate        # apply migrations (identity, collection, scheduler)
 task run            # start deps + run the identity service, as an example
 ```
 
-For running a specific service or the full kind/Tilt dev environment, see the `local-stack`
-skill or `deploy/README.md`. For the web SPA: `task web-install && task web-dev`.
+For running a specific service or the full kind/Tilt dev environment, see
+`deploy/README.md`. For the web SPA: `task web-install && task web-dev`.
 
 ## Branching & workflow
 
@@ -49,12 +49,12 @@ skill or `deploy/README.md`. For the web SPA: `task web-install && task web-dev`
 - Contract-first: define/modify protos under `api/<svc>/v1/`, then run `task gen` — never
   hand-edit generated Go stubs or the OpenAPI spec.
 - Reuse `internal/platform/*` (config, log, observability, db, cache, events, auth, httpx,
-  grpcx, blob, ids, errors) instead of reimplementing per-service infra.
+  grpcx, blob, ids, apperr) instead of reimplementing per-service infra.
 - Run `task lint` before committing (`go vet` + `golangci-lint` + `buf lint`); CI enforces this.
 - Run `goimports`/`gofmt` to auto-format Go code. For `web/`, run `task web-lint`.
-- Follow existing patterns in the codebase where the linter doesn't cover the case — see
-  `CLAUDE.md` for the core conventions (IDs, tenancy, error typing, eventing via the outbox
-  pattern).
+- Follow existing patterns in the codebase where the linter doesn't cover the case — the
+  core conventions are time-sortable IDs via `platform/ids`, every query scoped by `user_id`, typed
+  errors via `platform/apperr`, and cross-service events through the outbox pattern.
 
 ## Testing
 
